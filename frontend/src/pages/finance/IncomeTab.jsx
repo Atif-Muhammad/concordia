@@ -1,0 +1,468 @@
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
+import { TrendingUp, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import usePermissions from "@/hooks/usePermissions";
+import {
+  getFinanceIncomes,
+  createFinanceIncome,
+  deleteFinanceIncome,
+  getWallets,
+} from "../../../config/apis";
+
+const getMonthDateRange = (month) => {
+  if (!month) return { dateFrom: "", dateTo: "" };
+  const [year, monthNum] = month.split("-");
+  const firstDay = `${year}-${monthNum}-01`;
+  const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
+  const lastDayStr = `${year}-${monthNum}-${String(lastDay).padStart(2, "0")}`;
+  return { dateFrom: firstDay, dateTo: lastDayStr };
+};
+
+const getCurrentMonthRange = () => {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return getMonthDateRange(month);
+};
+
+export default function IncomeTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { canCreate, canDelete } = usePermissions("Finance", "income");
+
+  const [incomeOpen, setIncomeOpen] = useState(false);
+  const [incomeFilterCategory, setIncomeFilterCategory] = useState("all");
+  const [incomeDateFrom, setIncomeDateFrom] = useState(() => getCurrentMonthRange().dateFrom);
+  const [incomeDateTo, setIncomeDateTo] = useState(() => getCurrentMonthRange().dateTo);
+  const [appliedIncomeFilter, setAppliedIncomeFilter] = useState(() => getCurrentMonthRange());
+
+  const [incomeFormData, setIncomeFormData] = useState({
+    date: new Date().toISOString().split("T")[0],
+    category: "Donation",
+    description: "",
+    amount: 0,
+    walletId: "",
+  });
+
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
+
+  // Fetch active wallets for deposit account selection
+  const { data: walletsResponse } = useQuery({
+    queryKey: ["wallets"],
+    queryFn: getWallets,
+  });
+  const activeWallets = (
+    walletsResponse?.wallets ||
+    walletsResponse?.data ||
+    (Array.isArray(walletsResponse) ? walletsResponse : [])
+  ).filter((w) => w.status === "ACTIVE");
+
+  const { data: incomeData = [], isLoading: incomeLoading } = useQuery({
+    queryKey: [
+      "financeIncome",
+      appliedIncomeFilter.dateFrom,
+      appliedIncomeFilter.dateTo,
+      incomeFilterCategory,
+    ],
+    queryFn: () =>
+      getFinanceIncomes({
+        dateFrom: appliedIncomeFilter.dateFrom,
+        dateTo: appliedIncomeFilter.dateTo,
+        category: incomeFilterCategory,
+      }),
+    enabled: !!appliedIncomeFilter.dateFrom && !!appliedIncomeFilter.dateTo,
+  });
+
+  const addIncomeMutation = useMutation({
+    mutationFn: createFinanceIncome,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["financeIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["reportsIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["financeReportsAnalytics"] });
+      queryClient.invalidateQueries({ queryKey: ["wallets"] });
+      queryClient.invalidateQueries({ queryKey: ["walletHistory"] });
+      queryClient.invalidateQueries({ queryKey: ["walletExpenseLogs"] });
+      queryClient.invalidateQueries({ queryKey: ["financeClosingDashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["financeLedger"] });
+      toast({ title: "Income added successfully" });
+      setIncomeOpen(false);
+      setIncomeFormData({
+        date: new Date().toISOString().split("T")[0],
+        category: "Donation",
+        description: "",
+        amount: 0,
+        walletId: "",
+      });
+    },
+    onError: (error) => {
+      toast({ title: error.message || "Failed to add income", variant: "destructive" });
+    },
+  });
+
+  const deleteIncomeMutation = useMutation({
+    mutationFn: deleteFinanceIncome,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["financeIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["reportsIncome"] });
+      queryClient.invalidateQueries({ queryKey: ["financeReportsAnalytics"] });
+      queryClient.invalidateQueries({ queryKey: ["wallets"] });
+      queryClient.invalidateQueries({ queryKey: ["walletHistory"] });
+      queryClient.invalidateQueries({ queryKey: ["walletExpenseLogs"] });
+      queryClient.invalidateQueries({ queryKey: ["financeClosingDashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["financeLedger"] });
+      toast({ title: "Income record deleted" });
+      setDeleteConfirm({ open: false, id: null });
+    },
+    onError: (error) => {
+      toast({ title: error.message || "Failed to delete income", variant: "destructive" });
+    },
+  });
+
+  const handleAddIncome = () => {
+    if (!incomeFormData.description || !incomeFormData.amount) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
+      return;
+    }
+    if (!incomeFormData.walletId) {
+      toast({ title: "Please select an account/wallet for deposit", variant: "destructive" });
+      return;
+    }
+    addIncomeMutation.mutate(incomeFormData);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Income Records</CardTitle>
+            {canCreate && (
+              <Button onClick={() => setIncomeOpen(true)}>
+                <TrendingUp className="mr-2 h-4 w-4" />
+                Add Income
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mt-4">
+            <div>
+              <Label>From</Label>
+              <Input
+                type="date"
+                value={incomeDateFrom}
+                onChange={(e) => setIncomeDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>To</Label>
+              <Input
+                type="date"
+                value={incomeDateTo}
+                onChange={(e) => setIncomeDateTo(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select
+                value={incomeFilterCategory}
+                onValueChange={setIncomeFilterCategory}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="Tuition Fee">Tuition Fee</SelectItem>
+                  <SelectItem value="Extra Challan">Extra Challan</SelectItem>
+                  <SelectItem value="Hostel Challan">Hostel Challan</SelectItem>
+                  <SelectItem value="Donation">Donation</SelectItem>
+                  <SelectItem value="Funding">Funding</SelectItem>
+                  <SelectItem value="Revenue">Revenue</SelectItem>
+                  <SelectItem value="Investments">Investments</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                onClick={() =>
+                  setAppliedIncomeFilter({
+                    dateFrom: incomeDateFrom,
+                    dateTo: incomeDateTo,
+                  })
+                }
+              >
+                Apply
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const current = getCurrentMonthRange();
+                  setIncomeDateFrom(current.dateFrom);
+                  setIncomeDateTo(current.dateTo);
+                  setAppliedIncomeFilter(current);
+                  setIncomeFilterCategory("all");
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Deposit Account</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {incomeLoading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-12 text-muted-foreground"
+                    >
+                      Loading income data...
+                    </TableCell>
+                  </TableRow>
+                ) : incomeData.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-12 text-muted-foreground"
+                    >
+                      No income records found for selected filters.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  incomeData.map((item) => (
+                    <TableRow key={item.id || item._id}>
+                      <TableCell className="py-2 px-3 text-sm">
+                        {new Date(item.date).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
+                        <Badge variant="default">{item.category}</Badge>
+                      </TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
+                        {item.walletName ? (
+                          <Badge variant="outline" className="font-normal bg-muted/40">
+                            {item.walletName}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs italic">Unspecified</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
+                        {item.description}
+                      </TableCell>
+                      <TableCell className="text-sm px-3 py-2 font-bold text-success">
+                        PKR {Number(item.amount).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
+                        {canDelete && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() =>
+                                  setDeleteConfirm({ open: true, id: item.id || item._id })
+                                }
+                                disabled={!!item.source}
+                                title={
+                                  !!item.source
+                                    ? `Cannot delete automated ${item.category} records`
+                                    : "Delete"
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Add Income Dialog */}
+      <Dialog open={incomeOpen} onOpenChange={setIncomeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Income</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={incomeFormData.date}
+                onChange={(e) =>
+                  setIncomeFormData({ ...incomeFormData, date: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>Deposit Into Account / Wallet *</Label>
+              <Select
+                value={incomeFormData.walletId}
+                onValueChange={(value) =>
+                  setIncomeFormData({ ...incomeFormData, walletId: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select account/wallet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeWallets.length === 0 ? (
+                    <SelectItem value="_none" disabled>
+                      No active accounts available
+                    </SelectItem>
+                  ) : (
+                    activeWallets.map((wallet) => (
+                      <SelectItem
+                        key={wallet.id || wallet._id}
+                        value={wallet.id || wallet._id}
+                      >
+                        {wallet.accountName || wallet.name}{" "}
+                        {wallet.accountNumber
+                          ? `(${wallet.accountNumber})`
+                          : `(${wallet.type})`}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select
+                value={incomeFormData.category}
+                onValueChange={(value) =>
+                  setIncomeFormData({ ...incomeFormData, category: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Donation">Donation</SelectItem>
+                  <SelectItem value="Funding">Funding</SelectItem>
+                  <SelectItem value="Revenue">Revenue</SelectItem>
+                  <SelectItem value="Investments">Investments</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={incomeFormData.description}
+                onChange={(e) =>
+                  setIncomeFormData({
+                    ...incomeFormData,
+                    description: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div>
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                value={incomeFormData.amount}
+                onChange={(e) =>
+                  setIncomeFormData({
+                    ...incomeFormData,
+                    amount: parseFloat(e.target.value) || 0,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <Button
+            onClick={handleAddIncome}
+            disabled={addIncomeMutation.isPending}
+          >
+            {addIncomeMutation.isPending ? "Adding..." : "Add Income"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Alert */}
+      <AlertDialog
+        open={deleteConfirm.open}
+        onOpenChange={(open) => setDeleteConfirm((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the income record.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteIncomeMutation.mutate(deleteConfirm.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

@@ -1,0 +1,10 @@
+import { cn } from "@/lib/utils";
+
+export function FieldError({ message, className }) {
+  if (!message) return null;
+  return (
+    <p className={cn("text-xs text-destructive mt-1", className)}>
+      {message}
+    </p>
+  );
+}

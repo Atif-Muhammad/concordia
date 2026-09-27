@@ -1,0 +1,9 @@
+export { default as SessionsTab } from "./SessionsTab";
+export { default as ProgramsTab } from "./ProgramsTab";
+export { default as ClassesTab } from "./ClassesTab";
+export { default as SectionsTab } from "./SectionsTab";
+export { default as SubjectsTab } from "./SubjectsTab";
+export { default as SubjectClassMappingTab } from "./SubjectClassMappingTab";
+export { default as TeacherClassMappingTab } from "./TeacherClassMappingTab";
+export { default as TimetableTab } from "./TimetableTab";
+export { default as AssignmentsTab } from "./AssignmentsTab";

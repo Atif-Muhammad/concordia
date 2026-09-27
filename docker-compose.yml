@@ -15,10 +15,10 @@ services:
     volumes:
       - /opt/portal/uploads:/opt/portal/uploads
 
-  admin-panel:
+  frontend:
     build:
-      context: ./admin-panel
-    container_name: admin-panel
+      context: ./frontend
+    container_name: frontend
     restart: always
     ports:
       - "5173:5173"

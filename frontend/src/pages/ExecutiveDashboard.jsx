@@ -313,23 +313,23 @@ const DASHBOARD_ROUTES = {
 // -- Section components --------------------------------------------------------
 
 const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown, loading, onClick }) => (
-  <Card onClick={onClick} className={cn("shadow-sm hover:shadow-md transition-all border-l-4 border-border", onClick && "cursor-pointer")}>
-    <CardContent className="pt-4 pb-3 px-4">
+  <Card onClick={onClick} className={cn("shadow-xs hover:shadow-md transition-all border-l-4 border-border", onClick && "cursor-pointer")}>
+    <CardContent className="pt-2.5 sm:pt-4 pb-2 sm:pb-3 px-2.5 sm:px-4">
       {loading ? (
-        <div className="space-y-2">
+        <div className="space-y-1.5 sm:space-y-2">
           <Skeleton className="h-3 w-1/2" />
-          <Skeleton className="h-6 w-2/3" />
-          <Skeleton className="h-3 w-1/3" />
+          <Skeleton className="h-5 sm:h-6 w-2/3" />
+          <Skeleton className="h-2.5 sm:h-3 w-1/3" />
         </div>
       ) : (
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
+        <div className="flex items-start justify-between gap-1.5">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
             <div className="flex items-center gap-1">
-              <p className="text-xs font-medium text-muted-foreground">{title}</p>
+              <p className="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">{title}</p>
               {breakdown && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                    <Info className="w-3 h-3 text-muted-foreground/60 cursor-help shrink-0" />
                   </TooltipTrigger>
                   <TooltipContent className="text-xs space-y-1 p-3">
                     <p className="font-semibold mb-1">Breakdown</p>
@@ -339,13 +339,13 @@ const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown,
                 </Tooltip>
               )}
             </div>
-            <h3 className="text-lg font-semibold">{value}</h3>
-            <p className="text-[10px] text-muted-foreground">{change}</p>
+            <h3 className="text-sm sm:text-lg font-semibold truncate">{value}</h3>
+            {change && <p className="text-[9px] sm:text-[10px] text-muted-foreground truncate">{change}</p>}
           </div>
-          <div className="flex items-start gap-1">
-            {onClick && <ChevronRight className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />}
-            <div className={cn("p-2 rounded-md", bgColor, color)}>
-              <Icon className="w-4 h-4" />
+          <div className="flex items-start gap-1 shrink-0">
+            {onClick && <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground mt-0.5" />}
+            <div className={cn("p-1.5 sm:p-2 rounded-md", bgColor, color)}>
+              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
         </div>
@@ -603,7 +603,7 @@ const ExecutiveDashboard = () => {
         </div>
 
         {/* -- Main Stats -- */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-5 gap-2 sm:gap-4">
           <StatCard
             title="Total Students" icon={Users}
             onClick={() => go(DASHBOARD_ROUTES.students)}
@@ -648,16 +648,16 @@ const ExecutiveDashboard = () => {
         </div>
 
         {/* -- Quick Stats (students by program) -- */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
           {[
             { label: "Intermediate", key: "intermediate", icon: BookOpen,      color: "text-blue-500",   bg: "bg-blue-500/10" },
             { label: "Diploma",      key: "diploma",       icon: GraduationCap, color: "text-purple-500", bg: "bg-purple-500/10" },
             { label: "BS Programs",  key: "bs",            icon: FileText,      color: "text-pink-500",   bg: "bg-pink-500/10" },
             { label: "Short Courses",key: "shortCourse",   icon: Users,         color: "text-orange-500", bg: "bg-orange-500/10" },
           ].map(({ label, key, icon: Icon, color, bg }) => (
-            <Card key={label} onClick={() => go(DASHBOARD_ROUTES.students)} className="shadow-sm hover:shadow-md transition-all bg-card/50 border-muted/50 cursor-pointer relative">
+            <Card key={label} onClick={() => go(DASHBOARD_ROUTES.students)} className="shadow-xs hover:shadow-md transition-all bg-card/50 border-muted/50 cursor-pointer relative">
               <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-2 right-2" />
-              <CardContent className="pt-4 pb-3 px-4">
+              <CardContent className="pt-2.5 sm:pt-4 pb-2 sm:pb-3 px-2.5 sm:px-4">
                 {studentsLoading ? (
                   <div className="flex items-center gap-2.5">
                     <Skeleton className="w-8 h-8 rounded-md" />

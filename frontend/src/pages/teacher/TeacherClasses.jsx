@@ -128,37 +128,37 @@ export default function TeacherClasses() {
         </div>
 
         {/* Quick Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
           <Card className="border shadow-2xs">
-            <CardContent className="p-4 flex items-center justify-between">
+            <CardContent className="p-2.5 sm:p-4 flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Programs Taught</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{programsList.length}</p>
+                <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Programs Taught</p>
+                <p className="text-base sm:text-2xl font-bold text-foreground mt-0.5 sm:mt-1">{programsList.length}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <Layers className="h-5 w-5" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <Layers className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
             </CardContent>
           </Card>
           <Card className="border shadow-2xs">
-            <CardContent className="p-4 flex items-center justify-between">
+            <CardContent className="p-2.5 sm:p-4 flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Assigned Classes / Sections</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{classes.length}</p>
+                <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Classes / Sections</p>
+                <p className="text-base sm:text-2xl font-bold text-foreground mt-0.5 sm:mt-1">{classes.length}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <School className="h-5 w-5" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <School className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border shadow-2xs">
-            <CardContent className="p-4 flex items-center justify-between">
+          <Card className="border shadow-2xs col-span-2 sm:col-span-1">
+            <CardContent className="p-2.5 sm:p-4 flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Total Subjects</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{totalSubjectsCount}</p>
+                <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Total Subjects</p>
+                <p className="text-base sm:text-2xl font-bold text-foreground mt-0.5 sm:mt-1">{totalSubjectsCount}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <BookOpen className="h-5 w-5" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
             </CardContent>
           </Card>
@@ -227,11 +227,11 @@ export default function TeacherClasses() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40">
-                      <TableHead className="w-[40px] text-xs font-semibold">#</TableHead>
-                      <TableHead className="text-xs font-semibold">Program</TableHead>
-                      <TableHead className="text-xs font-semibold">Class</TableHead>
-                      <TableHead className="text-xs font-semibold">Section</TableHead>
-                      <TableHead className="text-xs font-semibold">Assigned Subjects</TableHead>
+                      <TableHead className="w-[40px] text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">#</TableHead>
+                      <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden md:table-cell">Program</TableHead>
+                      <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Class & Section</TableHead>
+                      <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Section</TableHead>
+                      <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Assigned Subjects</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -252,16 +252,22 @@ export default function TeacherClasses() {
 
                       return (
                         <TableRow key={cls.id || index} className="hover:bg-muted/30">
-                          <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-xs text-muted-foreground py-2 px-2 sm:px-3 hidden sm:table-cell">{index + 1}</TableCell>
+                          <TableCell className="py-2 px-2 sm:px-3 hidden md:table-cell">
                             <Badge variant="outline" className="font-medium text-xs bg-muted/30">
                               {programName}
                             </Badge>
                           </TableCell>
-                          <TableCell className="font-semibold text-sm text-foreground">
-                            {className}
+                          <TableCell className="py-2 px-2 sm:px-3">
+                            <div className="font-semibold text-xs sm:text-sm text-foreground">
+                              {className}
+                              {sectionName && <span className="sm:hidden font-normal text-muted-foreground ml-1">({sectionName})</span>}
+                            </div>
+                            <div className="md:hidden text-[10px] text-muted-foreground mt-0.5">
+                              {programName}
+                            </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-2 sm:px-3 hidden sm:table-cell">
                             {sectionName ? (
                               <Badge className="bg-primary/10 text-primary border-primary/20 text-xs font-medium">
                                 {sectionName}
@@ -270,13 +276,13 @@ export default function TeacherClasses() {
                               <span className="text-xs text-muted-foreground italic">All Sections</span>
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-2 sm:px-3">
                             {subjectsList.length === 0 ? (
                               <span className="text-xs text-muted-foreground italic">
                                 General Class Teacher
                               </span>
                             ) : (
-                              <div className="flex flex-wrap gap-1.5 py-1">
+                              <div className="flex flex-wrap gap-1 py-0.5">
                                 {subjectsList.map((sub, sIdx) => (
                                   <Badge
                                     key={sub?._id || sub?.id || sIdx}

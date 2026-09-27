@@ -2427,75 +2427,82 @@ export default function StaffDirectoryTab() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="py-2 px-3 text-sm w-[250px]">Staff</TableHead>
-                                    <TableHead className="py-2 px-3 text-sm">Role</TableHead>
-                                    <TableHead className="py-2 px-3 text-sm">Contact</TableHead>
-                                    <TableHead className="py-2 px-3 text-sm">Department / Position</TableHead>
-                                    <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                                    <TableHead className="py-2 px-3 text-sm text-right">Actions</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Staff</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">Role</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Contact</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Position / Dept</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+                                    <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right hidden md:table-cell">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {staffList.map((staff) => (
-                                    <TableRow key={staff.id}>
-                                        <TableCell className="py-2 px-3 text-sm">
-                                            <div className="flex items-center gap-3">
-                                                <Avatar className="h-10 w-10">
+                                    <TableRow
+                                        key={staff.id}
+                                        className="cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted/80"
+                                        onClick={() => setViewingStaff(staff)}
+                                    >
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="h-7 w-7 sm:h-9 sm:w-9 shrink-0">
                                                     <AvatarImage src={resolveFileUrl(staff.photo_url || staff.photo)} alt={staff.name} />
-                                                    <AvatarFallback>
+                                                    <AvatarFallback className="text-[10px] sm:text-xs">
                                                         {staff.name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
                                                     </AvatarFallback>
                                                 </Avatar>
-                                                <div>
-                                                    <p className="font-medium">{staff.name}</p>
-                                                    <p className="text-xs text-muted-foreground">{staff.staffId || "No Staff ID"}</p>
-                                                    <p className="text-sm text-muted-foreground">{staff.cnic || "No CNIC"}</p>
+                                                <div className="min-w-0">
+                                                    <p className="font-medium truncate">{staff.name}</p>
+                                                    <p className="text-[10px] sm:text-xs text-muted-foreground font-mono">{staff.staffId || "No ID"}</p>
+                                                    <div className="flex sm:hidden gap-1 mt-0.5">{getRoleBadges(staff)}</div>
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">
                                             <div className="flex flex-wrap gap-1">{getRoleBadges(staff)}</div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
-                                            <div className="space-y-1">
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
+                                            <div className="space-y-0.5">
                                                 {staff.email && (
-                                                    <p className="text-sm flex items-center gap-1">
-                                                        <Mail className="w-3 h-3" />
-                                                        {staff.email}
+                                                    <p className="text-xs flex items-center gap-1 truncate max-w-[160px]">
+                                                        <Mail className="w-3 h-3 shrink-0" />
+                                                        <span className="truncate">{staff.email}</span>
                                                     </p>
                                                 )}
                                                 {staff.phone && (
-                                                    <p className="text-sm flex items-center gap-1">
-                                                        <Phone className="w-3 h-3" />
-                                                        {staff.phone}
+                                                    <p className="text-xs flex items-center gap-1 text-muted-foreground">
+                                                        <Phone className="w-3 h-3 shrink-0" />
+                                                        <span>{staff.phone}</span>
                                                     </p>
                                                 )}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
-                                            {staff.designation && (
-                                                <p className="text-sm font-medium">{staff.designation}</p>
-                                            )}
-                                            {staff.isTeaching && (
-                                                <p className="text-sm text-muted-foreground">
-                                                    {staff.department?.name || "No Dept"} {staff.specialization ? `(${staff.specialization})` : ""}
-                                                </p>
-                                            )}
-                                            {staff.isNonTeaching && !staff.isTeaching && (
-                                                <p className="text-sm text-muted-foreground">{staff.empDepartment?.replace("_", " ")}</p>
-                                            )}
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                                            <div className="min-w-0">
+                                                {staff.designation && (
+                                                    <p className="font-medium truncate text-xs sm:text-sm">{staff.designation}</p>
+                                                )}
+                                                {staff.isTeaching && (
+                                                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                                                        {staff.department?.name || "No Dept"} {staff.specialization ? `(${staff.specialization})` : ""}
+                                                    </p>
+                                                )}
+                                                {staff.isNonTeaching && !staff.isTeaching && (
+                                                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{staff.empDepartment?.replace("_", " ")}</p>
+                                                )}
+                                            </div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">{getStatusBadge(staff.status)}</TableCell>
-                                        <TableCell className="py-2 px-3 text-sm text-right">
-                                            <div className="flex justify-end gap-2">
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">{getStatusBadge(staff.status)}</TableCell>
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                                            <div className="flex justify-end gap-1">
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
+                                                            className="h-7 w-7"
                                                             onClick={() => handleViewIdCard(staff)}
                                                         >
-                                                            <IdCard className="w-4 h-4" />
+                                                            <IdCard className="w-3.5 h-3.5" />
                                                         </Button>
                                                     </TooltipTrigger>
                                                     <TooltipContent>ID Card</TooltipContent>
@@ -2505,9 +2512,10 @@ export default function StaffDirectoryTab() {
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
+                                                            className="h-7 w-7"
                                                             onClick={() => setViewingStaff(staff)}
                                                         >
-                                                            <Eye className="w-4 h-4" />
+                                                            <Eye className="w-3.5 h-3.5" />
                                                         </Button>
                                                     </TooltipTrigger>
                                                     <TooltipContent>View</TooltipContent>
@@ -2518,16 +2526,16 @@ export default function StaffDirectoryTab() {
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                                                className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
                                                                 onClick={() => {
                                                                     setSalaryRevisionStaff(staff);
                                                                     setSalaryRevisionOpen(true);
                                                                 }}
                                                             >
-                                                                <TrendingUp className="w-4 h-4" />
+                                                                <TrendingUp className="w-3.5 h-3.5" />
                                                             </Button>
                                                         </TooltipTrigger>
-                                                        <TooltipContent>Salary Revision (Increment / Decrement)</TooltipContent>
+                                                        <TooltipContent>Salary Revision</TooltipContent>
                                                     </Tooltip>
                                                 )}
                                                 {canUpdate && (
@@ -2536,9 +2544,10 @@ export default function StaffDirectoryTab() {
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
+                                                                className="h-7 w-7"
                                                                 onClick={() => handleOpenEdit(staff)}
                                                             >
-                                                                <Pencil className="w-4 h-4" />
+                                                                <Pencil className="w-3.5 h-3.5" />
                                                             </Button>
                                                         </TooltipTrigger>
                                                         <TooltipContent>Edit</TooltipContent>
@@ -2550,13 +2559,13 @@ export default function StaffDirectoryTab() {
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="text-red-500 hover:text-red-600"
+                                                                className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
                                                                 onClick={() => {
                                                                     setStaffToDelete(staff);
-                                                                    setDeleteOpen(true);
+                                                                    setDeleteDialogOpen(true);
                                                                 }}
                                                             >
-                                                                <Trash2 className="w-4 h-4" />
+                                                                <Trash2 className="w-3.5 h-3.5" />
                                                             </Button>
                                                         </TooltipTrigger>
                                                         <TooltipContent>Delete</TooltipContent>

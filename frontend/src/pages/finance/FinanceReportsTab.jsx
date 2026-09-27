@@ -171,30 +171,31 @@ export default function FinanceReportsTab() {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex justify-between items-center">
-          <CardTitle>Financial Reports</CardTitle>
-          <div className="flex gap-2 items-end">
-            <div>
-              <Label className="whitespace-nowrap">From</Label>
+      <CardHeader className="p-3 sm:p-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+          <CardTitle className="text-base sm:text-lg">Financial Reports</CardTitle>
+          <div className="flex flex-wrap gap-2 items-end w-full md:w-auto">
+            <div className="flex-1 sm:flex-initial">
+              <Label className="text-xs whitespace-nowrap">From</Label>
               <Input
                 type="date"
                 value={reportsDateFrom}
                 onChange={(e) => setReportsDateFrom(e.target.value)}
-                className="w-[150px]"
+                className="h-8 text-xs w-full sm:w-[140px]"
               />
             </div>
-            <div>
-              <Label className="whitespace-nowrap">To</Label>
+            <div className="flex-1 sm:flex-initial">
+              <Label className="text-xs whitespace-nowrap">To</Label>
               <Input
                 type="date"
                 value={reportsDateTo}
                 onChange={(e) => setReportsDateTo(e.target.value)}
-                className="w-[150px]"
+                className="h-8 text-xs w-full sm:w-[140px]"
               />
             </div>
             <Button
               size="sm"
+              className="h-8 text-xs px-3"
               onClick={() =>
                 setAppliedReportsFilter({
                   dateFrom: reportsDateFrom,
@@ -208,6 +209,7 @@ export default function FinanceReportsTab() {
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 text-xs px-3"
                 onClick={() => {
                   setReportsDateFrom("");
                   setReportsDateTo("");

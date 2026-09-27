@@ -92,6 +92,23 @@ class AuthService {
       }
     }
 
+    // Check staff status if user is not SUPER_ADMIN
+    if (user.role !== 'SUPER_ADMIN') {
+      if (staffMember) {
+        const staffStatus = String(staffMember.status || '').trim().toUpperCase();
+        if (staffStatus && staffStatus !== 'ACTIVE') {
+          const err = new Error(`Your account is ${staffMember.status.toLowerCase()} and cannot access the system. Please contact the administrator.`);
+          err.status = 403;
+          throw err;
+        }
+      }
+      if (user.status && String(user.status).trim().toUpperCase() !== 'ACTIVE') {
+        const err = new Error('Your user account is inactive. Please contact the administrator.');
+        err.status = 403;
+        throw err;
+      }
+    }
+
     // Keep token payload minimal (<300 bytes) so browser cookies (<4KB limit) are never dropped
     const tokenPayload = {
       id: user.id || user._id.toString(),
@@ -120,6 +137,34 @@ class AuthService {
       const err = new Error('User not found');
       err.status = 401;
       throw err;
+    }
+
+    if (user.role !== 'SUPER_ADMIN') {
+      let staffMember = null;
+      if (user.refId) {
+        staffMember = await Staff.findById(user.refId);
+      }
+      if (!staffMember && user.email) {
+        staffMember = await Staff.findOne({
+          $or: [
+            { email: user.email },
+            { staffId: user.email }
+          ]
+        });
+      }
+      if (staffMember) {
+        const staffStatus = String(staffMember.status || '').trim().toUpperCase();
+        if (staffStatus && staffStatus !== 'ACTIVE') {
+          const err = new Error(`Your account is ${staffMember.status.toLowerCase()} and access is disabled.`);
+          err.status = 401;
+          throw err;
+        }
+      }
+      if (user.status && String(user.status).trim().toUpperCase() !== 'ACTIVE') {
+        const err = new Error('Your account is inactive.');
+        err.status = 401;
+        throw err;
+      }
     }
 
     const tokenPayload = {

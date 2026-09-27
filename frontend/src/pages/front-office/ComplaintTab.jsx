@@ -272,27 +272,27 @@ export default function ComplaintTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <MessageSquare className="w-5 h-5" />
+      <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
           All Complaints
         </CardTitle>
         <Dialog open={complaintDialog} onOpenChange={setComplaintDialog}>
-          <div className="flex items-center justify-center gap-x-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="relative flex-1 sm:flex-initial">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={complaintNameSearch}
                 onChange={(e) => setComplaintNameSearch(e.target.value)}
                 placeholder="Search by name"
-                className="w-[220px] pl-9"
+                className="w-full sm:w-[180px] lg:w-[220px] pl-8 h-8 sm:h-9 text-xs sm:text-sm"
               />
             </div>
             <div className="flex items-center gap-1.5">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="text-xs h-9">
-                    {dateFilter ? dateFilter.toDateString() : "Pick a Date"}
+                  <Button variant="outline" className="text-xs h-8 sm:h-9 px-2.5">
+                    {dateFilter ? dateFilter.toDateString() : "Date"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="end">
@@ -308,7 +308,7 @@ export default function ComplaintTab() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-8 sm:h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => setDateFilter(undefined)}
                   title="Clear date filter (Show all)"
                 >
@@ -319,9 +319,9 @@ export default function ComplaintTab() {
 
             {canCreate && (
               <DialogTrigger asChild>
-                <Button onClick={() => setEditingComplaint(null)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Register Complaint
+                <Button size="sm" className="h-8 sm:h-9 text-xs sm:text-sm" onClick={() => setEditingComplaint(null)}>
+                  <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                  Register
                 </Button>
               </DialogTrigger>
             )}
@@ -490,17 +490,17 @@ export default function ComplaintTab() {
           </DialogContent>
         </Dialog>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-2 sm:p-6 pt-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Type</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Name</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Assigned To</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-              <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+              <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Date</TableHead>
+              <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Type</TableHead>
+              <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Complainant / Subject</TableHead>
+              <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Subject</TableHead>
+              <TableHead className="hidden xl:table-cell py-2 px-3 text-sm">Assigned To</TableHead>
+              <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+              <TableHead className="hidden sm:table-cell py-2 px-3 text-sm text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -508,25 +508,40 @@ export default function ComplaintTab() {
               <TableRow>
                 <TableCell
                   colSpan={7}
-                  className="py-2 px-3 text-sm text-center text-muted-foreground"
+                  className="py-6 px-3 text-xs sm:text-sm text-center text-muted-foreground"
                 >
                   No complaints recorded yet.
                 </TableCell>
               </TableRow>
             ) : (
               filteredComplaints?.map((complaint) => (
-                <TableRow key={complaint.id || complaint._id}>
-                  <TableCell className="py-2 px-3 text-sm">
+                <TableRow
+                  key={complaint.id || complaint._id}
+                  className="cursor-pointer hover:bg-muted/40 transition-colors"
+                  onClick={() =>
+                    setViewDetailsDialog({
+                      open: true,
+                      data: complaint,
+                    })
+                  }
+                >
+                  <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                     {complaint.createdAt?.split("T")[0]}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">{complaint.type}</TableCell>
-                  <TableCell className="py-2 px-3 text-sm font-medium">
-                    {complaint.complainantName}
+                  <TableCell className="hidden md:table-cell py-2 px-3 text-sm">{complaint.type}</TableCell>
+                  <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                    <div className="font-semibold text-foreground">{complaint.complainantName}</div>
+                    <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5 line-clamp-1">
+                      {complaint.type} · {complaint.subject || "No subject"}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground sm:hidden mt-0.5">
+                      {complaint.createdAt?.split("T")[0]}
+                    </div>
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm font-medium italic">
+                  <TableCell className="hidden lg:table-cell py-2 px-3 text-sm font-medium italic">
                     {complaint.subject || "—"}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
+                  <TableCell className="hidden xl:table-cell py-2 px-3 text-sm">
                     <div className="flex flex-wrap gap-1 max-w-[200px]">
                       {(complaint.assignedTo || complaint.assignedToIds)?.length > 0 ? (
                         (complaint.assignedTo || complaint.assignedToIds).map((emp, idx) => {
@@ -549,32 +564,34 @@ export default function ComplaintTab() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
+                  <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                     {canUpdate ? (
-                      <Select
-                        value={complaint.status}
-                        onValueChange={(v) =>
-                          updateComplaintMutation.mutate({
-                            id: complaint.id || complaint._id,
-                            payload: { status: v },
-                          })
-                        }
-                      >
-                        <SelectTrigger
-                          className={`w-[130px] ${getStatusColor(complaint.status)}`}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={complaint.status}
+                          onValueChange={(v) =>
+                            updateComplaintMutation.mutate({
+                              id: complaint.id || complaint._id,
+                              payload: { status: v },
+                            })
+                          }
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pending">Pending</SelectItem>
-                          <SelectItem value="In_Progress">In Progress</SelectItem>
-                          <SelectItem value="Resolved">Resolved</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className={`w-[100px] sm:w-[130px] h-7 sm:h-8 text-[11px] sm:text-xs ${getStatusColor(complaint.status)}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pending">Pending</SelectItem>
+                            <SelectItem value="In_Progress">In Progress</SelectItem>
+                            <SelectItem value="Resolved">Resolved</SelectItem>
+                            <SelectItem value="Rejected">Rejected</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     ) : (
                       <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(
+                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getStatusColor(
                           complaint.status
                         )}`}
                       >
@@ -583,8 +600,8 @@ export default function ComplaintTab() {
                     )}
                   </TableCell>
 
-                  <TableCell className="py-2 px-3 text-sm">
-                    <div className="flex gap-2">
+                  <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
+                    <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button

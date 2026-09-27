@@ -514,27 +514,27 @@ export const AttendanceTab = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
-      <CardHeader className="pb-4 border-b">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4 border-b">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle>Staff Attendance</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
+            <CardTitle className="text-base sm:text-lg">Staff Attendance</CardTitle>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
               Load staff, mark each status, then save attendance for the selected date.
             </p>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-4 space-y-4">
+      <CardContent className="p-2 sm:p-6 pt-2 sm:pt-4 space-y-3 sm:space-y-4">
         {/* Filters and Actions Toolbar */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Label className="text-xs font-medium text-muted-foreground shrink-0">Date:</Label>
               <Input
                 type="date"
-                className="w-[155px] h-9"
+                className="w-[130px] sm:w-[155px] h-8 sm:h-9 text-xs sm:text-sm"
                 value={staffAttendanceDate}
                 onChange={(e) => {
                   setStaffAttendanceDate(e.target.value);
@@ -542,7 +542,7 @@ export const AttendanceTab = () => {
                 }}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Label className="text-xs font-medium text-muted-foreground shrink-0">Role:</Label>
               <Select
                 value={staffAttendanceRole}
@@ -551,7 +551,7 @@ export const AttendanceTab = () => {
                   setStaffAttendanceChanges({});
                 }}
               >
-                <SelectTrigger className="w-[155px] h-9">
+                <SelectTrigger className="w-[125px] sm:w-[155px] h-8 sm:h-9 text-xs sm:text-sm">
                   <SelectValue placeholder="All Staff" />
                 </SelectTrigger>
                 <SelectContent>
@@ -564,19 +564,19 @@ export const AttendanceTab = () => {
             <Button
               variant="outline"
               size="sm"
-              className="h-9"
+              className="h-8 sm:h-9 text-xs sm:text-sm"
               onClick={handleFetchAttendance}
               disabled={staffAttendanceLoading}
             >
               {staffAttendanceLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : null}
               {hasExistingAttendance ? "Fetch Attendance" : "Fetch Staff"}
             </Button>
             {canEditAttendance && (
               <Button
                 size="sm"
-                className="h-9 font-medium"
+                className="h-8 sm:h-9 text-xs sm:text-sm font-medium"
                 onClick={handleSaveStaffAttendance}
                 disabled={!staffAttendanceRows.length || staffAttendanceLoading}
               >
@@ -586,11 +586,11 @@ export const AttendanceTab = () => {
           </div>
 
           {canEditAttendance && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                className="h-9 text-xs"
+                className="h-8 sm:h-9 px-2 sm:px-3 text-xs"
                 onClick={() => handleMarkAllStaff("present")}
                 disabled={!staffAttendanceRows.length || isHolidayDate}
               >
@@ -599,7 +599,7 @@ export const AttendanceTab = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-9 text-xs"
+                className="h-8 sm:h-9 px-2 sm:px-3 text-xs"
                 onClick={() => handleMarkAllStaff("absent")}
                 disabled={!staffAttendanceRows.length || isHolidayDate}
               >
@@ -608,7 +608,7 @@ export const AttendanceTab = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-9 text-xs"
+                className="h-8 sm:h-9 px-2 sm:px-3 text-xs"
                 onClick={() => handleMarkAllStaff("leave")}
                 disabled={!staffAttendanceRows.length || isHolidayDate}
               >
@@ -629,12 +629,12 @@ export const AttendanceTab = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="py-2 px-3 text-sm">Staff Name</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Role / Department</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Marked At</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Marked By</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Staff Name</TableHead>
+                <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Role / Department</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+                <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Marked At</TableHead>
+                <TableHead className="hidden xl:table-cell py-2 px-3 text-sm">Marked By</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -702,10 +702,24 @@ export const AttendanceTab = () => {
                       key={sid}
                       className={isLocked ? "opacity-80" : ""}
                     >
-                      <TableCell className="py-2 px-3 text-sm font-medium">
-                        {s.name}
+                      <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                        <div className="font-semibold text-foreground">{s.name}</div>
+                        <div className="text-[11px] text-muted-foreground md:hidden mt-0.5">
+                          {roleLabel} · {deptLabel}
+                        </div>
+                        <div className="mt-1 flex md:hidden flex-wrap gap-1 text-[10px]">
+                          <Badge variant="outline" className="font-normal px-1 py-0 text-[10px]">
+                            CL {leaveBalance?.CASUAL?.taken ?? 0}/{leaveBalance?.CASUAL?.allowed ?? 0}
+                          </Badge>
+                          <Badge variant="outline" className="font-normal px-1 py-0 text-[10px]">
+                            SK {leaveBalance?.SICK?.taken ?? 0}/{leaveBalance?.SICK?.allowed ?? 0}
+                          </Badge>
+                          <Badge variant="outline" className="font-normal px-1 py-0 text-[10px]">
+                            AL {leaveBalance?.ANNUAL?.taken ?? 0}/{leaveBalance?.ANNUAL?.allowed ?? 0}
+                          </Badge>
+                        </div>
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                         <div>{roleLabel}</div>
                         <div className="text-xs text-muted-foreground">{deptLabel}</div>
                         <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
@@ -723,7 +737,7 @@ export const AttendanceTab = () => {
                           </Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {currentStatus === "leave" ? (
                             <Badge
@@ -825,13 +839,13 @@ export const AttendanceTab = () => {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                      <TableCell className="hidden lg:table-cell py-2 px-3 text-sm text-muted-foreground">
                         {row.markedAt ? new Date(row.markedAt).toLocaleString() : "-"}
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                      <TableCell className="hidden xl:table-cell py-2 px-3 text-sm text-muted-foreground">
                         {row.markedAt ? markedByName : "-"}
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right">
                         {isHolidayDate || row.isHoliday ? (
                           <Tooltip>
                             <TooltipTrigger asChild>

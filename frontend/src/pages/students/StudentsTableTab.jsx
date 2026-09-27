@@ -435,21 +435,20 @@ export const StudentsTableTab = ({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Photo</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Name</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Admission Date</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Program / Class / Section</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                  {status !== "GRADUATED" && <TableHead className="py-2 px-3 text-sm">Actions</TableHead>}
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Student</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">Roll No</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Admission Date</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Program / Class</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+                  {status !== "GRADUATED" && <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {studentsData?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={status !== "GRADUATED" ? 7 : 6} className="py-8 text-center">
+                    <TableCell colSpan={status !== "GRADUATED" ? 6 : 5} className="py-8 text-center">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <p className="text-muted-foreground">
+                        <p className="text-muted-foreground text-xs sm:text-sm">
                           {status === "ACTIVE"
                             ? "No students found. Try adjusting your filters or add a new student."
                             : `No ${status.toLowerCase().replace('_', ' ')} students found`}
@@ -467,44 +466,50 @@ export const StudentsTableTab = ({
                     const studentId = student.id || student._id;
                     const academicPath = getStudentAcademicPath(student);
                     return (
-                      <TableRow key={studentId}>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Avatar>
-                            <AvatarImage src={resolveFileUrl(student.photo_url)} />
-                            <AvatarFallback>{student.fName?.[0] || "S"}</AvatarFallback>
-                          </Avatar>
+                      <TableRow
+                        key={studentId}
+                        className="cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted/80"
+                        onClick={() => onViewStudent(student)}
+                      >
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7 sm:h-8 sm:w-8 shrink-0">
+                              <AvatarImage src={resolveFileUrl(student.photo_url)} />
+                              <AvatarFallback className="text-[10px] sm:text-xs">{student.fName?.[0] || "S"}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1 font-medium truncate">
+                                {student.fName} {student.lName}
+                                {(hostelStudentIds.has(studentId) || hostelStudentIds.has(student.id) || hostelStudentIds.has(student._id)) && (
+                                  <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 leading-none shrink-0">
+                                    Boarding
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground sm:hidden truncate font-mono">
+                                {student.rollNumber}
+                              </p>
+                            </div>
+                          </div>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm font-medium">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-mono hidden sm:table-cell">
                           <div className="flex items-center gap-1.5">
                             {student.rollNumber}
                             {(hostelStudentIds.has(studentId) || hostelStudentIds.has(student.id) || hostelStudentIds.has(student._id)) && (
-                              <span title="Boarding Student" className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                            )}
-                          </div>
-                          <div className="mt-0.5 text-[11px] font-normal text-muted-foreground leading-snug">
-                            {academicPath}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <div className="flex items-center gap-1.5">
-                            {student.fName} {student.lName}
-                            {(hostelStudentIds.has(studentId) || hostelStudentIds.has(student.id) || hostelStudentIds.has(student._id)) && (
-                              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 leading-none">
-                                Boarding
-                              </span>
+                              <span title="Boarding Student" className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" />
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
                           {(student.admissionDate || student.createdAt) ? format(new Date(student.admissionDate || student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Badge variant="outline" className="whitespace-normal text-left leading-snug">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <Badge variant="outline" className="text-[10px] sm:text-xs font-normal max-w-[120px] sm:max-w-none truncate leading-snug">
                             {academicPath}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Badge variant={
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <Badge className="text-[10px] sm:text-xs" variant={
                             student.status === "ACTIVE" ? "default" :
                               student.status === "GRADUATED" ? "secondary" :
                                 "destructive"
@@ -512,67 +517,69 @@ export const StudentsTableTab = ({
                             {student.status || "ACTIVE"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <div className="flex gap-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button size="sm" variant="outline" onClick={() => onViewStudent(student)}>
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>View Profile</TooltipContent>
-                            </Tooltip>
-
-                            {status === "ACTIVE" && canUpdate && onEditStudent && (
+                        {status !== "GRADUATED" && (
+                          <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-end gap-1.5">
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => onEditStudent(student)}>
-                                    <Edit className="w-4 h-4" />
+                                  <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onViewStudent(student)}>
+                                    <Eye className="w-3.5 h-3.5" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Edit Student</TooltipContent>
+                                <TooltipContent>View Profile</TooltipContent>
                               </Tooltip>
-                            )}
 
-                            {(status === "EXPELLED" || status === "STRUCK_OFF") && canUpdate && onRejoinStudent && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                                    onClick={() => onRejoinStudent(student)}
-                                  >
-                                    <RotateCcw className="w-4 h-4 mr-1" /> Re-join
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Re-join Student</TooltipContent>
-                              </Tooltip>
-                            )}
+                              {status === "ACTIVE" && canUpdate && onEditStudent && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onEditStudent(student)}>
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Student</TooltipContent>
+                                </Tooltip>
+                              )}
 
-                            {status === "ACTIVE" && canDelete && onDeleteStudent && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => onDeleteStudent(studentId)}>
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete Student</TooltipContent>
-                              </Tooltip>
-                            )}
+                              {(status === "EXPELLED" || status === "STRUCK_OFF") && canUpdate && onRejoinStudent && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200 h-7 text-xs px-2"
+                                      onClick={() => onRejoinStudent(student)}
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 mr-1" /> Re-join
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Re-join Student</TooltipContent>
+                                </Tooltip>
+                              )}
 
-                            {onIdCard && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => onIdCard(student)}>
-                                    <IdCard className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Generate ID Card</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
-                        </TableCell>
+                              {status === "ACTIVE" && canDelete && onDeleteStudent && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => onDeleteStudent(studentId)}>
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete Student</TooltipContent>
+                                </Tooltip>
+                              )}
+
+                              {onIdCard && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onIdCard(student)}>
+                                      <IdCard className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Generate ID Card</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })

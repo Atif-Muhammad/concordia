@@ -98,6 +98,7 @@ export default function ClosingTab() {
   const [closingRemarks, setClosingRemarks] = useState("");
   const [viewSnapshotData, setViewSnapshotData] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
+  const [selectedWalletDetail, setSelectedWalletDetail] = useState(null);
 
   // Fetch live holdings and changes since last closing
   const {
@@ -255,75 +256,75 @@ export default function ClosingTab() {
       </Card>
 
       {/* Holdings & Changes Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Treasury Holdings
+          <CardHeader className="flex flex-row items-center justify-between p-2.5 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">
+              Treasury Holdings
             </CardTitle>
-            <Landmark className="h-4 w-4 text-primary" />
+            <Landmark className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+          <CardContent className="p-2.5 sm:p-4 pt-0 sm:pt-0">
+            <div className="text-xs sm:text-lg lg:text-2xl font-bold text-foreground truncate">
               PKR {Number(summary.totalCurrentHolding).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
               Live aggregate across {summary.activeWalletsCount} active accounts
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Inflows Since Last Closing
+          <CardHeader className="flex flex-row items-center justify-between p-2.5 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">
+              Inflows Since Closing
             </CardTitle>
-            <ArrowDownRight className="h-4 w-4 text-emerald-600" />
+            <ArrowDownRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="p-2.5 sm:p-4 pt-0 sm:pt-0">
+            <div className="text-xs sm:text-lg lg:text-2xl font-bold text-emerald-600 truncate">
               + PKR {Number(summary.totalInflows).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Tuition, hostel fees, deposits & other income
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
+              Tuition, hostel fees, deposits & income
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Outflows Since Last Closing
+          <CardHeader className="flex flex-row items-center justify-between p-2.5 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">
+              Outflows Since Closing
             </CardTitle>
-            <ArrowUpRight className="h-4 w-4 text-rose-600" />
+            <ArrowUpRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-600 shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-rose-600">
+          <CardContent className="p-2.5 sm:p-4 pt-0 sm:pt-0">
+            <div className="text-xs sm:text-lg lg:text-2xl font-bold text-rose-600 truncate">
               - PKR {Number(summary.totalOutflows).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Expenses, payrolls & inventory deductions
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
+              Expenses, payrolls & inventory
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Net Change Since Closing
+          <CardHeader className="flex flex-row items-center justify-between p-2.5 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate">
+              Net Treasury Change
             </CardTitle>
-            <Activity className="h-4 w-4 text-primary" />
+            <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2.5 sm:p-4 pt-0 sm:pt-0">
             <div
-              className={`text-2xl font-bold ${
+              className={`text-xs sm:text-lg lg:text-2xl font-bold truncate ${
                 summary.totalNetChange >= 0 ? "text-emerald-600" : "text-rose-600"
               }`}
             >
               {summary.totalNetChange >= 0 ? "+" : "-"} PKR{" "}
               {Math.abs(summary.totalNetChange).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
               Net treasury change after last closing
             </p>
           </CardContent>
@@ -346,25 +347,25 @@ export default function ClosingTab() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Account / Wallet</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Type / Details</TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right">
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Account / Wallet</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm">Type / Details</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm text-right">
                     Balance at Last Closing
                   </TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right text-emerald-600">
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right text-emerald-600">
                     Inflows (+)
                   </TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right text-rose-600">
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right text-rose-600">
                     Outflows (-)
                   </TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right">
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm text-right">
                     Net Change
                   </TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right font-bold">
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm text-right font-bold">
                     Current Live Balance
                   </TableHead>
                 </TableRow>
@@ -390,11 +391,23 @@ export default function ClosingTab() {
                   </TableRow>
                 ) : (
                   wallets.map((w) => (
-                    <TableRow key={w.walletId}>
-                      <TableCell className="py-2.5 px-3 text-sm font-medium">
-                        {w.walletName}
+                    <TableRow
+                      key={w.walletId}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => setSelectedWalletDetail(w)}
+                    >
+                      <TableCell className="py-2.5 px-3 text-xs sm:text-sm font-medium">
+                        <div className="font-semibold text-foreground">{w.walletName}</div>
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground sm:hidden mt-0.5">
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 uppercase font-mono">
+                            {w.walletType}
+                          </Badge>
+                          <span>
+                            {w.accountNumber ? `#${w.accountNumber}` : w.bankName || w.provider || w.location || "-"}
+                          </span>
+                        </div>
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-xs text-muted-foreground">
+                      <TableCell className="hidden md:table-cell py-2.5 px-3 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1.5">
                           <Badge variant="outline" className="text-[10px] uppercase font-mono">
                             {w.walletType}
@@ -404,21 +417,21 @@ export default function ClosingTab() {
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-right text-muted-foreground font-mono">
+                      <TableCell className="hidden lg:table-cell py-2.5 px-3 text-sm text-right text-muted-foreground font-mono">
                         PKR {Number(w.balanceAtLastClosing || 0).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-right text-emerald-600 font-semibold font-mono">
+                      <TableCell className="hidden sm:table-cell py-2.5 px-3 text-sm text-right text-emerald-600 font-semibold font-mono">
                         {w.inflowsSinceLastClosing > 0
                           ? `+ PKR ${Number(w.inflowsSinceLastClosing).toLocaleString()}`
                           : "-"}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-right text-rose-600 font-semibold font-mono">
+                      <TableCell className="hidden sm:table-cell py-2.5 px-3 text-sm text-right text-rose-600 font-semibold font-mono">
                         {w.outflowsSinceLastClosing > 0
                           ? `- PKR ${Number(w.outflowsSinceLastClosing).toLocaleString()}`
                           : "-"}
                       </TableCell>
                       <TableCell
-                        className={`py-2.5 px-3 text-sm text-right font-medium font-mono ${
+                        className={`hidden lg:table-cell py-2.5 px-3 text-sm text-right font-medium font-mono ${
                           w.netChange > 0
                             ? "text-emerald-600"
                             : w.netChange < 0
@@ -429,7 +442,7 @@ export default function ClosingTab() {
                         {w.netChange > 0 ? "+" : w.netChange < 0 ? "-" : ""}
                         PKR {Math.abs(w.netChange || 0).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-right font-bold text-foreground font-mono bg-muted/20">
+                      <TableCell className="py-2.5 px-3 text-xs sm:text-sm text-right font-bold text-foreground font-mono bg-muted/20">
                         PKR {Number(w.currentBalance || 0).toLocaleString()}
                       </TableCell>
                     </TableRow>
@@ -460,18 +473,18 @@ export default function ClosingTab() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Closing Date & Time</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Total Holding</TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-emerald-600">Inflows</TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-rose-600">Outflows</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Net Change</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Closed By</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right">Actions</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Closing Date & Time</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm text-right">Total Holding</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm text-emerald-600">Inflows</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm text-rose-600">Outflows</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm">Net Change</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm">Closed By</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2.5 px-3 text-sm">Remarks</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -495,21 +508,30 @@ export default function ClosingTab() {
                   </TableRow>
                 ) : (
                   closingsHistory.map((item) => (
-                    <TableRow key={item.id || item._id}>
-                      <TableCell className="py-2.5 px-3 text-sm font-medium">
-                        {formatDateTime(item.closingDateTime || item.createdAt || item.date)}
+                    <TableRow
+                      key={item.id || item._id}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => setViewSnapshotData(item)}
+                    >
+                      <TableCell className="py-2.5 px-3 text-xs sm:text-sm font-medium">
+                        <div className="font-semibold text-foreground">
+                          {formatDateTime(item.closingDateTime || item.createdAt || item.date)}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                          By: {item.closedByName || item.closedBy?.name || "Admin"}
+                        </div>
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm font-bold text-foreground font-mono">
+                      <TableCell className="py-2.5 px-3 text-xs sm:text-sm font-bold text-foreground font-mono text-right">
                         PKR {Number(item.totalHolding || item.netBalance || 0).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-emerald-600 font-mono">
+                      <TableCell className="hidden md:table-cell py-2.5 px-3 text-sm text-emerald-600 font-mono">
                         + PKR {Number(item.totalInflows || item.totalIncome || 0).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-rose-600 font-mono">
+                      <TableCell className="hidden md:table-cell py-2.5 px-3 text-sm text-rose-600 font-mono">
                         - PKR {Number(item.totalOutflows || item.totalExpense || 0).toLocaleString()}
                       </TableCell>
                       <TableCell
-                        className={`py-2.5 px-3 text-sm font-medium font-mono ${
+                        className={`hidden lg:table-cell py-2.5 px-3 text-sm font-medium font-mono ${
                           (item.netChange || item.netBalance || 0) >= 0
                             ? "text-emerald-600"
                             : "text-rose-600"
@@ -517,13 +539,13 @@ export default function ClosingTab() {
                       >
                         PKR {Number(item.netChange || item.netBalance || 0).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-xs text-muted-foreground">
+                      <TableCell className="hidden sm:table-cell py-2.5 px-3 text-xs text-muted-foreground">
                         {item.closedByName || item.closedBy?.name || "Admin"}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-xs text-muted-foreground max-w-[200px] truncate">
+                      <TableCell className="hidden xl:table-cell py-2.5 px-3 text-xs text-muted-foreground max-w-[200px] truncate">
                         {item.remarks || "-"}
                       </TableCell>
-                      <TableCell className="py-2.5 px-3 text-sm text-right">
+                      <TableCell className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {item.walletsSnapshot && item.walletsSnapshot.length > 0 && (
                             <Tooltip>
@@ -531,7 +553,11 @@ export default function ClosingTab() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => setViewSnapshotData(item)}
+                                  className="h-7 px-2.5 text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setViewSnapshotData(item);
+                                  }}
                                 >
                                   <Eye className="h-3.5 w-3.5 mr-1" />
                                   View
@@ -546,13 +572,14 @@ export default function ClosingTab() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="text-destructive hover:bg-destructive/10"
-                                  onClick={() =>
+                                  className="text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setDeleteConfirm({
                                       open: true,
                                       id: item.id || item._id,
-                                    })
-                                  }
+                                    });
+                                  }}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -563,8 +590,7 @@ export default function ClosingTab() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
+                  )))}
               </TableBody>
             </Table>
           </div>
@@ -737,6 +763,74 @@ export default function ClosingTab() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Live Account Details Dialog */}
+      <Dialog open={!!selectedWalletDetail} onOpenChange={(open) => !open && setSelectedWalletDetail(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Account Holdings Details</DialogTitle>
+          </DialogHeader>
+          {selectedWalletDetail && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Account Name:</span>
+                <span className="font-semibold text-foreground">{selectedWalletDetail.walletName}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Account Type:</span>
+                <Badge variant="outline" className="uppercase font-mono text-[10px]">
+                  {selectedWalletDetail.walletType}
+                </Badge>
+              </div>
+              {selectedWalletDetail.accountNumber && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Account Number:</span>
+                  <span className="font-mono">#{selectedWalletDetail.accountNumber}</span>
+                </div>
+              )}
+              {(selectedWalletDetail.bankName || selectedWalletDetail.provider || selectedWalletDetail.location) && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Provider / Details:</span>
+                  <span>{selectedWalletDetail.bankName || selectedWalletDetail.provider || selectedWalletDetail.location}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Balance at Last Closing:</span>
+                <span className="font-mono">PKR {Number(selectedWalletDetail.balanceAtLastClosing || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Inflows Since Closing:</span>
+                <span className="font-bold text-emerald-600 font-mono">
+                  + PKR {Number(selectedWalletDetail.inflowsSinceLastClosing || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Outflows Since Closing:</span>
+                <span className="font-bold text-rose-600 font-mono">
+                  - PKR {Number(selectedWalletDetail.outflowsSinceLastClosing || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Net Change:</span>
+                <span className={`font-bold font-mono ${(selectedWalletDetail.netChange || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {(selectedWalletDetail.netChange || 0) >= 0 ? "+" : "-"} PKR {Math.abs(selectedWalletDetail.netChange || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 bg-muted/40 px-3 rounded-md border mt-2">
+                <span className="font-semibold">Current Live Balance:</span>
+                <span className="font-bold text-base text-primary font-mono">
+                  PKR {Number(selectedWalletDetail.currentBalance || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setSelectedWalletDetail(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog

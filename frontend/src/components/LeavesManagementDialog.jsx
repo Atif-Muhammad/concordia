@@ -853,6 +853,7 @@ const LeavesManagementDialog = () => {
     const [activeTab, setActiveTab] = useState("teacher");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [putApplicationOpen, setPutApplicationOpen] = useState(false);
+    const [selectedLeaveRecord, setSelectedLeaveRecord] = useState(null);
     const [leaveFormData, setLeaveFormData] = useState({
         personId: "",
         personName: "",
@@ -1060,9 +1061,9 @@ const LeavesManagementDialog = () => {
     return (
         <TooltipProvider>
             <div className="w-full h-full flex flex-col min-h-[600px]">
-            <div className="flex items-center gap-4 mb-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <Label>Month:</Label>
+            <div className="flex items-center gap-2 sm:gap-4 mb-3 sm:mb-4 flex-wrap">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Label className="text-xs sm:text-sm">Month:</Label>
                     <Select
                         value={String(parseInt(month.split("-")[1] || "1", 10))}
                         onValueChange={(m) => {
@@ -1070,13 +1071,13 @@ const LeavesManagementDialog = () => {
                             setMonth(`${y}-${String(m).padStart(2, "0")}`);
                         }}
                     >
-                        <SelectTrigger className="w-36">
+                        <SelectTrigger className="w-28 sm:w-36 h-8 sm:h-9 text-xs sm:text-sm">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                                 <SelectItem key={m} value={String(m)}>
-                                    {new Date(2000, m - 1).toLocaleString("default", { month: "long" })}
+                                    {new Date(2000, m - 1).toLocaleString("default", { month: "short" })}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -1088,7 +1089,7 @@ const LeavesManagementDialog = () => {
                             setMonth(`${y}-${m}`);
                         }}
                     >
-                        <SelectTrigger className="w-24">
+                        <SelectTrigger className="w-20 sm:w-24 h-8 sm:h-9 text-xs sm:text-sm">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1100,10 +1101,10 @@ const LeavesManagementDialog = () => {
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Label>Role:</Label>
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Label className="text-xs sm:text-sm">Role:</Label>
                     <Select value={activeTab} onValueChange={setActiveTab}>
-                        <SelectTrigger className="w-40">
+                        <SelectTrigger className="w-28 sm:w-40 h-8 sm:h-9 text-xs sm:text-sm">
                             <SelectValue placeholder="All Staff" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1113,13 +1114,13 @@ const LeavesManagementDialog = () => {
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end sm:ml-auto">
                     <Button
                         type="button"
                         onClick={() => setPutApplicationOpen(true)}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-2xs"
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold h-8 sm:h-9 px-2.5 sm:px-3 shadow-2xs"
                     >
-                        <FileText className="mr-1.5 h-4 w-4" />
+                        <FileText className="mr-1 sm:mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                         Put Application
                     </Button>
                     {canCreate && (
@@ -1127,10 +1128,10 @@ const LeavesManagementDialog = () => {
                             type="button"
                             onClick={() => setCreateDialogOpen(true)}
                             variant="outline"
-                            className="text-xs font-medium"
+                            className="text-xs font-medium h-8 sm:h-9 px-2.5 sm:px-3"
                         >
-                            <Plus className="mr-1.5 h-4 w-4" />
-                            Create Leave Request
+                            <Plus className="mr-1 sm:mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            Create Request
                         </Button>
                     )}
                 </div>
@@ -1145,14 +1146,14 @@ const LeavesManagementDialog = () => {
                     <Table>
                         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
                             <TableRow>
-                                <TableHead className="py-2 px-3 text-sm min-w-[160px]">Staff Name</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[160px]">Role / Dept</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Leave Type</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[200px]">Dates</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[60px]">Days</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[200px]">Reason</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Status</TableHead>
-                                <TableHead className="py-2 px-3 text-sm min-w-[80px]">Actions</TableHead>
+                                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Staff Name</TableHead>
+                                <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Role / Dept</TableHead>
+                                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Leave Type</TableHead>
+                                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Dates</TableHead>
+                                <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Days</TableHead>
+                                <TableHead className="hidden xl:table-cell py-2 px-3 text-sm">Reason</TableHead>
+                                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+                                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1164,33 +1165,48 @@ const LeavesManagementDialog = () => {
                                 </TableRow>
                             ) : (
                                 leaveData.map((row, index) => (
-                                    <TableRow key={`${row.leaveId ?? row.id}-${index}`}>
-                                        <TableCell className="py-2 px-3 text-sm font-medium">{row.name}</TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
+                                    <TableRow
+                                        key={`${row.leaveId ?? row.id}-${index}`}
+                                        className="cursor-pointer hover:bg-muted/40 transition-colors"
+                                        onClick={() => setSelectedLeaveRecord(row)}
+                                    >
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                                            <div className="font-semibold text-foreground">{row.name}</div>
+                                            <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                                                {row.startDate?.split("T")[0] || ""}{row.endDate && row.endDate !== row.startDate ? ` – ${row.endDate.split("T")[0]}` : ""} · {row.days} day(s)
+                                            </div>
+                                            <div className="flex sm:hidden items-center gap-1.5 mt-0.5">
+                                                <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                                    {row.leaveType === "SICK" ? "Sick" : row.leaveType === "ANNUAL" ? "Annual" : "Casual"}
+                                                </Badge>
+                                                <span className="text-[10px] text-muted-foreground">{roleLabel(row)}</span>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                                             <div>{roleLabel(row)}</div>
                                             <div className="text-xs text-muted-foreground">{row.department?.name || row.department || "—"}</div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
+                                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                                             <Badge variant="outline" className="text-xs">
                                                 {row.leaveType === "SICK" ? "Sick" : row.leaveType === "ANNUAL" ? "Annual" : "Casual"}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
+                                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                                             {row.startDate?.split("T")[0] || ""}
                                             {row.endDate && row.endDate !== row.startDate
                                                 ? ` – ${row.endDate.split("T")[0]}`
                                                 : ""}
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">{row.days}</TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">{row.reason || ""}</TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
+                                        <TableCell className="hidden lg:table-cell py-2 px-3 text-sm">{row.days}</TableCell>
+                                        <TableCell className="hidden xl:table-cell py-2 px-3 text-sm max-w-[200px] truncate">{row.reason || ""}</TableCell>
+                                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                                             <div className="flex flex-col gap-1">
                                                 {statusBadge(row.status)}
-                                                {row.locked && <Badge variant="outline" className="text-xs w-fit gap-1"><Lock className="h-3 w-3" />Locked</Badge>}
+                                                {row.locked && <Badge variant="outline" className="text-[10px] w-fit gap-1 px-1 py-0"><Lock className="h-2.5 w-2.5" />Locked</Badge>}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="py-2 px-3 text-sm">
-                                            <div className="flex items-center gap-1">
+                                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
+                                            <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
                                                         <Button
@@ -1533,6 +1549,138 @@ const LeavesManagementDialog = () => {
                     refetch();
                 }}
             />
+            {/* Mobile Leave Record Details Dialog */}
+            <Dialog open={!!selectedLeaveRecord} onOpenChange={(open) => !open && setSelectedLeaveRecord(null)}>
+                <DialogContent className="max-w-md w-full">
+                    <DialogHeader>
+                        <DialogTitle className="text-base font-semibold">Leave Request Details</DialogTitle>
+                    </DialogHeader>
+                    {selectedLeaveRecord && (
+                        <div className="space-y-3 text-xs sm:text-sm pt-2">
+                            <div className="flex justify-between items-center py-1.5 border-b">
+                                <span className="text-muted-foreground">Staff Name:</span>
+                                <span className="font-semibold text-foreground">{selectedLeaveRecord.name}</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1.5 border-b">
+                                <span className="text-muted-foreground">Role / Department:</span>
+                                <span>{roleLabel(selectedLeaveRecord)} · {selectedLeaveRecord.department?.name || selectedLeaveRecord.department || "—"}</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1.5 border-b">
+                                <span className="text-muted-foreground">Leave Type:</span>
+                                <Badge variant="outline">
+                                    {selectedLeaveRecord.leaveType === "SICK" ? "Sick" : selectedLeaveRecord.leaveType === "ANNUAL" ? "Annual" : "Casual"}
+                                </Badge>
+                            </div>
+                            <div className="flex justify-between items-center py-1.5 border-b">
+                                <span className="text-muted-foreground">Duration:</span>
+                                <span className="font-medium">
+                                    {selectedLeaveRecord.startDate?.split("T")[0] || ""}
+                                    {selectedLeaveRecord.endDate && selectedLeaveRecord.endDate !== selectedLeaveRecord.startDate
+                                        ? ` – ${selectedLeaveRecord.endDate.split("T")[0]}`
+                                        : ""} ({selectedLeaveRecord.days} {selectedLeaveRecord.days === 1 ? "day" : "days"})
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center py-1.5 border-b">
+                                <span className="text-muted-foreground">Status:</span>
+                                <div className="flex items-center gap-1.5">
+                                    {statusBadge(selectedLeaveRecord.status)}
+                                    {selectedLeaveRecord.locked && (
+                                        <Badge variant="outline" className="text-xs gap-1">
+                                            <Lock className="h-3 w-3" />Locked
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
+                            {selectedLeaveRecord.reason && (
+                                <div className="py-1.5 border-b">
+                                    <span className="text-muted-foreground block mb-1">Reason:</span>
+                                    <p className="text-xs bg-muted/40 p-2 rounded border leading-relaxed">
+                                        {selectedLeaveRecord.reason}
+                                    </p>
+                                </div>
+                            )}
+                            <div className="pt-2 flex flex-wrap justify-between items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    onClick={() => {
+                                        const r = selectedLeaveRecord;
+                                        setSelectedLeaveRecord(null);
+                                        setHistoryRecord(r);
+                                        setHistoryDialogOpen(true);
+                                    }}
+                                >
+                                    <Clock className="h-3.5 w-3.5 mr-1" />
+                                    History
+                                </Button>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {canUpdate && !selectedLeaveRecord.locked && (
+                                        <>
+                                            {selectedLeaveRecord.status !== "APPROVED" && (
+                                                <Button
+                                                    size="sm"
+                                                    className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                                    onClick={() => {
+                                                        const id = selectedLeaveRecord.leaveId || selectedLeaveRecord.id;
+                                                        setSelectedLeaveRecord(null);
+                                                        handleStatusChange(id, "APPROVED");
+                                                    }}
+                                                >
+                                                    Approve
+                                                </Button>
+                                            )}
+                                            {selectedLeaveRecord.status !== "REJECTED" && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="h-8 text-xs"
+                                                    onClick={() => {
+                                                        const id = selectedLeaveRecord.leaveId || selectedLeaveRecord.id;
+                                                        setSelectedLeaveRecord(null);
+                                                        handleStatusChange(id, "REJECTED");
+                                                    }}
+                                                >
+                                                    Reject
+                                                </Button>
+                                            )}
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 text-xs"
+                                                onClick={() => {
+                                                    const r = selectedLeaveRecord;
+                                                    setSelectedLeaveRecord(null);
+                                                    setEditingRecord(r);
+                                                    setEditDialogOpen(true);
+                                                }}
+                                            >
+                                                <Pencil className="h-3.5 w-3.5 mr-1" />
+                                                Edit
+                                            </Button>
+                                        </>
+                                    )}
+                                    {canDelete && !selectedLeaveRecord.locked && (
+                                        <Button
+                                            size="sm"
+                                            variant="destructive"
+                                            className="h-8 text-xs"
+                                            onClick={() => {
+                                                const id = selectedLeaveRecord.leaveId || selectedLeaveRecord.id;
+                                                setSelectedLeaveRecord(null);
+                                                setConfirmDeleteId(id);
+                                            }}
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                            Delete
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
             </div>
         </TooltipProvider>
     );

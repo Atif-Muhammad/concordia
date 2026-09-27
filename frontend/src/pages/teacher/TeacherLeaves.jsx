@@ -462,34 +462,34 @@ export default function TeacherLeaves() {
         </div>
 
         {/* Leave Balances Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
           {[
-            { key: 'CASUAL', label: 'Casual Leave', desc: 'Personal & incidental leaves' },
-            { key: 'SICK', label: 'Sick Leave', desc: 'Medical & health leaves' },
+            { key: 'CASUAL', label: 'Casual Leave', desc: 'Personal & incidental' },
+            { key: 'SICK', label: 'Sick Leave', desc: 'Medical & health' },
             { key: 'ANNUAL', label: 'Annual Leave', desc: 'Earned leaves quota' },
-          ].map(({ key, label, desc }) => {
+          ].map(({ key, label, desc }, idx) => {
             const b = leaveBalance ? (leaveBalance[key] || leaveBalance[key.toLowerCase()]) : null;
             const taken = b ? (b.taken ?? b.used ?? 0) : 0;
             const allowed = b ? (b.allowed ?? 0) : 0;
             const remaining = b ? (b.remaining ?? b.balance ?? (allowed - taken)) : 0;
 
             return (
-              <Card key={key} className="border-primary/20 shadow-xs relative overflow-hidden bg-card">
+              <Card key={key} className={cn("border-primary/20 shadow-xs relative overflow-hidden bg-card", idx === 2 ? "col-span-2 sm:col-span-1" : "")}>
                 <div className="absolute top-0 left-0 right-0 h-1 bg-primary/40" />
-                <CardContent className="p-3.5">
+                <CardContent className="p-2.5 sm:p-3.5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                      <p className="text-[10px] sm:text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{desc}</p>
                     </div>
-                    <Badge variant="outline" className="border-primary/30 text-primary bg-primary/5 text-xs font-bold">
+                    <Badge variant="outline" className="border-primary/30 text-primary bg-primary/5 text-[10px] sm:text-xs font-bold">
                       {remaining > 0 ? `${remaining} Left` : '0 Left'}
                     </Badge>
                   </div>
-                  <div className="mt-3 flex items-baseline justify-between border-t border-primary/10 pt-2">
-                    <span className="text-xs text-muted-foreground">Used / Quota</span>
-                    <span className="text-sm font-semibold text-foreground">
-                      {isBalanceLoading ? '...' : `${taken} / ${allowed} days`}
+                  <div className="mt-2 sm:mt-3 flex items-baseline justify-between border-t border-primary/10 pt-1.5 sm:pt-2">
+                    <span className="text-[10px] sm:text-xs text-muted-foreground">Used / Quota</span>
+                    <span className="text-xs sm:text-sm font-semibold text-foreground">
+                      {isBalanceLoading ? '...' : `${taken} / ${allowed} d`}
                     </span>
                   </div>
                 </CardContent>
@@ -714,11 +714,11 @@ export default function TeacherLeaves() {
                   <Table>
                     <TableHeader className="bg-muted/40">
                       <TableRow className="border-primary/10">
-                        <TableHead className="text-xs font-semibold py-2.5">Date Range</TableHead>
-                        <TableHead className="text-xs font-semibold py-2.5">Type</TableHead>
-                        <TableHead className="text-xs font-semibold py-2.5">Days</TableHead>
-                        <TableHead className="text-xs font-semibold py-2.5">Status</TableHead>
-                        <TableHead className="text-xs font-semibold py-2.5 text-right">Actions</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Leave Details</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Type</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Days</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Status</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 text-right hidden md:table-cell">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -729,44 +729,57 @@ export default function TeacherLeaves() {
                         const isRejected = statusUpper === 'REJECTED';
 
                         return (
-                          <TableRow key={leave.id || leave._id || index} className="border-primary/10 hover:bg-primary/5 transition-colors">
-                            <TableCell className="py-3 text-xs">
+                          <TableRow
+                            key={leave.id || leave._id || index}
+                            className="border-primary/10 hover:bg-primary/5 transition-colors cursor-pointer active:bg-primary/10"
+                            onClick={() => {
+                              setSelectedHistoryRecord(leave);
+                              setHistoryOpen(true);
+                            }}
+                          >
+                            <TableCell className="py-2.5 px-2 sm:px-3 text-xs">
                               <div className="font-semibold text-foreground">
                                 {leave.startDate?.split('T')[0] || leave.fromDate?.split('T')[0]}
                                 {leave.endDate && leave.endDate !== leave.startDate ? ` to ${leave.endDate.split('T')[0]}` : ''}
                               </div>
+                              <div className="sm:hidden flex items-center gap-1.5 mt-1">
+                                <Badge variant="outline" className="border-primary/20 text-[10px] px-1 py-0">
+                                  {leave.type || leave.leaveType || 'CASUAL'}
+                                </Badge>
+                                <span className="text-[10px] font-medium text-muted-foreground">{leave.days || 1}d</span>
+                              </div>
                               {leave.reason && (
-                                <p className="text-[11px] text-muted-foreground truncate max-w-[180px] mt-0.5" title={leave.reason}>
+                                <p className="text-[10px] sm:text-[11px] text-muted-foreground truncate max-w-[160px] sm:max-w-[180px] mt-0.5" title={leave.reason}>
                                   {leave.reason}
                                 </p>
                               )}
                             </TableCell>
-                            <TableCell className="py-3 text-xs">
+                            <TableCell className="py-2.5 px-2 sm:px-3 text-xs hidden sm:table-cell">
                               <Badge variant="outline" className="border-primary/20 text-xs">
                                 {leave.type || leave.leaveType || 'CASUAL'}
                               </Badge>
                             </TableCell>
-                            <TableCell className="py-3 text-xs font-medium text-foreground">
+                            <TableCell className="py-2.5 px-2 sm:px-3 text-xs font-medium text-foreground hidden sm:table-cell">
                               {leave.days || 1}d
                             </TableCell>
-                            <TableCell className="py-3 text-xs">
+                            <TableCell className="py-2.5 px-2 sm:px-3 text-xs">
                               {isApproved && (
-                                <Badge className="bg-primary text-primary-foreground font-semibold flex items-center gap-1 w-fit shadow-xs">
+                                <Badge className="bg-primary text-primary-foreground font-semibold flex items-center gap-1 w-fit shadow-xs text-[10px] sm:text-xs">
                                   <CheckCircle2 className="h-3 w-3" /> Approved
                                 </Badge>
                               )}
                               {isRejected && (
-                                <Badge variant="destructive" className="flex items-center gap-1 w-fit">
+                                <Badge variant="destructive" className="flex items-center gap-1 w-fit text-[10px] sm:text-xs">
                                   <XCircle className="h-3 w-3" /> Rejected
                                 </Badge>
                               )}
                               {isPending && (
-                                <Badge variant="secondary" className="border flex items-center gap-1 w-fit text-muted-foreground">
+                                <Badge variant="secondary" className="border flex items-center gap-1 w-fit text-muted-foreground text-[10px] sm:text-xs">
                                   <Clock className="h-3 w-3" /> Pending
                                 </Badge>
                               )}
                             </TableCell>
-                            <TableCell className="py-3 text-xs text-right">
+                            <TableCell className="py-2.5 px-2 sm:px-3 text-xs text-right hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-end gap-1">
                                 <Button
                                   variant="ghost"

@@ -194,27 +194,27 @@ export default function VisitorTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Users className="w-5 h-5" />
+      <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+          <Users className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
           Visitor Log
         </CardTitle>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="relative flex-1 sm:flex-initial">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={visitorNameSearch}
               onChange={(e) => setVisitorNameSearch(e.target.value)}
               placeholder="Search by name"
-              className="w-[220px] pl-9"
+              className="w-full sm:w-[180px] lg:w-[220px] pl-8 h-8 sm:h-9 text-xs sm:text-sm"
             />
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-[180px]">
+            <div className="w-[130px] sm:w-[180px]">
               <MonthPicker
                 value={visitorMonthFilter}
                 onChange={(val) => setVisitorMonthFilter(val || "")}
-                className="h-9 text-xs"
+                className="h-8 sm:h-9 text-xs"
                 placeholder="All Months"
               />
             </div>
@@ -222,7 +222,7 @@ export default function VisitorTab() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-8 sm:h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setVisitorMonthFilter("")}
                 title="Clear month filter (Show all)"
               >
@@ -233,8 +233,8 @@ export default function VisitorTab() {
           <Dialog open={visitorDialog} onOpenChange={setVisitorDialog}>
             {canCreate && (
               <DialogTrigger asChild>
-                <Button onClick={closeVisitorDialog}>
-                  <Plus className="w-4 h-4 mr-2" />
+                <Button size="sm" className="h-8 sm:h-9 text-xs sm:text-sm" onClick={closeVisitorDialog}>
+                  <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
                   Add Visitor
                 </Button>
               </DialogTrigger>
@@ -376,21 +376,21 @@ export default function VisitorTab() {
           </Dialog>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-2 sm:p-6 pt-0">
         {visitorsLoading ? (
-          <p className="text-center py-8 text-muted-foreground">Loading visitors...</p>
+          <p className="text-center py-8 text-xs sm:text-sm text-muted-foreground">Loading visitors...</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Visitor Name</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Phone</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Purpose</TableHead>
-                <TableHead className="py-2 px-3 text-sm">In Time</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Out Time</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Persons</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Date</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Visitor / Purpose</TableHead>
+                <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Phone</TableHead>
+                <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Purpose</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right sm:text-left">In/Out Time</TableHead>
+                <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Out Time</TableHead>
+                <TableHead className="hidden xl:table-cell py-2 px-3 text-sm">Persons</TableHead>
+                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -398,33 +398,61 @@ export default function VisitorTab() {
                 <TableRow>
                   <TableCell
                     colSpan={8}
-                    className="py-2 px-3 text-sm text-center text-muted-foreground"
+                    className="py-6 px-3 text-xs sm:text-sm text-center text-muted-foreground"
                   >
                     No visitors recorded yet.
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredVisitors.map((visitor) => (
-                  <TableRow key={visitor.id || visitor._id}>
-                    <TableCell className="py-2 px-3 text-sm">
+                  <TableRow
+                    key={visitor.id || visitor._id}
+                    className="cursor-pointer hover:bg-muted/40 transition-colors"
+                    onClick={() =>
+                      setViewDetailsDialog({
+                        open: true,
+                        data: {
+                          ...visitor,
+                          phone: visitor.phoneNumber || visitor.phone,
+                          phoneNumber: visitor.phoneNumber || visitor.phone,
+                          IDCard: visitor.ID || visitor.IDCard,
+                          ID: visitor.ID || visitor.IDCard,
+                          date: (visitor.visitDate || visitor.date || visitor.createdAt || "").split("T")[0],
+                          visitDate: (visitor.visitDate || visitor.date || visitor.createdAt || "").split("T")[0],
+                          inTime: formatTimeSafe(visitor.inTime),
+                          outTime: formatTimeSafe(visitor.outTime),
+                        },
+                      })
+                    }
+                  >
+                    <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                       {(visitor.visitDate || visitor.date || visitor.createdAt || "").split("T")[0]}
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">
-                      {visitor.visitorName}
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                      <div className="font-semibold text-foreground">{visitor.visitorName}</div>
+                      <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5 line-clamp-1">
+                        {visitor.purpose || "Visit"} {visitor.persons ? `(${visitor.persons} pers.)` : ""}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground sm:hidden mt-0.5">
+                        {(visitor.visitDate || visitor.date || visitor.createdAt || "").split("T")[0]} · {visitor.phoneNumber || visitor.phone || ""}
+                      </div>
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{visitor.phoneNumber || visitor.phone || "-"}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">
+                    <TableCell className="hidden md:table-cell py-2 px-3 text-sm">{visitor.phoneNumber || visitor.phone || "-"}</TableCell>
+                    <TableCell className="hidden lg:table-cell py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">
                       {visitor.purpose || "-"}
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
-                      {formatTimeSafe(visitor.inTime)}
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right sm:text-left">
+                      <div className="font-mono text-xs">
+                        {formatTimeSafe(visitor.inTime)}
+                        {visitor.outTime ? ` - ${formatTimeSafe(visitor.outTime)}` : ""}
+                      </div>
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
+                    <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                       {formatTimeSafe(visitor.outTime)}
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{visitor.persons || 1}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
-                      <div className="flex gap-2">
+                    <TableCell className="hidden xl:table-cell py-2 px-3 text-sm">{visitor.persons || 1}</TableCell>
+                    <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
+                      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button

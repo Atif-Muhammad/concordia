@@ -211,29 +211,29 @@ export const HolidaysTab = () => {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <div className="flex flex-wrap justify-between items-center gap-3">
-            <CardTitle>Holiday Calendar</CardTitle>
-            <div className="flex items-center gap-2 flex-wrap">
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3">
+            <CardTitle className="text-base sm:text-lg">Holiday Calendar</CardTitle>
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
               <Select
                 value={String(holidayFilter.month)}
                 onValueChange={(v) => setHolidayFilter((f) => ({ ...f, month: Number(v) }))}
               >
-                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-28 sm:w-36 h-8 sm:h-9 text-xs sm:text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <SelectItem key={m} value={String(m)}>{format(new Date(2000, m - 1), "MMMM")}</SelectItem>
+                    <SelectItem key={m} value={String(m)}>{format(new Date(2000, m - 1), "MMM")}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Input
                 type="number"
-                className="w-24"
+                className="w-20 sm:w-24 h-8 sm:h-9 text-xs sm:text-sm"
                 value={holidayFilter.year}
                 onChange={(e) => setHolidayFilter((f) => ({ ...f, year: Number(e.target.value) }))}
               />
               <Select value={calendarClassId} onValueChange={handleCalendarClassChange}>
-                <SelectTrigger className="w-44"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectTrigger className="w-32 sm:w-44 h-8 sm:h-9 text-xs sm:text-sm"><SelectValue placeholder="All Classes" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Classes</SelectItem>
                   {allCalendarClasses.map((c) => (
@@ -243,7 +243,7 @@ export const HolidaysTab = () => {
               </Select>
               {calendarSections.length > 0 && (
                 <Select value={calendarSectionId} onValueChange={setCalendarSectionId}>
-                  <SelectTrigger className="w-36"><SelectValue placeholder="All Sections" /></SelectTrigger>
+                  <SelectTrigger className="w-28 sm:w-36 h-8 sm:h-9 text-xs sm:text-sm"><SelectValue placeholder="All Sections" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sections</SelectItem>
                     {calendarSections.map((s) => (
@@ -253,18 +253,18 @@ export const HolidaysTab = () => {
                 </Select>
               )}
               {canCreate && (
-                <Button onClick={() => setHolidayOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
+                <Button size="sm" className="h-8 sm:h-9 text-xs sm:text-sm px-2.5 sm:px-3" onClick={() => setHolidayOpen(true)}>
+                  <Plus className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   Add Holiday
                 </Button>
               )}
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-2 sm:p-6 pt-0">
           <div className="grid grid-cols-7 gap-1 mb-1">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <div key={d} className="text-center text-xs font-semibold text-muted-foreground py-1">{d}</div>
+              <div key={d} className="text-center text-[11px] sm:text-xs font-semibold text-muted-foreground py-1">{d}</div>
             ))}
           </div>
           <div className="grid grid-cols-7 gap-1">
@@ -279,7 +279,7 @@ export const HolidaysTab = () => {
                 <div
                   key={day}
                   onClick={() => isHoliday && canDelete && setUndoHolidayDialog(holiday)}
-                  className={`relative rounded-lg border text-center py-2 px-1 text-sm transition-colors select-none
+                  className={`relative rounded-md sm:rounded-lg border text-center py-1 sm:py-2 px-0.5 sm:px-1 text-xs sm:text-sm transition-colors select-none
                     ${isSkip
                       ? `bg-orange-100 border-orange-300 text-orange-700 ${canDelete ? "cursor-pointer hover:bg-orange-200" : ""} font-semibold`
                       : isHoliday
@@ -290,7 +290,7 @@ export const HolidaysTab = () => {
                 >
                   <span>{day}</span>
                   {isHoliday && (
-                    <span className={`block text-[9px] leading-tight truncate mt-0.5 ${isSkip ? "text-orange-600" : "text-red-600"}`}>{holiday.title}</span>
+                    <span className={`block text-[8px] sm:text-[9px] leading-tight truncate mt-0.5 ${isSkip ? "text-orange-600" : "text-red-600"}`}>{holiday.title}</span>
                   )}
                 </div>
               );

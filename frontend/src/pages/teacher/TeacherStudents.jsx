@@ -9,12 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function TeacherStudents() {
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedSectionId, setSelectedSectionId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedStudentModal, setSelectedStudentModal] = useState(null);
 
   const { data: currentUser, isLoading: isUserLoading } = useQuery({
     queryKey: ['currentUser'],
@@ -360,37 +367,37 @@ export default function TeacherStudents() {
 
         {/* Stats Strip */}
         {selectedClassId && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
             <Card className="border shadow-2xs">
-              <CardContent className="p-3.5 flex items-center justify-between">
+              <CardContent className="p-2.5 sm:p-3.5 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Total Students</p>
-                  <p className="text-xl font-bold text-foreground mt-0.5">{students.length}</p>
+                  <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Total Students</p>
+                  <p className="text-base sm:text-xl font-bold text-foreground mt-0.5">{students.length}</p>
                 </div>
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <GraduationCap className="h-4 w-4" />
+                <div className="h-7 w-7 sm:h-9 sm:w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                  <GraduationCap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
               </CardContent>
             </Card>
             <Card className="border shadow-2xs">
-              <CardContent className="p-3.5 flex items-center justify-between">
+              <CardContent className="p-2.5 sm:p-3.5 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Male Students</p>
-                  <p className="text-xl font-bold text-foreground mt-0.5">{maleCount}</p>
+                  <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Male</p>
+                  <p className="text-base sm:text-xl font-bold text-foreground mt-0.5">{maleCount}</p>
                 </div>
-                <div className="h-9 w-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600">
-                  <Users className="h-4 w-4" />
+                <div className="h-7 w-7 sm:h-9 sm:w-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600">
+                  <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
               </CardContent>
             </Card>
-            <Card className="border shadow-2xs">
-              <CardContent className="p-3.5 flex items-center justify-between">
+            <Card className="border shadow-2xs col-span-2 sm:col-span-1">
+              <CardContent className="p-2.5 sm:p-3.5 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Female Students</p>
-                  <p className="text-xl font-bold text-foreground mt-0.5">{femaleCount}</p>
+                  <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Female</p>
+                  <p className="text-base sm:text-xl font-bold text-foreground mt-0.5">{femaleCount}</p>
                 </div>
-                <div className="h-9 w-9 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-600">
-                  <Users className="h-4 w-4" />
+                <div className="h-7 w-7 sm:h-9 sm:w-9 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-600">
+                  <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
               </CardContent>
             </Card>
@@ -400,9 +407,9 @@ export default function TeacherStudents() {
         {/* Students Table Card */}
         {selectedClassId && (
           <Card className="border shadow-2xs">
-            <CardHeader className="p-4 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <CardHeader className="p-3 sm:p-4 pb-2 sm:pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-base font-semibold">Student Roster</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-semibold">Student Roster</CardTitle>
                 <CardDescription className="text-xs">
                   Showing {filteredStudents.length} of {students.length} enrolled students
                 </CardDescription>
@@ -413,7 +420,7 @@ export default function TeacherStudents() {
                   placeholder="Search students..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 text-sm h-9"
+                  className="pl-8 text-xs sm:text-sm h-8 sm:h-9"
                 />
               </div>
             </CardHeader>
@@ -436,12 +443,12 @@ export default function TeacherStudents() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
-                        <TableHead className="w-[40px] text-xs font-semibold">#</TableHead>
-                        <TableHead className="text-xs font-semibold">Roll No.</TableHead>
-                        <TableHead className="text-xs font-semibold">Student Name</TableHead>
-                        <TableHead className="text-xs font-semibold">Father / Guardian</TableHead>
-                        <TableHead className="text-xs font-semibold">Gender</TableHead>
-                        <TableHead className="text-xs font-semibold">Status</TableHead>
+                        <TableHead className="w-[36px] sm:w-[40px] text-xs font-semibold py-2 px-2 sm:px-3">#</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Student</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Roll No.</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden md:table-cell">Father / Guardian</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Gender</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 text-right sm:text-left">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -461,27 +468,35 @@ export default function TeacherStudents() {
                         const status = student.status || (student.isActive ? 'ACTIVE' : 'INACTIVE');
 
                         return (
-                          <TableRow key={student._id || student.id || index} className="hover:bg-muted/30">
-                            <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-                            <TableCell className="font-mono text-xs font-medium text-foreground">
+                          <TableRow
+                            key={student._id || student.id || index}
+                            className="hover:bg-muted/40 transition-colors cursor-pointer active:bg-muted/70"
+                            onClick={() => setSelectedStudentModal(student)}
+                          >
+                            <TableCell className="text-xs text-muted-foreground py-2 px-2 sm:px-3">{index + 1}</TableCell>
+                            <TableCell className="py-2 px-2 sm:px-3">
+                              <div className="font-semibold text-xs sm:text-sm text-foreground">{fullName}</div>
+                              <div className="sm:hidden text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono font-medium bg-muted px-1 rounded">{roll}</span>
+                                {fatherName !== 'N/A' && <span>• {fatherName}</span>}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs font-medium text-foreground py-2 px-2 sm:px-3 hidden sm:table-cell">
                               {roll}
                             </TableCell>
-                            <TableCell className="font-semibold text-sm text-foreground">
-                              {fullName}
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
+                            <TableCell className="text-xs sm:text-sm text-muted-foreground py-2 px-2 sm:px-3 hidden md:table-cell">
                               {fatherName}
                             </TableCell>
-                            <TableCell className="text-sm capitalize text-muted-foreground">
+                            <TableCell className="text-xs sm:text-sm capitalize text-muted-foreground py-2 px-2 sm:px-3 hidden sm:table-cell">
                               {gender}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-2 sm:px-3 text-right sm:text-left">
                               <Badge
                                 variant="outline"
                                 className={
                                   String(status).toUpperCase() === 'ACTIVE'
-                                    ? 'bg-primary/10 text-primary border-primary/20 text-xs font-medium'
-                                    : 'bg-muted text-muted-foreground text-xs'
+                                    ? 'bg-primary/10 text-primary border-primary/20 text-[10px] sm:text-xs font-medium'
+                                    : 'bg-muted text-muted-foreground text-[10px] sm:text-xs'
                                 }
                               >
                                 {status}
@@ -497,6 +512,50 @@ export default function TeacherStudents() {
             </CardContent>
           </Card>
         )}
+
+        {/* Student Detail Modal */}
+        <Dialog open={!!selectedStudentModal} onOpenChange={(open) => !open && setSelectedStudentModal(null)}>
+          <DialogContent className="max-w-md p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle className="text-base sm:text-lg flex items-center gap-2">
+                <Users className="w-5 h-5 text-primary" />
+                Student Details
+              </DialogTitle>
+            </DialogHeader>
+            {selectedStudentModal && (
+              <div className="space-y-3 pt-2 text-xs sm:text-sm">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Full Name:</span>
+                  <span className="font-semibold text-foreground">
+                    {selectedStudentModal.name || `${selectedStudentModal.fName || ''} ${selectedStudentModal.lName || ''}`.trim() || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Roll Number:</span>
+                  <span className="font-mono font-medium">{selectedStudentModal.rollNumber || selectedStudentModal.rollNo || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Father / Guardian:</span>
+                  <span>{selectedStudentModal.fatherOrguardian || selectedStudentModal.fatherName || selectedStudentModal.guardianName || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Gender:</span>
+                  <span className="capitalize">{selectedStudentModal.gender || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Contact Phone:</span>
+                  <span>{selectedStudentModal.phone || selectedStudentModal.contactNumber || selectedStudentModal.emergencyContact || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-muted-foreground">Status:</span>
+                  <Badge variant="outline" className="text-xs">
+                    {selectedStudentModal.status || (selectedStudentModal.isActive ? 'ACTIVE' : 'INACTIVE')}
+                  </Badge>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

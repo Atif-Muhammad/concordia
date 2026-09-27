@@ -1009,45 +1009,55 @@ class FeeService {
       });
     }
 
-    // Deposit to wallet if walletId provided and payAmount > 0
-    if (walletId && payAmount > 0) {
-      const wallet = await Wallet.findById(walletId);
-      if (wallet) {
-        wallet.currentBalance = (Number(wallet.currentBalance) || 0) + payAmount;
-        await wallet.save();
+    // Deposit to wallet if payAmount > 0 (defaults to United Bank Limited / main bank wallet)
+    if (payAmount > 0) {
+      let targetWalletId = walletId;
+      if (!targetWalletId) {
+        const defaultWallet = await Wallet.findOne({ name: /United Bank Limited/i, status: 'ACTIVE' }) ||
+                              await Wallet.findOne({ type: 'BANK', status: 'ACTIVE' }) ||
+                              await Wallet.findOne({ status: 'ACTIVE' });
+        if (defaultWallet) targetWalletId = defaultWallet._id;
+      }
 
-        const user = userId ? await User.findById(userId).select('name role') : null;
-        const pDate = paidDate
-          ? (typeof paidDate === 'string' ? paidDate.split('T')[0] : new Date(paidDate).toISOString().split('T')[0])
-          : new Date().toISOString().split('T')[0];
+      if (targetWalletId) {
+        const wallet = await Wallet.findById(targetWalletId);
+        if (wallet) {
+          wallet.currentBalance = (Number(wallet.currentBalance) || 0) + payAmount;
+          await wallet.save();
 
-        const studentName = student
-          ? `${student.fName || ''} ${student.lName || ''}`.trim()
-          : (challan.studentName || 'Student');
-        const rollNo = student?.rollNumber || challan.rollNumber || '';
-        const challanNo = challan.challanNo || challan.challanNumber || '';
+          const user = userId ? await User.findById(userId).select('name role') : null;
+          const pDate = paidDate
+            ? (typeof paidDate === 'string' ? paidDate.split('T')[0] : new Date(paidDate).toISOString().split('T')[0])
+            : new Date().toISOString().split('T')[0];
 
-        await WalletTransaction.create({
-          transactionType: 'FEE',
-          category: 'FEE',
-          destinationWallet: wallet._id,
-          amount: payAmount,
-          date: pDate,
-          month: challan.month || (challan.installmentNumber ? `Inst #${challan.installmentNumber}` : ''),
-          referenceNo: challanNo,
-          challanId: challan._id,
-          challanNumber: challanNo,
-          studentName,
-          rollNumber: rollNo,
-          paymentMode: paymentMode || paidBy || (wallet.type === 'BANK' ? 'Bank Transfer' : 'Cash'),
-          description: remarks || `${isExtra ? 'Extra' : 'Tuition'} fee collection for Challan #${challanNo} (${challan.month || ''}) - ${studentName}`,
-          performedBy: userId || null,
-          performedByName: user ? `${user.name} (${user.role})` : 'System',
-          balanceAfterDestination: wallet.currentBalance,
-        });
+          const studentName = student
+            ? `${student.fName || ''} ${student.lName || ''}`.trim()
+            : (challan.studentName || 'Student');
+          const rollNo = student?.rollNumber || challan.rollNumber || '';
+          const challanNo = challan.challanNo || challan.challanNumber || '';
 
-        challan.walletId = wallet._id;
-        challan.walletName = wallet.name;
+          await WalletTransaction.create({
+            transactionType: 'FEE',
+            category: 'FEE',
+            destinationWallet: wallet._id,
+            amount: payAmount,
+            date: pDate,
+            month: challan.month || (challan.installmentNumber ? `Inst #${challan.installmentNumber}` : ''),
+            referenceNo: challanNo,
+            challanId: challan._id,
+            challanNumber: challanNo,
+            studentName,
+            rollNumber: rollNo,
+            paymentMode: paymentMode || paidBy || (wallet.type === 'BANK' ? 'Bank Transfer' : 'Cash'),
+            description: remarks || `${isExtra ? 'Extra' : 'Tuition'} fee collection for Challan #${challanNo} (${challan.month || ''}) - ${studentName}`,
+            performedBy: userId || null,
+            performedByName: user ? `${user.name} (${user.role})` : 'System',
+            balanceAfterDestination: wallet.currentBalance,
+          });
+
+          challan.walletId = wallet._id;
+          challan.walletName = wallet.name;
+        }
       }
     }
 

@@ -64,6 +64,7 @@ export default function ContactsTab() {
 
   const [contactDialog, setContactDialog] = useState(false);
   const [editingContact, setEditingContact] = useState(null);
+  const [selectedContact, setSelectedContact] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [contactNameSearch, setContactNameSearch] = useState("");
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: "", name: "" });
@@ -241,45 +242,43 @@ export default function ContactsTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Phone className="w-5 h-5" />
+      <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+          <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
           Contact Directory
         </CardTitle>
 
         <Dialog open={contactDialog} onOpenChange={setContactDialog}>
-          <div className="flex items-center justify-center gap-x-2">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={contactNameSearch}
-                  onChange={(e) => setContactNameSearch(e.target.value)}
-                  placeholder="Search by name"
-                  className="w-[200px] pl-9"
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Categories</SelectItem>
-                  <SelectItem value="Emergency">Emergency</SelectItem>
-                  <SelectItem value="Academic">Academic</SelectItem>
-                  <SelectItem value="Technical">Technical</SelectItem>
-                  <SelectItem value="Maintenance">Maintenance</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="secondary" onClick={handlePrintTable}>
-                Print
-              </Button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="relative flex-1 sm:flex-initial">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={contactNameSearch}
+                onChange={(e) => setContactNameSearch(e.target.value)}
+                placeholder="Search name"
+                className="w-full sm:w-[160px] lg:w-[200px] pl-8 h-8 sm:h-9 text-xs sm:text-sm"
+              />
             </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[120px] sm:w-[160px] h-8 sm:h-9 text-xs sm:text-sm">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Categories</SelectItem>
+                <SelectItem value="Emergency">Emergency</SelectItem>
+                <SelectItem value="Academic">Academic</SelectItem>
+                <SelectItem value="Technical">Technical</SelectItem>
+                <SelectItem value="Maintenance">Maintenance</SelectItem>
+                <SelectItem value="Other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="secondary" size="sm" className="h-8 sm:h-9 text-xs sm:text-sm px-2.5" onClick={handlePrintTable}>
+              Print
+            </Button>
             {canCreate && (
               <DialogTrigger asChild>
-                <Button onClick={() => setEditingContact(null)}>
-                  <Plus className="w-4 h-4 mr-2" />
+                <Button size="sm" className="h-8 sm:h-9 text-xs sm:text-sm px-2.5 sm:px-3" onClick={() => setEditingContact(null)}>
+                  <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
                   Add Contact
                 </Button>
               </DialogTrigger>
@@ -381,41 +380,55 @@ export default function ContactsTab() {
           </DialogContent>
         </Dialog>
       </CardHeader>
-      <CardContent>
-        <div id="printableContacts">
+      <CardContent className="p-2 sm:p-6 pt-0">
+        <div id="printableContacts" className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="py-2 px-3 text-sm">Name</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Category</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Phone</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Email</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                <TableHead className="py-2 px-3 text-sm no-print">Actions</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Name</TableHead>
+                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Category</TableHead>
+                <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Phone</TableHead>
+                <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Email</TableHead>
+                <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Description</TableHead>
+                <TableHead className="hidden sm:table-cell py-2 px-3 text-sm no-print text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredContacts?.map((contact) => (
-                <TableRow key={contact.id || contact._id}>
-                  <TableCell className="py-2 px-3 text-sm font-medium">
-                    {contact.name}
+                <TableRow
+                  key={contact.id || contact._id}
+                  className="cursor-pointer hover:bg-muted/40 transition-colors"
+                  onClick={() => setSelectedContact(contact)}
+                >
+                  <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                    <div className="font-semibold text-foreground">{contact.name}</div>
+                    <div className="flex sm:hidden items-center gap-1.5 mt-0.5">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary font-medium">
+                        {contact.category}
+                      </span>
+                      {contact.email && (
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                          {contact.email}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
-                    <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
+                  <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
+                    <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary font-medium">
                       {contact.category}
                     </span>
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
+                  <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-mono font-medium">
                     {contact.phone || "-"}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
+                  <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                     {contact.email || "-"}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm">
+                  <TableCell className="hidden lg:table-cell py-2 px-3 text-sm max-w-[200px] truncate">
                     {contact.details || "-"}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm no-print">
-                    <div className="flex gap-2">
+                  <TableCell className="hidden sm:table-cell py-2 px-3 text-sm no-print text-right">
+                    <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                       {canUpdate && (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -444,7 +457,7 @@ export default function ContactsTab() {
                                 })
                               }
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4 text-destructive" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Delete Contact</TooltipContent>
@@ -494,6 +507,89 @@ export default function ContactsTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mobile Contact Details Dialog */}
+      <Dialog open={!!selectedContact} onOpenChange={(open) => !open && setSelectedContact(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Contact Details</DialogTitle>
+          </DialogHeader>
+          {selectedContact && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Name:</span>
+                <span className="font-semibold text-foreground">{selectedContact.name}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Category:</span>
+                <span className="px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">
+                  {selectedContact.category}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Phone:</span>
+                <a href={`tel:${selectedContact.phone}`} className="font-mono font-medium text-primary hover:underline">
+                  {selectedContact.phone || "-"}
+                </a>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Email:</span>
+                {selectedContact.email ? (
+                  <a href={`mailto:${selectedContact.email}`} className="text-primary hover:underline">
+                    {selectedContact.email}
+                  </a>
+                ) : (
+                  <span>-</span>
+                )}
+              </div>
+              {selectedContact.details && (
+                <div className="py-1.5 border-b">
+                  <span className="text-muted-foreground block mb-1">Description:</span>
+                  <p className="text-xs bg-muted/40 p-2 rounded border leading-relaxed">
+                    {selectedContact.details}
+                  </p>
+                </div>
+              )}
+              <div className="pt-2 flex justify-end gap-2">
+                {canUpdate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => {
+                      const c = selectedContact;
+                      setSelectedContact(null);
+                      handleEditContact(c);
+                    }}
+                  >
+                    <Edit className="h-3.5 w-3.5 mr-1" />
+                    Edit
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-8 text-xs"
+                    onClick={() => {
+                      const c = selectedContact;
+                      setSelectedContact(null);
+                      setDeleteDialog({
+                        open: true,
+                        id: c.id || c._id,
+                        name: c.name,
+                      });
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

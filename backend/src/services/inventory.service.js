@@ -204,8 +204,16 @@ class InventoryService {
     let walletRecord = null;
     let walletTx = null;
 
-    if (expenseData.walletId) {
-      const wallet = await Wallet.findById(expenseData.walletId);
+    let targetWalletId = expenseData.walletId;
+    if (!targetWalletId) {
+      const defaultWallet = await Wallet.findOne({ name: /United Bank Limited/i, status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ type: 'BANK', status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ status: 'ACTIVE' });
+      if (defaultWallet) targetWalletId = defaultWallet._id;
+    }
+
+    if (targetWalletId) {
+      const wallet = await Wallet.findById(targetWalletId);
       if (!wallet) throw new Error('Selected Account / Wallet not found');
 
       wallet.currentBalance = (Number(wallet.currentBalance) || 0) - expAmount;

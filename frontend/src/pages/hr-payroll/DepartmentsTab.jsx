@@ -128,11 +128,13 @@ export const DepartmentsTab = () => {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>Department Management</CardTitle>
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <CardTitle className="text-base sm:text-lg">Department Management</CardTitle>
             {canCreate && (
               <Button
+                size="sm"
+                className="h-8 sm:h-9 text-xs sm:text-sm"
                 onClick={() => {
                   setEditingDepartment(null);
                   setDeptFormData({
@@ -144,37 +146,48 @@ export const DepartmentsTab = () => {
                   setDeptOpen(true);
                 }}
               >
-                <UserPlus className="mr-2 h-4 w-4" />
+                <UserPlus className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Add Department
               </Button>
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-2 sm:p-6 pt-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Department Name</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Head of Department</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Department Name</TableHead>
+                  <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Head of Department</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Description</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {departments?.map((dept) => (
                   <TableRow key={dept.id}>
-                    <TableCell className="py-2 px-3 text-sm font-medium">{dept.name}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{dept.hod?.name || "N/A"}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{dept.description}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
-                      <div className="flex gap-2">
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                      <div className="font-semibold text-foreground">{dept.name}</div>
+                      <div className="text-[11px] text-muted-foreground md:hidden mt-0.5">
+                        HOD: {dept.hod?.name || "N/A"}
+                      </div>
+                      {dept.description && (
+                        <div className="text-[10px] text-muted-foreground lg:hidden mt-0.5 line-clamp-1">
+                          {dept.description}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell py-2 px-3 text-sm">{dept.hod?.name || "N/A"}</TableCell>
+                    <TableCell className="hidden lg:table-cell py-2 px-3 text-sm">{dept.description}</TableCell>
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right">
+                      <div className="flex justify-end gap-1.5">
                         {canUpdate && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 size="sm"
                                 variant="outline"
+                                className="h-7 w-7 sm:h-8 sm:w-8 p-0"
                                 onClick={() => {
                                   setEditingDepartment(dept);
                                   setDeptFormData({
@@ -186,7 +199,7 @@ export const DepartmentsTab = () => {
                                   setDeptOpen(true);
                                 }}
                               >
-                                <Edit className="h-4 w-4" />
+                                <Edit className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Edit</TooltipContent>
@@ -198,13 +211,14 @@ export const DepartmentsTab = () => {
                               <Button
                                 size="sm"
                                 variant="destructive"
+                                className="h-7 w-7 sm:h-8 sm:w-8 p-0"
                                 onClick={() => {
                                   if (confirm("Are you sure you want to delete this department?")) {
                                     deleteDeptMutation.mutate(dept.id);
                                   }
                                 }}
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Delete</TooltipContent>

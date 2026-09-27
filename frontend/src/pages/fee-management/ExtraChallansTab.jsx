@@ -585,32 +585,40 @@ export const ExtraChallansTab = ({
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Challan No</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Student</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Heads Amount</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Late Fee</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Discount</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-foreground bg-slate-100">Total</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-green-700 bg-green-50">Paid Amount</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Due Date</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Status</TableHead>
-                  <TableHead className="text-xs px-3 py-2 text-right font-semibold text-muted-foreground">Actions</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Challan & Student</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Heads Amount</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Late Fee</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Discount</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs font-semibold text-foreground text-right bg-slate-100 sm:bg-transparent">Total</TableHead>
+                  <TableHead className="hidden md:table-cell py-2 px-3 text-xs font-semibold text-green-700 bg-green-50">Paid Amount</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Due Date</TableHead>
+                  <TableHead className="py-2.5 px-2.5 sm:px-3 text-xs font-semibold text-muted-foreground text-center">Status</TableHead>
+                  <TableHead className="hidden sm:table-cell text-xs px-3 py-2 text-right font-semibold text-muted-foreground">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isExtraLoading ? (
-                  <TableRow><TableCell colSpan={10} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
                 ) : extraChallans.map((challan, idx) => (
-                  <TableRow key={challan.id} className={idx % 2 === 1 ? "bg-muted/20" : ""}>
-                    <TableCell className="text-sm px-3 py-2 font-medium">{challan.challanNumber}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
-                      <div className="font-medium">{challan.student?.fName} {challan.student?.lName}</div>
-                      <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
+                  <TableRow
+                    key={challan.id}
+                    className={`cursor-pointer hover:bg-muted/40 transition-colors ${idx % 2 === 1 ? "bg-muted/20" : ""}`}
+                    onClick={() => {
+                      setSelectedChallanDetails({ ...challan, isExtra: true, challanType: 'FEE_HEADS_ONLY' });
+                      setDetailsDialogOpen(true);
+                    }}
+                  >
+                    <TableCell className="py-2 px-3 text-xs sm:text-sm font-medium">
+                      <div className="font-semibold text-foreground">{challan.challanNumber}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {challan.student?.fName} {challan.student?.lName}
+                        {challan.student?.rollNumber && <span className="ml-1 opacity-80">({challan.student.rollNumber})</span>}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-sm px-3 py-2 font-medium text-blue-600">
+                    <TableCell className="hidden lg:table-cell text-sm px-3 py-2 font-medium text-blue-600">
                       PKR {formatAmount(challan.headsAmount ?? (Number(challan.totalAmount || 0) - Number(challan.lateFeeFine || 0) + Number(challan.discount || 0)))}
                     </TableCell>
-                    <TableCell className="text-sm px-3 py-2 font-medium text-red-600">
+                    <TableCell className="hidden xl:table-cell text-sm px-3 py-2 font-medium text-red-600">
                       {(() => {
                         const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
                         const existingFine = Number(challan.lateFeeFine || 0);
@@ -628,8 +636,8 @@ export const ExtraChallansTab = ({
                         );
                       })()}
                     </TableCell>
-                    <TableCell className="text-sm px-3 py-2 font-medium text-green-600">PKR {formatAmount(challan.discount || 0)}</TableCell>
-                    <TableCell className="text-sm px-3 py-2 font-bold bg-slate-50">
+                    <TableCell className="hidden xl:table-cell text-sm px-3 py-2 font-medium text-green-600">PKR {formatAmount(challan.discount || 0)}</TableCell>
+                    <TableCell className="text-xs sm:text-sm px-3 py-2 font-bold font-mono text-right bg-slate-50 sm:bg-transparent">
                       {(() => {
                         const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
                         const existingFine = Number(challan.lateFeeFine || 0);
@@ -641,21 +649,22 @@ export const ExtraChallansTab = ({
                         return `PKR ${formatAmount(effectiveTotal)}`;
                       })()}
                     </TableCell>
-                    <TableCell className="text-sm px-3 py-2 text-success font-medium bg-green-50/50">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{challan.dueDate ? new Date(challan.dueDate).toLocaleDateString() : '—'}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
-                      <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "secondary" : (challan.status === "VOID" || challan.status === "SUPERSEDED" || challan.status === "SETTLED") ? "outline" : "secondary"}>
+                    <TableCell className="hidden md:table-cell text-sm px-3 py-2 text-success font-medium bg-green-50/50">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
+                    <TableCell className="hidden lg:table-cell py-2 px-3 text-sm">{challan.dueDate ? new Date(challan.dueDate).toLocaleDateString() : '—'}</TableCell>
+                    <TableCell className="py-2 px-2.5 sm:px-3 text-center">
+                      <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "secondary" : (challan.status === "VOID" || challan.status === "SUPERSEDED" || challan.status === "SETTLED") ? "outline" : "secondary"} className="text-[10px] sm:text-xs">
                         {challan.status === "VOID" ? "Voided" : 
                          (challan.status === "SUPERSEDED" && (challan.settledAmount || 0) > 0) ? "Partially Settled" :
                          challan.status === "SUPERSEDED" ? "Superseded" : 
                          challan.status === "SETTLED" ? "Settled" : challan.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm px-3 py-2 text-right">
+                    <TableCell className="hidden sm:table-cell text-sm px-3 py-2 text-right">
                       <div className="flex justify-end gap-1">
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button size="sm" variant="ghost" onClick={() => {
+                            <Button size="sm" variant="ghost" onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedChallanDetails({ ...challan, isExtra: true, challanType: 'FEE_HEADS_ONLY' });
                               setDetailsDialogOpen(true);
                             }}>
@@ -669,7 +678,10 @@ export const ExtraChallansTab = ({
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => printExtraChallanById(challan.id, challan)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                printExtraChallanById(challan.id, challan);
+                              }}
                               disabled={printingChallanId === `extra-${challan.id}`}
                             >
                               <Printer className="w-4 h-4" />
@@ -684,7 +696,8 @@ export const ExtraChallansTab = ({
                                 size="sm" 
                                 variant="outline" 
                                 className="text-success border-success hover:bg-success hover:text-white h-8 px-2"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setItemToPay({ ...challan, isExtra: true, challanType: 'FEE_HEADS_ONLY' });
                                   setPaymentDialogOpen(true);
                                 }}
@@ -698,7 +711,10 @@ export const ExtraChallansTab = ({
                         {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED") ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(challan)}>
+                              <Button size="sm" variant="ghost" onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEdit(challan);
+                              }}>
                                 <Edit className="w-4 h-4" />
                               </Button>
                             </TooltipTrigger>
@@ -723,7 +739,8 @@ export const ExtraChallansTab = ({
                                 size="sm" 
                                 variant="ghost" 
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setItemToDelete({ 
                                     type: "extraChallan", 
                                     id: challan.id, 

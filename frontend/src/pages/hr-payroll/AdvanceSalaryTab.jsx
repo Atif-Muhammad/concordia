@@ -109,6 +109,7 @@ export const AdvanceSalaryTab = () => {
 
   const [advanceRoleFilter, setAdvanceRoleFilter] = useState("all");
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [selectedAdvance, setSelectedAdvance] = useState(null);
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [advanceComboOpen, setAdvanceComboOpen] = useState(false);
   const [advanceStaffSearch, setAdvanceStaffSearch] = useState("");
@@ -273,17 +274,17 @@ export const AdvanceSalaryTab = () => {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <div className="flex flex-col gap-1">
-              <CardTitle>Advance Salary</CardTitle>
-              <p className="text-sm text-muted-foreground">Manage advance salary requests for all staff</p>
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div className="flex flex-col gap-0.5">
+              <CardTitle className="text-base sm:text-lg">Advance Salary</CardTitle>
+              <p className="text-xs sm:text-sm text-muted-foreground">Manage advance salary requests for all staff</p>
             </div>
-            <div className="flex gap-2">
-              <div className="flex items-center gap-2">
-                <Label className="hidden sm:inline">Role:</Label>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+              <div className="flex items-center gap-1.5">
+                <Label className="hidden sm:inline text-xs sm:text-sm">Role:</Label>
                 <Select value={advanceRoleFilter} onValueChange={setAdvanceRoleFilter}>
-                  <SelectTrigger className="w-32 sm:w-40">
+                  <SelectTrigger className="w-28 sm:w-40 h-8 sm:h-9 text-xs sm:text-sm">
                     <SelectValue placeholder="All Staff" />
                   </SelectTrigger>
                   <SelectContent>
@@ -294,42 +295,53 @@ export const AdvanceSalaryTab = () => {
                 </Select>
               </div>
               {canCreate && (
-                <Button onClick={() => setAdvanceOpen(true)}>
-                  <DollarSign className="mr-2 h-4 w-4" />
+                <Button size="sm" className="h-8 sm:h-9 text-xs sm:text-sm" onClick={() => setAdvanceOpen(true)}>
+                  <DollarSign className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   Add Advance
                 </Button>
               )}
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-2 sm:p-6 pt-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Staff Name</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Role / Designation</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Deduction Month</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Date of Release</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Adjusted</TableHead>
-                  <TableHead className="py-2 px-3 text-sm text-right">Actions</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Staff Name</TableHead>
+                  <TableHead className="hidden md:table-cell py-2 px-3 text-sm">Role / Designation</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2 px-3 text-sm">Deduction Month</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2 px-3 text-sm">Date of Release</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right">Amount</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2 px-3 text-sm">Remarks</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Adjusted</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2 px-3 text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {advanceSalaries?.map((advance) => (
-                  <TableRow key={advance.id}>
-                    <TableCell className="py-2 px-3 text-sm font-medium">{advance.staff?.name || "N/A"}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
+                  <TableRow
+                    key={advance.id}
+                    className="cursor-pointer hover:bg-muted/40 transition-colors"
+                    onClick={() => setSelectedAdvance(advance)}
+                  >
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                      <div className="font-semibold text-foreground">{advance.staff?.name || "N/A"}</div>
+                      <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                        {advance.staff?.isTeaching ?
+                          (advance.staff?.specialization ? `Teacher (${advance.staff?.specialization})` : 'Teacher') :
+                          (advance.staff?.designation || "Staff")} · {formatPayrollMonthLabel(advance.month) || advance.month}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                       <div className="text-xs">
                         {advance.staff?.isTeaching ?
                           (advance.staff?.specialization ? `Teacher (${advance.staff?.specialization})` : 'Teacher') :
                           (advance.staff?.designation || "Staff")}
                       </div>
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">{formatPayrollMonthLabel(advance.month) || advance.month}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
+                    <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">{formatPayrollMonthLabel(advance.month) || advance.month}</TableCell>
+                    <TableCell className="hidden lg:table-cell py-2 px-3 text-sm">
                       {advance.releaseDate ? (() => {
                         try {
                           return format(new Date(advance.releaseDate), "dd MMM yyyy");
@@ -338,8 +350,10 @@ export const AdvanceSalaryTab = () => {
                         }
                       })() : "-"}
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm font-semibold text-primary">PKR {Number(advance.amount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="py-2 px-3 text-sm max-w-[200px]">
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold text-primary font-mono text-right">
+                      PKR {Number(advance.amount || 0).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="hidden xl:table-cell py-2 px-3 text-sm max-w-[200px]">
                       <div className="truncate">{advance.remarks || "-"}</div>
                       <div className="mt-1">
                         <Tooltip>
@@ -360,14 +374,14 @@ export const AdvanceSalaryTab = () => {
                         </Tooltip>
                       </div>
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm">
+                    <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                       {advance.adjusted ? (
                         <div className="space-y-1">
-                          <Badge variant="default" className="bg-green-600">Adjusted</Badge>
+                          <Badge variant="default" className="bg-green-600 text-[11px] px-1.5 py-0.5">Adjusted</Badge>
                           {getPayrollAdjustedMeta(advance) && (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Badge variant="outline" className="cursor-help">
+                                <Badge variant="outline" className="hidden sm:inline-flex cursor-help text-[10px]">
                                   Adjusted via payroll ({formatPayrollMonthLabel(getPayrollAdjustedMeta(advance).month)})
                                 </Badge>
                               </TooltipTrigger>
@@ -378,15 +392,22 @@ export const AdvanceSalaryTab = () => {
                           )}
                         </div>
                       ) : (
-                        <Badge variant="secondary">Pending</Badge>
+                        <Badge variant="secondary" className="text-[11px] px-1.5 py-0.5">Pending</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="py-2 px-3 text-sm text-right">
+                    <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
                       <div className="flex justify-end space-x-2">
                         {canUpdate && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="sm" variant="ghost" onClick={() => handleEditAdvance(advance)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditAdvance(advance);
+                                }}
+                              >
                                 <Edit className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
@@ -396,11 +417,17 @@ export const AdvanceSalaryTab = () => {
                         {canDelete && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => {
-                                if (confirm("Are you sure you want to delete this record?")) {
-                                  deleteAdvanceMutation.mutate(advance.id);
-                                }
-                              }}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Are you sure you want to delete this record?")) {
+                                    deleteAdvanceMutation.mutate(advance.id);
+                                  }
+                                }}
+                              >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
@@ -687,6 +714,99 @@ export const AdvanceSalaryTab = () => {
               {editingAdvance ? "Update Advance" : "Save Advance"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Advance Salary Details Dialog */}
+      <Dialog open={!!selectedAdvance} onOpenChange={(open) => !open && setSelectedAdvance(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Advance Salary Details</DialogTitle>
+          </DialogHeader>
+          {selectedAdvance && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Staff Name:</span>
+                <span className="font-semibold text-foreground">{selectedAdvance.staff?.name || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Role / Designation:</span>
+                <span>
+                  {selectedAdvance.staff?.isTeaching ?
+                    (selectedAdvance.staff?.specialization ? `Teacher (${selectedAdvance.staff?.specialization})` : 'Teacher') :
+                    (selectedAdvance.staff?.designation || "Staff")}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Amount:</span>
+                <span className="font-bold text-primary font-mono text-sm">
+                  PKR {Number(selectedAdvance.amount || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Deduction Month:</span>
+                <span className="font-medium">{formatPayrollMonthLabel(selectedAdvance.month) || selectedAdvance.month}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Release Date:</span>
+                <span>
+                  {selectedAdvance.releaseDate ? (() => {
+                    try {
+                      return format(new Date(selectedAdvance.releaseDate), "dd MMM yyyy");
+                    } catch (e) {
+                      return selectedAdvance.releaseDate;
+                    }
+                  })() : "-"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Status:</span>
+                {selectedAdvance.adjusted ? (
+                  <Badge variant="default" className="bg-green-600">Adjusted</Badge>
+                ) : (
+                  <Badge variant="secondary">Pending</Badge>
+                )}
+              </div>
+              {selectedAdvance.remarks && (
+                <div className="py-1.5 border-b">
+                  <span className="text-muted-foreground block mb-1">Remarks:</span>
+                  <p className="text-xs bg-muted/40 p-2 rounded border">{selectedAdvance.remarks}</p>
+                </div>
+              )}
+              <div className="pt-2 flex justify-end gap-2">
+                {canUpdate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const adv = selectedAdvance;
+                      setSelectedAdvance(null);
+                      handleEditAdvance(adv);
+                    }}
+                  >
+                    <Edit className="h-4 w-4 mr-1" />
+                    Edit
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => {
+                      const id = selectedAdvance.id;
+                      if (confirm("Are you sure you want to delete this record?")) {
+                        setSelectedAdvance(null);
+                        deleteAdvanceMutation.mutate(id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

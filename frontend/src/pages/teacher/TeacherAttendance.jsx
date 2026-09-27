@@ -533,10 +533,10 @@ export default function TeacherAttendance() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
-                        <TableHead className="w-[50px] text-xs font-semibold">#</TableHead>
-                        <TableHead className="w-[170px] text-xs font-semibold">Roll Number</TableHead>
-                        <TableHead className="text-xs font-semibold">Student Name</TableHead>
-                        <TableHead className="w-[240px] text-xs font-semibold text-center">Attendance Status</TableHead>
+                        <TableHead className="w-[40px] sm:w-[50px] text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">#</TableHead>
+                        <TableHead className="w-[140px] sm:w-[170px] text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Roll Number</TableHead>
+                        <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Student Name</TableHead>
+                        <TableHead className="w-[160px] sm:w-[240px] text-xs font-semibold text-right sm:text-center py-2 px-2 sm:px-3">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -571,22 +571,22 @@ export default function TeacherAttendance() {
                             )}
                           >
                             {/* Row Index */}
-                            <TableCell className="text-xs text-muted-foreground font-mono">
+                            <TableCell className="text-xs text-muted-foreground font-mono py-2 px-2 sm:px-3 hidden sm:table-cell">
                               {index + 1}
                             </TableCell>
 
                             {/* Roll Number */}
-                            <TableCell className="font-mono text-xs font-medium text-foreground">
+                            <TableCell className="font-mono text-xs font-medium text-foreground py-2 px-2 sm:px-3 hidden sm:table-cell">
                               <span className="bg-muted/70 px-2 py-0.5 rounded border text-[11px]">
                                 {rollNumber}
                               </span>
                             </TableCell>
 
                             {/* Student Name with Avatar */}
-                            <TableCell>
-                              <div className="flex items-center gap-2.5">
+                            <TableCell className="py-2 px-2 sm:px-3">
+                              <div className="flex items-center gap-2">
                                 <div className={cn(
-                                  "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                                  "w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold shrink-0",
                                   isHoliday
                                     ? "bg-primary/10 text-primary"
                                     : isAbsent 
@@ -596,11 +596,17 @@ export default function TeacherAttendance() {
                                   {initials}
                                 </div>
                                 <div className="flex flex-col">
-                                  <span className="font-semibold text-sm text-foreground leading-tight">
+                                  <span className="font-semibold text-xs sm:text-sm text-foreground leading-tight">
                                     {studentName}
                                   </span>
+                                  <div className="sm:hidden flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
+                                    <span className="font-mono font-medium bg-muted px-1 rounded">{rollNumber}</span>
+                                    {student?.fatherOrguardian && (
+                                      <span className="truncate max-w-[120px]">S/D of {student.fatherOrguardian}</span>
+                                    )}
+                                  </div>
                                   {student?.fatherOrguardian && (
-                                    <span className="text-[11px] text-muted-foreground">
+                                    <span className="hidden sm:inline text-[11px] text-muted-foreground">
                                       S/D of {student.fatherOrguardian}
                                     </span>
                                   )}
@@ -609,27 +615,27 @@ export default function TeacherAttendance() {
                             </TableCell>
 
                             {/* Attendance Segmented Toggle Pills (Present & Absent only) or Holiday Lock */}
-                            <TableCell className="text-center">
+                            <TableCell className="text-right sm:text-center py-2 px-2 sm:px-3">
                               {isHoliday ? (
-                                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs font-semibold px-3 py-1">
-                                  <Calendar className="w-3.5 h-3.5 mr-1.5" /> Holiday ({holidayInfo?.title})
+                                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-3 sm:py-1">
+                                  <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" /> Holiday
                                 </Badge>
                               ) : (
-                                <div className="inline-flex items-center p-0.5 rounded-lg border border-border/70 bg-muted/40 shadow-2xs gap-1">
+                                <div className="inline-flex items-center p-0.5 rounded-lg border border-border/70 bg-muted/40 shadow-2xs gap-0.5 sm:gap-1">
                                   {/* Present Button */}
                                   <button
                                     type="button"
                                     onClick={() => handleStatusChange(studentId, 'Present')}
                                     className={cn(
-                                      "inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150 cursor-pointer select-none",
+                                      "inline-flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-semibold transition-all duration-150 cursor-pointer select-none",
                                       !isAbsent
                                         ? "bg-primary text-primary-foreground shadow-xs ring-1 ring-primary/30"
                                         : "text-muted-foreground hover:text-primary hover:bg-primary/10"
                                     )}
                                     title="Mark Present"
                                   >
-                                    <Check className={cn("w-3.5 h-3.5", !isAbsent ? "stroke-[2.5]" : "")} />
-                                    <span>Present</span>
+                                    <Check className={cn("w-3 h-3 sm:w-3.5 sm:h-3.5", !isAbsent ? "stroke-[2.5]" : "")} />
+                                    <span>P<span className="hidden sm:inline">resent</span></span>
                                   </button>
 
                                   {/* Absent Button */}
@@ -637,15 +643,15 @@ export default function TeacherAttendance() {
                                     type="button"
                                     onClick={() => handleStatusChange(studentId, 'Absent')}
                                     className={cn(
-                                      "inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-150 cursor-pointer select-none",
+                                      "inline-flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-semibold transition-all duration-150 cursor-pointer select-none",
                                       isAbsent
                                         ? "bg-red-600 text-white shadow-xs ring-1 ring-red-400"
                                         : "text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
                                     )}
                                     title="Mark Absent"
                                   >
-                                    <X className={cn("w-3.5 h-3.5", isAbsent ? "stroke-[2.5]" : "")} />
-                                    <span>Absent</span>
+                                    <X className={cn("w-3 h-3 sm:w-3.5 sm:h-3.5", isAbsent ? "stroke-[2.5]" : "")} />
+                                    <span>A<span className="hidden sm:inline">bsent</span></span>
                                   </button>
                                 </div>
                               )}

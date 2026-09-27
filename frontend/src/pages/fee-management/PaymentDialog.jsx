@@ -130,18 +130,19 @@ export const PaymentDialog = ({
     }
   }, [challan, open, lateFeeRatePerDay, extraChallanLateFee]);
 
-  // Default wallet selection based on payment mode or first active wallet
+  // Default wallet selection based on payment mode or United Bank Limited / main account
   useEffect(() => {
     if (activeWallets.length === 0) return;
     if (!selectedWalletId) {
+      const ubl = activeWallets.find(w => /United Bank Limited/i.test(w.name));
       if (challanForm.paidBy === "Cash") {
         const cashWallet = activeWallets.find(w => w.type === "CASH");
-        setSelectedWalletId(cashWallet ? (cashWallet._id || cashWallet.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
+        setSelectedWalletId(cashWallet ? (cashWallet._id || cashWallet.id).toString() : (ubl ? (ubl._id || ubl.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString()));
       } else if (challanForm.paidBy === "Bank Account") {
-        const bankWallet = activeWallets.find(w => w.type === "BANK");
+        const bankWallet = ubl || activeWallets.find(w => w.type === "BANK");
         setSelectedWalletId(bankWallet ? (bankWallet._id || bankWallet.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
       } else {
-        setSelectedWalletId((activeWallets[0]._id || activeWallets[0].id).toString());
+        setSelectedWalletId(ubl ? (ubl._id || ubl.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
       }
     }
   }, [activeWallets, challanForm.paidBy, selectedWalletId]);
@@ -521,7 +522,7 @@ export const PaymentDialog = ({
                       const cashWallet = activeWallets.find(w => w.type === "CASH");
                       if (cashWallet) setSelectedWalletId((cashWallet._id || cashWallet.id).toString());
                     } else if (val === "Bank Account") {
-                      const bankWallet = activeWallets.find(w => w.type === "BANK");
+                      const bankWallet = activeWallets.find(w => /United Bank Limited/i.test(w.name)) || activeWallets.find(w => w.type === "BANK");
                       if (bankWallet) setSelectedWalletId((bankWallet._id || bankWallet.id).toString());
                     }
                   }}

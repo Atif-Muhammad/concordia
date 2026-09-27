@@ -826,23 +826,23 @@ export default function InquiryTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <UserPlus className="w-5 h-5" />
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+          <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
           All Inquiries
         </CardTitle>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-initial">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={inquiryNameSearch}
               onChange={(e) => setInquiryNameSearch(e.target.value)}
               placeholder="Search by name"
-              className="w-[220px] pl-9"
+              className="w-full sm:w-[200px] pl-8 text-xs sm:text-sm h-8 sm:h-9"
             />
           </div>
           <Select value={selectedProgram} onValueChange={setSelectedProgram}>
-            <SelectTrigger className="w-[220px]">
+            <SelectTrigger className="w-full sm:w-[180px] text-xs sm:text-sm h-8 sm:h-9">
               <SelectValue placeholder="Filter by program" />
             </SelectTrigger>
             <SelectContent>
@@ -856,12 +856,14 @@ export default function InquiryTab() {
           </Select>
           {canCreate && (
             <Button
+              size="sm"
+              className="h-8 sm:h-9 text-xs sm:text-sm"
               onClick={() => {
                 closeInquiryDialog();
                 setInquiryDialog(true);
               }}
             >
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-3.5 h-3.5 mr-1" />
               Add Inquiry
             </Button>
           )}
@@ -1208,64 +1210,78 @@ export default function InquiryTab() {
         {inquiriesLoading ? (
           <p className="text-center py-8 text-muted-foreground">Loading inquiries...</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Father Name</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Phone</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Program</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredInquiries.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="py-2 px-3 text-sm text-center text-muted-foreground"
-                  >
-                    No inquiries found.
-                  </TableCell>
+          <div className="border rounded-lg overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold hidden md:table-cell">Date</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold">Student</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold hidden lg:table-cell">Father Name</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold hidden lg:table-cell">Phone</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold">Program</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold">Status</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-semibold hidden md:table-cell">Actions</TableHead>
                 </TableRow>
-              ) : (
-                <>
-                  {filteredInquiries.map((inquiry, index) => (
-                    <TableRow
-                      key={inquiry.id}
-                      ref={
-                        index === filteredInquiries.length - 1
-                          ? lastInquiryElementRef
-                          : null
-                      }
+              </TableHeader>
+              <TableBody>
+                {filteredInquiries.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="py-2 px-3 text-sm text-center text-muted-foreground"
                     >
-                      <TableCell className="py-2 px-3 text-sm">
-                        {inquiry.createdAt?.split("T")[0]}
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm font-medium">
-                        {inquiry.studentName}
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        {inquiry.fatherName}
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        {inquiry.contactNumber}
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        {inquiry.programInterest?.name || inquiry.program?.name || "—"}
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                            inquiry.status
-                          )}`}
-                        >
-                          {inquiry.status || "NEW"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      No inquiries found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {filteredInquiries.map((inquiry, index) => (
+                      <TableRow
+                        key={inquiry.id}
+                        ref={
+                          index === filteredInquiries.length - 1
+                            ? lastInquiryElementRef
+                            : null
+                        }
+                        className="cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted/80"
+                        onClick={() =>
+                          setViewDetailsDialog({
+                            open: true,
+                            data: inquiry,
+                          })
+                        }
+                      >
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
+                          {inquiry.createdAt?.split("T")[0]}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium">
+                          <div className="font-semibold text-foreground">{inquiry.studentName}</div>
+                          <div className="md:hidden text-[10px] text-muted-foreground font-normal mt-0.5">
+                            {inquiry.fatherName}{inquiry.contactNumber ? ` • ${inquiry.contactNumber}` : ''}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden lg:table-cell">
+                          {inquiry.fatherName}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden lg:table-cell">
+                          {inquiry.contactNumber}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <div>{inquiry.programInterest?.name || inquiry.program?.name || "—"}</div>
+                          <div className="md:hidden text-[10px] text-muted-foreground font-normal mt-0.5">
+                            {inquiry.createdAt?.split("T")[0]}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium ${getStatusColor(
+                              inquiry.status
+                            )}`}
+                          >
+                            {inquiry.status || "NEW"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           {/* If inquiry is NEW or pending */}
                           {canUpdate && (inquiry.status === "NEW" || !inquiry.status) && (
@@ -1399,6 +1415,7 @@ export default function InquiryTab() {
               )}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
 

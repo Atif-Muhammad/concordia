@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    restart: always
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./backend/.env
+    network_mode: host
+    environment:
+      ENVIRONMENT: production
+      UPLOAD_ROOT: /opt/portal/uploads
+    volumes:
+      - /opt/portal/uploads:/opt/portal/uploads
+
+  admin-panel:
+    build:
+      context: ./admin-panel
+    container_name: admin-panel
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+

@@ -714,29 +714,29 @@ export default function MarkAttendanceTab() {
 
       {/* Attendance Stats Cards */}
       {hasLoadedStudents && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{fetchedStudents.length}</div>
-              <p className="text-xs text-muted-foreground">Total Students</p>
+            <CardContent className="p-2.5 sm:pt-6 sm:p-6">
+              <div className="text-base sm:text-2xl font-bold">{fetchedStudents.length}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Total Students</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-green-600">{stats.present}</div>
-              <p className="text-xs text-muted-foreground">Present</p>
+            <CardContent className="p-2.5 sm:pt-6 sm:p-6">
+              <div className="text-base sm:text-2xl font-bold text-green-600">{stats.present}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Present</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-red-600">{stats.absent}</div>
-              <p className="text-xs text-muted-foreground">Absent</p>
+            <CardContent className="p-2.5 sm:pt-6 sm:p-6">
+              <div className="text-base sm:text-2xl font-bold text-red-600">{stats.absent}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Absent</p>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-amber-600">{stats.rate}%</div>
-              <p className="text-xs text-muted-foreground">Attendance Rate</p>
+            <CardContent className="p-2.5 sm:pt-6 sm:p-6">
+              <div className="text-base sm:text-2xl font-bold text-amber-600">{stats.rate}%</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Attendance Rate</p>
             </CardContent>
           </Card>
         </div>
@@ -744,11 +744,11 @@ export default function MarkAttendanceTab() {
 
       {/* Quick Mark Buttons */}
       {hasLoadedStudents && canMarkAttendance && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <Button
             size="sm"
             variant="outline"
-            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+            className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-green-600 hover:text-green-700 hover:bg-green-50"
             disabled={isDateHoliday}
             onClick={() => {
               if (isDateHoliday) return;
@@ -763,7 +763,7 @@ export default function MarkAttendanceTab() {
           <Button
             size="sm"
             variant="outline"
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
             disabled={isDateHoliday}
             onClick={() => {
               if (isDateHoliday) return;
@@ -778,7 +778,7 @@ export default function MarkAttendanceTab() {
           <Button
             size="sm"
             variant="outline"
-            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+            className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
             disabled={isDateHoliday}
             onClick={() => {
               if (isDateHoliday) return;
@@ -810,24 +810,24 @@ export default function MarkAttendanceTab() {
           <div className="rounded-md border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Class / Section</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Current Status</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden sm:table-cell">Roll No</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Student</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden md:table-cell">Class / Section</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden sm:table-cell">Current Status</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-right sm:text-left">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!hasLoadedStudents ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-2 px-3 text-sm text-center text-muted-foreground py-8">
+                    <TableCell colSpan={5} className="py-6 px-3 text-xs sm:text-sm text-center text-muted-foreground">
                       Select filters and click "Load Students" to view attendance
                     </TableCell>
                   </TableRow>
                 ) : fetchedStudents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-2 px-3 text-sm text-center text-muted-foreground py-8">
+                    <TableCell colSpan={5} className="py-6 px-3 text-xs sm:text-sm text-center text-muted-foreground">
                       No students found for this class and section
                     </TableCell>
                   </TableRow>
@@ -840,31 +840,39 @@ export default function MarkAttendanceTab() {
                     const effectiveStatus = attendanceChanges[studentId] || normalizeAttendanceStatus(att?.status) || "not_marked";
 
                     return (
-                      <TableRow key={studentId}>
-                        <TableCell className="py-2 px-3 text-sm font-medium">{student.rollNumber}</TableCell>
-                        <TableCell className="py-2 px-3 text-sm">{getFullName(student)}</TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                      <TableRow key={studentId} className="hover:bg-muted/40 transition-colors">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm font-medium font-mono hidden sm:table-cell">
+                          {student.rollNumber}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <div className="font-medium text-foreground">{getFullName(student)}</div>
+                          <div className="sm:hidden text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono font-medium bg-muted px-1 rounded">{student.rollNumber}</span>
+                            <span>{student.class?.name}{student.section?.name ? ` (${student.section.name})` : ""}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
                           {student.class?.name} {student.section?.name ? `(${student.section.name})` : ""}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          {effectiveStatus === "present" && <Badge className="bg-green-500">Present</Badge>}
-                          {effectiveStatus === "absent" && <Badge className="bg-red-500">Absent</Badge>}
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">
+                          {effectiveStatus === "present" && <Badge className="bg-green-500 text-xs">Present</Badge>}
+                          {effectiveStatus === "absent" && <Badge className="bg-red-500 text-xs">Absent</Badge>}
                           {effectiveStatus === "leave" && (
-                            <Badge className="bg-amber-500">
+                            <Badge className="bg-amber-500 text-xs">
                               Leave {att?.isApprovedLeave ? "(Approved)" : ""}
                             </Badge>
                           )}
-                          {effectiveStatus === "short_leave" && <Badge className="bg-blue-500">Short Leave</Badge>}
+                          {effectiveStatus === "short_leave" && <Badge className="bg-blue-500 text-xs">Short Leave</Badge>}
                           {(effectiveStatus === "holiday" || effectiveStatus === "hd") && (
-                            <Badge className="bg-purple-600 text-white">Holiday (HD)</Badge>
+                            <Badge className="bg-purple-600 text-white text-xs">Holiday (HD)</Badge>
                           )}
-                          {effectiveStatus === "not_marked" && <Badge variant="outline">Not Marked</Badge>}
+                          {effectiveStatus === "not_marked" && <Badge variant="outline" className="text-xs">Not Marked</Badge>}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                           {isLocked ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground cursor-help justify-end sm:justify-start">
                                   <LockKeyhole className="w-3.5 h-3.5 text-amber-500" /> Locked
                                 </span>
                               </TooltipTrigger>
@@ -873,33 +881,35 @@ export default function MarkAttendanceTab() {
                           ) : isDateHoliday ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="flex items-center gap-1 text-xs text-purple-600 cursor-not-allowed font-medium">
-                                  <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                                    Holiday - Blocked
+                                <span className="flex items-center gap-1 text-xs text-purple-600 cursor-not-allowed font-medium justify-end sm:justify-start">
+                                  <Badge variant="outline" className="text-[10px] sm:text-xs bg-purple-50 text-purple-700 border-purple-200">
+                                    Holiday
                                   </Badge>
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>Attendance actions are blocked on holidays</TooltipContent>
                             </Tooltip>
                           ) : !canMarkAttendance ? (
-                            <Badge
-                              variant="outline"
-                              className={`text-xs capitalize font-medium ${
-                                effectiveStatus === "present" ? "bg-green-50 text-green-700 border-green-200" :
-                                effectiveStatus === "absent" ? "bg-red-50 text-red-700 border-red-200" :
-                                effectiveStatus === "leave" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                                effectiveStatus === "short_leave" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                                "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {effectiveStatus ? effectiveStatus.replace("_", " ") : "Not Marked"}
-                            </Badge>
+                            <div className="flex justify-end sm:justify-start">
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] sm:text-xs capitalize font-medium ${
+                                  effectiveStatus === "present" ? "bg-green-50 text-green-700 border-green-200" :
+                                  effectiveStatus === "absent" ? "bg-red-50 text-red-700 border-red-200" :
+                                  effectiveStatus === "leave" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                  effectiveStatus === "short_leave" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                                  "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {effectiveStatus ? effectiveStatus.replace("_", " ") : "Not Marked"}
+                              </Badge>
+                            </div>
                           ) : (
-                            <div className="flex gap-1">
+                            <div className="flex gap-1 justify-end sm:justify-start">
                               <Button
                                 size="sm"
                                 variant={effectiveStatus === "present" ? "default" : "outline"}
-                                className={`h-8 px-2 text-xs ${effectiveStatus === "present" ? "bg-green-600 hover:bg-green-700" : ""}`}
+                                className={`h-7 w-7 sm:h-8 sm:w-8 p-0 text-xs font-bold ${effectiveStatus === "present" ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
                                 onClick={() => handleStatusChange(student, "present")}
                               >
                                 P
@@ -907,7 +917,7 @@ export default function MarkAttendanceTab() {
                               <Button
                                 size="sm"
                                 variant={effectiveStatus === "absent" ? "default" : "outline"}
-                                className={`h-8 px-2 text-xs ${effectiveStatus === "absent" ? "bg-red-600 hover:bg-red-700" : ""}`}
+                                className={`h-7 w-7 sm:h-8 sm:w-8 p-0 text-xs font-bold ${effectiveStatus === "absent" ? "bg-red-600 hover:bg-red-700 text-white" : ""}`}
                                 onClick={() => handleStatusChange(student, "absent")}
                               >
                                 A
@@ -915,7 +925,7 @@ export default function MarkAttendanceTab() {
                               <Button
                                 size="sm"
                                 variant={effectiveStatus === "leave" ? "default" : "outline"}
-                                className={`h-8 px-2 text-xs ${effectiveStatus === "leave" ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+                                className={`h-7 w-7 sm:h-8 sm:w-8 p-0 text-xs font-bold ${effectiveStatus === "leave" ? "bg-amber-600 hover:bg-amber-700 text-white" : ""}`}
                                 onClick={() => handleStatusChange(student, "leave")}
                               >
                                 L
@@ -923,7 +933,7 @@ export default function MarkAttendanceTab() {
                               <Button
                                 size="sm"
                                 variant={effectiveStatus === "short_leave" ? "default" : "outline"}
-                                className={`h-8 px-2 text-xs ${effectiveStatus === "short_leave" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                                className={`h-7 w-7 sm:h-8 sm:w-8 p-0 text-xs font-bold ${effectiveStatus === "short_leave" ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}`}
                                 onClick={() => handleStatusChange(student, "short_leave")}
                               >
                                 SL

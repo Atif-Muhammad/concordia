@@ -7,6 +7,7 @@ const fs = require('fs');
 const connectDB = require('./src/config/db');
 const errorHandler = require('./src/middlewares/error');
 const activityLogger = require('./src/middlewares/activityLogger');
+const staffStatusCheck = require('./src/middlewares/staffStatusCheck');
 const { getProfileBaseDir, resolveProfileImageFile } = require('./src/utils/profileStorage');
 
 // Routes
@@ -46,6 +47,9 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(activityLogger);
+
+// Global Staff Status Verification Middleware (blocks non-active staff, logs out instantly, ignores super_admin only)
+app.use(staffStatusCheck);
 
 // Static profile and uploads directories
 const profileDir = getProfileBaseDir();

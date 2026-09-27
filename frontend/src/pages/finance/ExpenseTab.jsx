@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,7 @@ export default function ExpenseTab() {
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
   const [expenseActionConfirm, setExpenseActionConfirm] = useState({ open: false, action: null, item: null });
   const [selectedApprovalWalletId, setSelectedApprovalWalletId] = useState("");
+  const [selectedExpense, setSelectedExpense] = useState(null);
 
   // Fetch active wallets for payment account selection
   const { data: walletsResponse } = useQuery({
@@ -120,6 +121,18 @@ export default function ExpenseTab() {
     walletsResponse?.data ||
     (Array.isArray(walletsResponse) ? walletsResponse : [])
   ).filter((w) => w.status === "ACTIVE");
+
+  // Pre-select United Bank Limited (Main Account) as default wallet
+  useEffect(() => {
+    if (activeWallets.length > 0 && !expenseFormData.walletId) {
+      const ubl = activeWallets.find((w) => /United Bank Limited/i.test(w.name)) ||
+                  activeWallets.find((w) => w.type === "BANK") ||
+                  activeWallets[0];
+      if (ubl) {
+        setExpenseFormData((prev) => ({ ...prev, walletId: (ubl.id || ubl._id).toString() }));
+      }
+    }
+  }, [activeWallets, expenseFormData.walletId]);
 
   const { canCreate, canDelete, canApprove } = usePermissions("Finance", "expense");
   const canApproveExpense = canApprove;
@@ -285,25 +298,27 @@ export default function ExpenseTab() {
               </Button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-7 gap-4 mt-4">
-            <div className="flex-1">
-              <Label>From</Label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mt-3">
+            <div>
+              <Label className="text-xs">From</Label>
               <Input
                 type="date"
+                className="h-8 text-xs"
                 value={expenseDateFrom}
                 onChange={(e) => setExpenseDateFrom(e.target.value)}
               />
             </div>
-            <div className="flex-1">
-              <Label>To</Label>
+            <div>
+              <Label className="text-xs">To</Label>
               <Input
                 type="date"
+                className="h-8 text-xs"
                 value={expenseDateTo}
                 onChange={(e) => setExpenseDateTo(e.target.value)}
               />
             </div>
-            <div className="flex-1">
-              <Label>Category</Label>
+            <div>
+              <Label className="text-xs">Category</Label>
               <Select
                 value={expenseFilterCategory}
                 onValueChange={(value) => {
@@ -311,7 +326,7 @@ export default function ExpenseTab() {
                   setExpenseFilterSubCategory("all");
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -324,14 +339,14 @@ export default function ExpenseTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1">
-              <Label>Sub Category</Label>
+            <div>
+              <Label className="text-xs">Sub Category</Label>
               <Select
                 value={expenseFilterSubCategory}
                 onValueChange={setExpenseFilterSubCategory}
                 disabled={expenseFilterCategory === "all"}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -344,13 +359,13 @@ export default function ExpenseTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1">
-              <Label>Status</Label>
+            <div className="col-span-2 sm:col-span-1">
+              <Label className="text-xs">Status</Label>
               <Select
                 value={expenseFilterStatus}
                 onValueChange={setExpenseFilterStatus}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -363,6 +378,8 @@ export default function ExpenseTab() {
             </div>
             <div className="flex items-end">
               <Button
+                size="sm"
+                className="w-full h-8 text-xs"
                 onClick={() =>
                   setAppliedExpenseFilter({
                     dateFrom: expenseDateFrom,
@@ -376,6 +393,8 @@ export default function ExpenseTab() {
             <div className="flex items-end">
               <Button
                 variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs"
                 onClick={() => {
                   const current = getCurrentMonthRange();
                   setExpenseDateFrom(current.dateFrom);
@@ -392,26 +411,25 @@ export default function ExpenseTab() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Category</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Sub Category</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Paid From Account</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Audit</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Date & Category</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm">Sub Category</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm">Paid From Account</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm">Description</TableHead>
+                  <TableHead className="py-2.5 px-2.5 sm:px-3 text-xs sm:text-sm text-center">Status</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm text-right">Amount</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2.5 px-3 text-sm">Audit</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {expenseLoading ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={8}
                       className="text-center py-12 text-muted-foreground"
                     >
                       Loading expense data...
@@ -420,7 +438,7 @@ export default function ExpenseTab() {
                 ) : expenseData.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={8}
                       className="text-center py-12 text-muted-foreground"
                     >
                       No expense records found for selected filters.
@@ -437,37 +455,44 @@ export default function ExpenseTab() {
                     return (
                       <TableRow
                         key={item.id || item._id}
-                        className={
+                        className={`cursor-pointer hover:bg-muted/40 transition-colors ${
                           isPending
                             ? "bg-amber-50/40 dark:bg-amber-950/20"
                             : item.status === "REJECTED" || item.status === "Rejected"
                             ? "bg-destructive/5"
                             : ""
-                        }
+                        }`}
+                        onClick={() => setSelectedExpense(item)}
                       >
-                        <TableCell className="py-2 px-3 text-sm">
-                          {new Date(item.date).toLocaleDateString()}
+                        <TableCell className="py-2 px-3 text-xs sm:text-sm">
+                          <div className="font-semibold text-foreground">{item.category}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {new Date(item.date).toLocaleDateString()}
+                            {item.subCategory && <span className="text-muted-foreground/80"> • {item.subCategory}</span>}
+                          </div>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Badge variant="destructive">{item.category}</Badge>
-                        </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                           {item.subCategory || "-"}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="hidden lg:table-cell py-2 px-3 text-sm">
                           {item.walletName ? (
-                            <Badge variant="outline" className="font-normal bg-muted/40">
+                            <Badge variant="outline" className="font-normal bg-muted/40 text-xs">
                               {item.walletName}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground text-xs italic">Unspecified</span>
                           )}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm min-w-[220px]">
+                        <TableCell className="hidden lg:table-cell py-2 px-3 text-sm max-w-[200px] truncate" title={item.description}>
                           {item.description}
                         </TableCell>
+                        <TableCell className="py-2 px-2.5 sm:px-3 text-center">
+                          <Badge variant={getExpenseStatusVariant(item.status)} className="text-[10px] sm:text-xs">
+                            {item.status || "APPROVED"}
+                          </Badge>
+                        </TableCell>
                         <TableCell
-                          className={`text-sm px-3 py-2 font-bold ${
+                          className={`py-2 px-3 text-xs sm:text-sm font-bold font-mono text-right ${
                             item.isCounted === false
                               ? "text-muted-foreground"
                               : "text-destructive"
@@ -475,23 +500,19 @@ export default function ExpenseTab() {
                         >
                           PKR {Number(item.amount).toLocaleString()}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Badge variant={getExpenseStatusVariant(item.status)}>
-                            {item.status || "APPROVED"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-2 px-3 text-xs text-muted-foreground min-w-[220px]">
+                        <TableCell className="hidden xl:table-cell py-2 px-3 text-xs text-muted-foreground max-w-[200px] truncate">
                           {getExpenseAuditText(item)}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <div className="flex items-center gap-1.5">
+                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
+                          <div className="flex items-center justify-end gap-1.5">
                             {isPending && canApproveExpense && (
                               <>
                                 <Button
                                   size="sm"
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2.5 text-xs flex items-center gap-1 font-medium shadow-xs"
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2 text-xs flex items-center gap-1 font-medium shadow-xs"
                                   disabled={isActionLoading}
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setSelectedApprovalWalletId(
                                       item.walletId || (activeWallets.length > 0 ? (activeWallets[0].id || activeWallets[0]._id) : "")
                                     );
@@ -512,13 +533,14 @@ export default function ExpenseTab() {
                                       variant="outline"
                                       className="text-destructive border-destructive/30 hover:bg-destructive/10 h-7 w-7 p-0"
                                       disabled={isActionLoading}
-                                      onClick={() =>
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         setExpenseActionConfirm({
                                           open: true,
                                           action: "reject",
                                           item,
-                                        })
-                                      }
+                                        });
+                                      }}
                                     >
                                       <XCircle className="h-3.5 w-3.5" />
                                     </Button>
@@ -533,9 +555,11 @@ export default function ExpenseTab() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() =>
-                                      setDeleteConfirm({ open: true, id: item.id })
-                                    }
+                                    className="h-7 w-7 p-0 inline-flex items-center justify-center"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteConfirm({ open: true, id: item.id });
+                                    }}
                                     disabled={!!item.source || isActionLoading}
                                     title={
                                       !!item.source
@@ -543,7 +567,7 @@ export default function ExpenseTab() {
                                         : "Delete"
                                     }
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                    <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -564,6 +588,126 @@ export default function ExpenseTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Expense Details Dialog */}
+      <Dialog open={!!selectedExpense} onOpenChange={(open) => !open && setSelectedExpense(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Expense Record Details</DialogTitle>
+          </DialogHeader>
+          {selectedExpense && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Category:</span>
+                <Badge variant="destructive">{selectedExpense.category}</Badge>
+              </div>
+              {selectedExpense.subCategory && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Sub Category:</span>
+                  <span className="font-medium">{selectedExpense.subCategory}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Status:</span>
+                <Badge variant={getExpenseStatusVariant(selectedExpense.status)}>
+                  {selectedExpense.status || "APPROVED"}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Amount:</span>
+                <div>
+                  <span className={`font-bold font-mono text-base ${selectedExpense.isCounted === false ? "text-muted-foreground" : "text-destructive"}`}>
+                    PKR {Number(selectedExpense.amount).toLocaleString()}
+                  </span>
+                  {selectedExpense.isCounted === false && (
+                    <span className="block text-[10px] text-muted-foreground italic">(Excluded from treasury totals)</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Date:</span>
+                <span>{new Date(selectedExpense.date).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Paid From Account:</span>
+                <span>{selectedExpense.walletName || "Unspecified"}</span>
+              </div>
+              {selectedExpense.auditText && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Audit / Log:</span>
+                  <span className="text-xs text-muted-foreground">{getExpenseAuditText(selectedExpense)}</span>
+                </div>
+              )}
+              {selectedExpense.description && (
+                <div className="py-1.5 border-b">
+                  <span className="text-muted-foreground block mb-1">Description:</span>
+                  <p className="text-xs bg-muted/40 p-2.5 rounded border leading-relaxed">
+                    {selectedExpense.description}
+                  </p>
+                </div>
+              )}
+              {/* Actions Footer inside dialog */}
+              <div className="pt-2 flex flex-wrap gap-2 justify-end">
+                {String(selectedExpense.status || "Pending").toUpperCase() === "PENDING" && canApproveExpense && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
+                      onClick={() => {
+                        const item = selectedExpense;
+                        setSelectedApprovalWalletId(
+                          item.walletId || (activeWallets.length > 0 ? (activeWallets[0].id || activeWallets[0]._id) : "")
+                        );
+                        setSelectedExpense(null);
+                        setExpenseActionConfirm({
+                          open: true,
+                          action: "approve",
+                          item,
+                        });
+                      }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive border-destructive/30 hover:bg-destructive/10 flex items-center gap-1.5"
+                      onClick={() => {
+                        const item = selectedExpense;
+                        setSelectedExpense(null);
+                        setExpenseActionConfirm({
+                          open: true,
+                          action: "reject",
+                          item,
+                        });
+                      }}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {canDelete && !selectedExpense.source && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="flex items-center gap-1.5"
+                    onClick={() => {
+                      const id = selectedExpense.id;
+                      setSelectedExpense(null);
+                      setDeleteConfirm({ open: true, id });
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Add Expense Dialog */}
       <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
@@ -715,10 +859,11 @@ export default function ExpenseTab() {
           {expenseActionConfirm.action === "approve" && expenseActionConfirm.item ? (
             (() => {
               const item = expenseActionConfirm.item;
+              const ublWallet = activeWallets.find((w) => /United Bank Limited/i.test(w.name));
               const currentWalletId =
                 selectedApprovalWalletId ||
                 item.walletId ||
-                (activeWallets.length > 0 ? (activeWallets[0].id || activeWallets[0]._id) : "");
+                (ublWallet ? (ublWallet.id || ublWallet._id) : (activeWallets.length > 0 ? (activeWallets[0].id || activeWallets[0]._id) : ""));
               const selectedWallet =
                 activeWallets.find((w) => (w.id || w._id) === currentWalletId) ||
                 activeWallets.find((w) => (w.id || w._id) === item.walletId);

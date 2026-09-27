@@ -194,40 +194,62 @@ const Complaints = () => {
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead className="font-bold py-2 px-3 text-sm">Subject</TableHead>
-                      <TableHead className="font-bold py-2 px-3 text-sm">Complainant</TableHead>
-                      <TableHead className="font-bold py-2 px-3 text-sm">Type</TableHead>
-                      <TableHead className="font-bold py-2 px-3 text-sm">Status</TableHead>
-                      <TableHead className="font-bold py-2 px-3 text-sm">Date</TableHead>
-                      <TableHead className="font-bold py-2 text-right px-6 px-3 text-sm">Actions</TableHead>
+                      <TableHead className="font-semibold py-2 px-2 sm:px-3 text-xs sm:text-sm">Complaint</TableHead>
+                      <TableHead className="font-semibold py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Complainant</TableHead>
+                      <TableHead className="font-semibold py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">Type</TableHead>
+                      <TableHead className="font-semibold py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
+                      <TableHead className="font-semibold py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">Date</TableHead>
+                      <TableHead className="font-semibold py-2 text-right px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {complaints?.map((complaint) => (
-                      <TableRow key={complaint.id} className="hover:bg-muted/30 transition-colors group">
-                        <TableCell className="font-medium py-2 px-3 text-sm">{complaint.subject}</TableCell>
-                        <TableCell className="py-2 px-3 text-sm">{complaint.complainantName}</TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
-                          <Badge variant="outline" className="font-normal capitalize shadow-xs">
+                      <TableRow
+                        key={complaint.id}
+                        className="hover:bg-muted/30 transition-colors group cursor-pointer active:bg-muted/60"
+                        onClick={() => {
+                          setSelectedComplaintId(complaint.id);
+                          setRemarkDialogOpen(true);
+                        }}
+                      >
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <div className="font-semibold text-foreground">{complaint.subject}</div>
+                          <div className="md:hidden text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                            <span>{complaint.complainantName}</span>
+                            <span className="capitalize">• {complaint.type}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
+                          {complaint.complainantName}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">
+                          <Badge variant="outline" className="font-normal capitalize shadow-xs text-xs">
                             {complaint.type}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">{getStatusBadge(complaint.status)}</TableCell>
-                        <TableCell className="text-muted-foreground py-2 px-3 text-sm">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
+                          <div>
+                            {getStatusBadge(complaint.status)}
+                            <div className="sm:hidden text-[10px] text-muted-foreground mt-0.5">
+                              {format(new Date(complaint.createdAt), "MMM dd")}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">
                           {format(new Date(complaint.createdAt), "MMM dd, yyyy")}
                         </TableCell>
-                        <TableCell className="text-right py-2 px-3 text-sm">
+                        <TableCell className="text-right py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
                           <div className="flex justify-end gap-2">
                             <Button
                               variant="secondary"
                               size="sm"
-                              className="bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-all shadow-xs"
+                              className="bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-all shadow-xs h-8 text-xs"
                               onClick={() => {
                                 setSelectedComplaintId(complaint.id);
                                 setRemarkDialogOpen(true);
                               }}
                             >
-                              <MessageSquare className="w-4 h-4 mr-2" />
+                              <MessageSquare className="w-3.5 h-3.5 mr-1" />
                               Remarks ({complaint.remarks?.length || 0})
                             </Button>
                             
@@ -237,7 +259,7 @@ const Complaints = () => {
                                 onValueChange={(status) => updateStatus({ id: complaint.id, status })}
                                 disabled={isUpdatingStatus}
                               >
-                                <SelectTrigger className="w-[140px] h-9 bg-background shadow-xs text-xs font-medium border-muted-foreground/20">
+                                <SelectTrigger className="w-[130px] h-8 bg-background shadow-xs text-xs font-medium border-muted-foreground/20">
                                   <SelectValue placeholder="Status" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -263,11 +285,32 @@ const Complaints = () => {
         {/* Remarks Dialog */}
         <Dialog open={remarkDialogOpen} onOpenChange={setRemarkDialogOpen}>
           <DialogContent className="max-w-2xl bg-card border-none shadow-2xl rounded-md overflow-hidden p-0">
-            <DialogHeader className="p-6 bg-primary/5 border-b border-border">
-              <DialogTitle className="flex items-center gap-2 text-xl">
-                <MessageSquare className="w-5 h-5 text-primary" />
+            <DialogHeader className="p-4 sm:p-6 bg-primary/5 border-b border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
                 Case Remarks: {selectedComplaint?.subject}
               </DialogTitle>
+              {canUpdate && selectedComplaint && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status:</span>
+                  <Select
+                    value={selectedComplaint.status}
+                    onValueChange={(status) => updateStatus({ id: selectedComplaint.id, status })}
+                    disabled={isUpdatingStatus}
+                  >
+                    <SelectTrigger className="w-[130px] h-8 bg-background text-xs font-medium">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusOptions.map((opt) => (
+                        <SelectItem key={opt} value={opt} className="text-xs">
+                          {opt.replace("_", " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </DialogHeader>
 
             <div className="flex flex-col h-[60vh]">

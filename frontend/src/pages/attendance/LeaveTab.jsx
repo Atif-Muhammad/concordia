@@ -66,6 +66,7 @@ export default function LeaveTab() {
 
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [selectedLeave, setSelectedLeave] = useState(null);
 
   const [leaveFormData, setLeaveFormData] = useState({
     applicantType: "STUDENT",
@@ -308,14 +309,14 @@ export default function LeaveTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2.5 px-3 text-sm">Student Name</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Class & Roll</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Leave Type</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Period</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm text-center">Days</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Reason</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Status</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm text-right">Actions</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Student</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm">Class & Roll</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm">Leave Type</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm">Period</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm text-right sm:text-center">Days</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2.5 px-3 text-sm">Reason</TableHead>
+                  <TableHead className="py-2.5 px-2.5 sm:px-3 text-xs sm:text-sm text-center">Status</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -343,14 +344,26 @@ export default function LeaveTab() {
                     const days = leave.days || calculateDays(leave.fromDate, leave.toDate);
 
                     return (
-                      <TableRow key={leaveId}>
-                        <TableCell className="py-2.5 px-3 text-sm font-medium">
-                          {displayName}
+                      <TableRow
+                        key={leaveId}
+                        className="cursor-pointer hover:bg-muted/40 transition-colors"
+                        onClick={() => setSelectedLeave({ leave, displayName, details, days, leaveId })}
+                      >
+                        <TableCell className="py-2.5 px-3 text-xs sm:text-sm font-medium">
+                          <div className="font-semibold text-foreground">{displayName}</div>
+                          {details && (
+                            <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                              {details}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-muted-foreground sm:hidden">
+                            {leave.fromDate} {leave.toDate && leave.toDate !== leave.fromDate ? `→ ${leave.toDate}` : ""}
+                          </div>
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm text-muted-foreground text-xs">
+                        <TableCell className="hidden md:table-cell py-2.5 px-3 text-sm text-muted-foreground text-xs">
                           {details || "—"}
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm">
+                        <TableCell className="hidden sm:table-cell py-2.5 px-3 text-sm">
                           <Badge
                             variant="outline"
                             className={
@@ -364,36 +377,37 @@ export default function LeaveTab() {
                             {leave.leaveType === "SICK" ? "Sick" : leave.leaveType === "ANNUAL" ? "Annual" : "Casual"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm whitespace-nowrap">
+                        <TableCell className="hidden lg:table-cell py-2.5 px-3 text-sm whitespace-nowrap">
                           {leave.fromDate} {leave.toDate && leave.toDate !== leave.fromDate ? `to ${leave.toDate}` : ""}
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm text-center font-medium">
+                        <TableCell className="py-2.5 px-3 text-xs sm:text-sm text-right sm:text-center font-medium font-mono">
                           {days} {days === 1 ? "day" : "days"}
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm max-w-[180px] truncate">
+                        <TableCell className="hidden xl:table-cell py-2.5 px-3 text-sm max-w-[180px] truncate">
                           {leave.reason || "—"}
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm">
+                        <TableCell className="py-2.5 px-2.5 sm:px-3 text-center">
                           <Badge
-                            className={
+                            className={`text-[10px] sm:text-xs ${
                               leave.status === "APPROVED"
                                 ? "bg-green-600 hover:bg-green-600"
                                 : leave.status === "REJECTED"
                                 ? "bg-red-600 hover:bg-red-600"
                                 : "bg-amber-500 hover:bg-amber-500"
-                            }
+                            }`}
                           >
                             {leave.status || "PENDING"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2.5 px-3 text-sm text-right">
+                        <TableCell className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">
                           {canUpdate && leave.status === "PENDING" ? (
                             <div className="flex gap-1.5 justify-end">
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-8 px-2 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
-                                onClick={() =>
+                                className="h-7 px-2 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setConfirmAction({
                                     id: leaveId,
                                     status: "APPROVED",
@@ -401,8 +415,8 @@ export default function LeaveTab() {
                                     leaveType: leave.leaveType || "CASUAL",
                                     fromDate: leave.fromDate,
                                     toDate: leave.toDate,
-                                  })
-                                }
+                                  });
+                                }}
                                 disabled={updateLeaveMutation.isPending}
                               >
                                 Approve
@@ -410,8 +424,9 @@ export default function LeaveTab() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                onClick={() =>
+                                className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setConfirmAction({
                                     id: leaveId,
                                     status: "REJECTED",
@@ -419,8 +434,8 @@ export default function LeaveTab() {
                                     leaveType: leave.leaveType || "CASUAL",
                                     fromDate: leave.fromDate,
                                     toDate: leave.toDate,
-                                  })
-                                }
+                                  });
+                                }}
                                 disabled={updateLeaveMutation.isPending}
                               >
                                 Reject
@@ -581,6 +596,108 @@ export default function LeaveTab() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Details Dialog */}
+      <Dialog open={!!selectedLeave} onOpenChange={(open) => !open && setSelectedLeave(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Leave Request Details</DialogTitle>
+          </DialogHeader>
+          {selectedLeave && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Student:</span>
+                <span className="font-semibold text-foreground">{selectedLeave.displayName}</span>
+              </div>
+              {selectedLeave.details && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Class & Roll:</span>
+                  <span>{selectedLeave.details}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Leave Type:</span>
+                <Badge variant="outline" className="text-xs">
+                  {selectedLeave.leave.leaveType || "Casual"}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Period:</span>
+                <span>
+                  {selectedLeave.leave.fromDate} {selectedLeave.leave.toDate && selectedLeave.leave.toDate !== selectedLeave.leave.fromDate ? `to ${selectedLeave.leave.toDate}` : ""}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Duration:</span>
+                <span className="font-semibold">{selectedLeave.days} {selectedLeave.days === 1 ? "day" : "days"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Status:</span>
+                <Badge
+                  className={`text-xs ${
+                    selectedLeave.leave.status === "APPROVED"
+                      ? "bg-green-600 hover:bg-green-600"
+                      : selectedLeave.leave.status === "REJECTED"
+                      ? "bg-red-600 hover:bg-red-600"
+                      : "bg-amber-500 hover:bg-amber-500"
+                  }`}
+                >
+                  {selectedLeave.leave.status || "PENDING"}
+                </Badge>
+              </div>
+              {selectedLeave.leave.reason && (
+                <div className="py-1.5 border-b">
+                  <span className="text-muted-foreground block mb-1">Reason:</span>
+                  <p className="text-xs bg-muted/40 p-2.5 rounded border leading-relaxed">
+                    {selectedLeave.leave.reason}
+                  </p>
+                </div>
+              )}
+              {canUpdate && selectedLeave.leave.status === "PENDING" && (
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => {
+                      const item = selectedLeave;
+                      setSelectedLeave(null);
+                      setConfirmAction({
+                        id: item.leaveId,
+                        status: "APPROVED",
+                        applicantName: item.displayName,
+                        leaveType: item.leave.leaveType || "CASUAL",
+                        fromDate: item.leave.fromDate,
+                        toDate: item.leave.toDate,
+                      });
+                    }}
+                  >
+                    Approve Request
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                    onClick={() => {
+                      const item = selectedLeave;
+                      setSelectedLeave(null);
+                      setConfirmAction({
+                        id: item.leaveId,
+                        status: "REJECTED",
+                        applicantName: item.displayName,
+                        leaveType: item.leave.leaveType || "CASUAL",
+                        fromDate: item.leave.fromDate,
+                        toDate: item.leave.toDate,
+                      });
+                    }}
+                  >
+                    Reject Request
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

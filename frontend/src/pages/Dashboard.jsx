@@ -48,28 +48,28 @@ const StatCard = ({ title, icon: Icon, value, subtitle, onClick, isLoading, extr
     className={`hover:shadow-md transition-all cursor-pointer border-l-4 ${accentColor} relative group`}
     onClick={onClick}
   >
-    <ChevronRight className="w-4 h-4 text-muted-foreground absolute top-4 right-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 pr-8">
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      <div className="h-8 w-8 bg-muted rounded-full flex items-center justify-center">
-        <Icon className="h-4 w-4 text-foreground/80" />
+    <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-muted-foreground absolute top-2.5 sm:top-4 right-2 sm:right-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+    <CardHeader className="flex flex-row items-center justify-between pb-1.5 sm:pb-2 space-y-0 pr-6 sm:pr-8">
+      <CardTitle className="text-xs sm:text-sm font-medium leading-snug">{title}</CardTitle>
+      <div className="h-6 w-6 sm:h-8 sm:w-8 bg-muted rounded-full flex items-center justify-center shrink-0">
+        <Icon className="h-3 w-3 sm:h-4 sm:w-4 text-foreground/80" />
       </div>
     </CardHeader>
     <CardContent>
       {isLoading ? (
-        <div className="flex h-12 items-center">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <div className="flex h-8 sm:h-12 items-center">
+          <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <>
-          <div className="text-2xl font-bold tracking-tight">{value !== undefined && value !== null ? value : "-"}</div>
-          {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+          <div className="text-base sm:text-2xl font-bold tracking-tight">{value !== undefined && value !== null ? value : "-"}</div>
+          {subtitle && <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 truncate">{subtitle}</p>}
           {extraValues && extraValues.length > 0 && (
-            <div className="mt-3 pt-2.5 border-t border-border/50 space-y-1.5">
+            <div className="mt-2 sm:mt-3 pt-1.5 sm:pt-2.5 border-t border-border/50 space-y-1 sm:space-y-1.5">
               {extraValues.map((v, i) => (
-                <div key={i} className="flex justify-between items-center text-xs">
-                  <span className="text-muted-foreground">{v.label}</span>
-                  <span className="font-semibold text-foreground/90">{v.value !== undefined && v.value !== null ? v.value : "-"}</span>
+                <div key={i} className="flex justify-between items-center text-[10px] sm:text-xs">
+                  <span className="text-muted-foreground truncate mr-1">{v.label}</span>
+                  <span className="font-semibold text-foreground/90 shrink-0">{v.value !== undefined && v.value !== null ? v.value : "-"}</span>
                 </div>
               ))}
             </div>
@@ -208,7 +208,7 @@ const Dashboard = () => {
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             Module Activity Snapshots
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-2 sm:gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 
             {/* Students Module */}
             {canSeeStudents && (

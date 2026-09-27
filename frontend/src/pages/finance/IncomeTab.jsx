@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ export default function IncomeTab() {
   });
 
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
+  const [selectedIncome, setSelectedIncome] = useState(null);
 
   // Fetch active wallets for deposit account selection
   const { data: walletsResponse } = useQuery({
@@ -94,6 +95,18 @@ export default function IncomeTab() {
     walletsResponse?.data ||
     (Array.isArray(walletsResponse) ? walletsResponse : [])
   ).filter((w) => w.status === "ACTIVE");
+
+  // Pre-select United Bank Limited (Main Account) as default wallet
+  useEffect(() => {
+    if (activeWallets.length > 0 && !incomeFormData.walletId) {
+      const ubl = activeWallets.find((w) => /United Bank Limited/i.test(w.name)) ||
+                  activeWallets.find((w) => w.type === "BANK") ||
+                  activeWallets[0];
+      if (ubl) {
+        setIncomeFormData((prev) => ({ ...prev, walletId: (ubl.id || ubl._id).toString() }));
+      }
+    }
+  }, [activeWallets, incomeFormData.walletId]);
 
   const { data: incomeData = [], isLoading: incomeLoading } = useQuery({
     queryKey: [
@@ -183,30 +196,32 @@ export default function IncomeTab() {
               </Button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-4 mt-3">
             <div>
-              <Label>From</Label>
+              <Label className="text-xs">From</Label>
               <Input
                 type="date"
+                className="h-8 text-xs"
                 value={incomeDateFrom}
                 onChange={(e) => setIncomeDateFrom(e.target.value)}
               />
             </div>
             <div>
-              <Label>To</Label>
+              <Label className="text-xs">To</Label>
               <Input
                 type="date"
+                className="h-8 text-xs"
                 value={incomeDateTo}
                 onChange={(e) => setIncomeDateTo(e.target.value)}
               />
             </div>
-            <div>
-              <Label>Category</Label>
+            <div className="col-span-2 sm:col-span-1">
+              <Label className="text-xs">Category</Label>
               <Select
                 value={incomeFilterCategory}
                 onValueChange={setIncomeFilterCategory}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -223,6 +238,8 @@ export default function IncomeTab() {
             </div>
             <div className="flex items-end">
               <Button
+                size="sm"
+                className="w-full h-8 text-xs"
                 onClick={() =>
                   setAppliedIncomeFilter({
                     dateFrom: incomeDateFrom,
@@ -236,6 +253,8 @@ export default function IncomeTab() {
             <div className="flex items-end">
               <Button
                 variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs"
                 onClick={() => {
                   const current = getCurrentMonthRange();
                   setIncomeDateFrom(current.dateFrom);
@@ -250,23 +269,22 @@ export default function IncomeTab() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Category</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Deposit Account</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Date & Category</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm">Deposit Account</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm">Description</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm text-right">Amount</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {incomeLoading ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={5}
                       className="text-center py-12 text-muted-foreground"
                     >
                       Loading income data...
@@ -275,7 +293,7 @@ export default function IncomeTab() {
                 ) : incomeData.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={5}
                       className="text-center py-12 text-muted-foreground"
                     >
                       No income records found for selected filters.
@@ -283,38 +301,44 @@ export default function IncomeTab() {
                   </TableRow>
                 ) : (
                   incomeData.map((item) => (
-                    <TableRow key={item.id || item._id}>
-                      <TableCell className="py-2 px-3 text-sm">
-                        {new Date(item.date).toLocaleDateString()}
+                    <TableRow
+                      key={item.id || item._id}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => setSelectedIncome(item)}
+                    >
+                      <TableCell className="py-2 px-3 text-xs sm:text-sm">
+                        <div className="font-semibold text-foreground">{item.category}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          {new Date(item.date).toLocaleDateString()}
+                        </div>
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        <Badge variant="default">{item.category}</Badge>
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                         {item.walletName ? (
-                          <Badge variant="outline" className="font-normal bg-muted/40">
+                          <Badge variant="outline" className="font-normal bg-muted/40 text-xs">
                             {item.walletName}
                           </Badge>
                         ) : (
                           <span className="text-muted-foreground text-xs italic">Unspecified</span>
                         )}
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="hidden md:table-cell py-2 px-3 text-sm max-w-[220px] truncate" title={item.description}>
                         {item.description}
                       </TableCell>
-                      <TableCell className="text-sm px-3 py-2 font-bold text-success">
+                      <TableCell className="py-2 px-3 text-xs sm:text-sm font-bold text-success text-right font-mono">
                         PKR {Number(item.amount).toLocaleString()}
                       </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
+                      <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right">
                         {canDelete && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() =>
-                                  setDeleteConfirm({ open: true, id: item.id || item._id })
-                                }
+                                className="h-7 w-7 p-0 inline-flex items-center justify-center"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirm({ open: true, id: item.id || item._id });
+                                }}
                                 disabled={!!item.source}
                                 title={
                                   !!item.source
@@ -322,7 +346,7 @@ export default function IncomeTab() {
                                     : "Delete"
                                 }
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Delete</TooltipContent>
@@ -438,6 +462,62 @@ export default function IncomeTab() {
           >
             {addIncomeMutation.isPending ? "Adding..." : "Add Income"}
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Income Details Dialog */}
+      <Dialog open={!!selectedIncome} onOpenChange={(open) => !open && setSelectedIncome(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Income Record Details</DialogTitle>
+          </DialogHeader>
+          {selectedIncome && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Category:</span>
+                <Badge variant="default">{selectedIncome.category}</Badge>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Amount:</span>
+                <span className="font-bold text-success font-mono text-base">
+                  + PKR {Number(selectedIncome.amount).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Date:</span>
+                <span>{new Date(selectedIncome.date).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Deposit Account:</span>
+                <span>{selectedIncome.walletName || "Unspecified"}</span>
+              </div>
+              {selectedIncome.description && (
+                <div className="py-1.5 border-b">
+                  <span className="text-muted-foreground block mb-1">Description:</span>
+                  <p className="text-xs bg-muted/40 p-2.5 rounded border leading-relaxed">
+                    {selectedIncome.description}
+                  </p>
+                </div>
+              )}
+              {canDelete && !selectedIncome.source && (
+                <div className="pt-2 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      const id = selectedIncome.id || selectedIncome._id;
+                      setSelectedIncome(null);
+                      setDeleteConfirm({ open: true, id });
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Delete Record
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

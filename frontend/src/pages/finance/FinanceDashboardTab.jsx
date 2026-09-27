@@ -27,6 +27,12 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ResponsiveContainer,
   LineChart,
   Line,
@@ -106,6 +112,7 @@ export default function FinanceDashboardTab() {
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState("all");
   const [ledgerWalletFilter, setLedgerWalletFilter] = useState("all");
   const [ledgerSearch, setLedgerSearch] = useState("");
+  const [selectedLedgerItem, setSelectedLedgerItem] = useState(null);
 
   const getDashboardDateRange = () => {
     if (appliedDashboardFilter.dateFrom || appliedDashboardFilter.dateTo) {
@@ -455,15 +462,16 @@ export default function FinanceDashboardTab() {
     <div className="space-y-6">
       {/* Date Filter & Period Selector Card */}
       <Card className="bg-card">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mr-1">
+        <CardContent className="p-2.5 sm:p-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-3 sm:gap-4">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground mr-1">
                 Period:
               </span>
               <Button
                 variant={dashboardPeriod === "weekly" && !appliedDashboardFilter.dateFrom ? "default" : "outline"}
                 size="sm"
+                className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3"
                 onClick={() => {
                   setDashboardPeriod("weekly");
                   setDashboardDateFrom("");
@@ -476,6 +484,7 @@ export default function FinanceDashboardTab() {
               <Button
                 variant={dashboardPeriod === "monthly" && !appliedDashboardFilter.dateFrom ? "default" : "outline"}
                 size="sm"
+                className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3"
                 onClick={() => {
                   setDashboardPeriod("monthly");
                   setDashboardDateFrom("");
@@ -488,6 +497,7 @@ export default function FinanceDashboardTab() {
               <Button
                 variant={dashboardPeriod === "yearly" && !appliedDashboardFilter.dateFrom ? "default" : "outline"}
                 size="sm"
+                className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3"
                 onClick={() => {
                   setDashboardPeriod("yearly");
                   setDashboardDateFrom("");
@@ -500,6 +510,7 @@ export default function FinanceDashboardTab() {
               <Button
                 variant={dashboardPeriod === "overall" && !appliedDashboardFilter.dateFrom ? "default" : "outline"}
                 size="sm"
+                className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3"
                 onClick={() => {
                   setDashboardPeriod("overall");
                   setDashboardDateFrom("");
@@ -511,27 +522,28 @@ export default function FinanceDashboardTab() {
               </Button>
             </div>
 
-            <div className="flex flex-wrap items-end gap-3 w-full lg:w-auto">
-              <div className="w-36">
-                <Label className="text-xs text-muted-foreground">From Date</Label>
+            <div className="flex flex-wrap items-end gap-2 sm:gap-3 w-full lg:w-auto">
+              <div className="flex-1 sm:flex-initial sm:w-36">
+                <Label className="text-[11px] sm:text-xs text-muted-foreground">From Date</Label>
                 <Input
                   type="date"
-                  className="h-9 text-xs"
+                  className="h-7 sm:h-9 text-xs"
                   value={dashboardDateFrom}
                   onChange={(e) => setDashboardDateFrom(e.target.value)}
                 />
               </div>
-              <div className="w-36">
-                <Label className="text-xs text-muted-foreground">To Date</Label>
+              <div className="flex-1 sm:flex-initial sm:w-36">
+                <Label className="text-[11px] sm:text-xs text-muted-foreground">To Date</Label>
                 <Input
                   type="date"
-                  className="h-9 text-xs"
+                  className="h-7 sm:h-9 text-xs"
                   value={dashboardDateTo}
                   onChange={(e) => setDashboardDateTo(e.target.value)}
                 />
               </div>
               <Button
                 size="sm"
+                className="h-7 sm:h-9 text-xs px-2.5 sm:px-4"
                 onClick={() =>
                   setAppliedDashboardFilter({
                     dateFrom: dashboardDateFrom,
@@ -544,6 +556,7 @@ export default function FinanceDashboardTab() {
               <Button
                 size="sm"
                 variant="outline"
+                className="h-7 sm:h-9 text-xs px-2.5 sm:px-4"
                 onClick={() => {
                   setDashboardDateFrom("");
                   setDashboardDateTo("");
@@ -558,58 +571,58 @@ export default function FinanceDashboardTab() {
       </Card>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Inflow (Income)
+          <CardHeader className="flex flex-row items-center justify-between p-2 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">
+              Total Inflow
             </CardTitle>
-            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="p-2 sm:p-4 pt-0 sm:pt-0">
+            <div className="text-xs sm:text-lg lg:text-2xl font-bold text-emerald-600 truncate">
               PKR {totalIncome.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
               Between {dashboardDateRange.dateFrom || "all time"} and {dashboardDateRange.dateTo || "now"}
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Outflow (Expense)
+          <CardHeader className="flex flex-row items-center justify-between p-2 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">
+              Total Outflow
             </CardTitle>
-            <TrendingDown className="h-4 w-4 text-rose-600" />
+            <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-600 shrink-0" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-rose-600">
+          <CardContent className="p-2 sm:p-4 pt-0 sm:pt-0">
+            <div className="text-xs sm:text-lg lg:text-2xl font-bold text-rose-600 truncate">
               PKR {totalExpense.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
               Between {dashboardDateRange.dateFrom || "all time"} and {dashboardDateRange.dateTo || "now"}
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Net Financial Balance
+          <CardHeader className="flex flex-row items-center justify-between p-2 sm:p-4 pb-1 sm:pb-2">
+            <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">
+              Net Balance
             </CardTitle>
-            <DollarSign className="h-4 w-4 text-primary" />
+            <DollarSign className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 sm:p-4 pt-0 sm:pt-0">
             <div
-              className={`text-2xl font-bold ${
+              className={`text-xs sm:text-lg lg:text-2xl font-bold truncate ${
                 netBalance >= 0 ? "text-emerald-600" : "text-rose-600"
               }`}
             >
               PKR {netBalance.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Net Profit/Loss for the selected range
+            <p className="hidden sm:block text-xs text-muted-foreground mt-1 truncate">
+              Net Profit/Loss for range
             </p>
           </CardContent>
         </Card>
@@ -688,14 +701,14 @@ export default function FinanceDashboardTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="py-2.5 px-3 text-sm">Date</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Type</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Category</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Account / Wallet</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Description</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm text-right">Inflow (+)</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm text-right">Outflow (-)</TableHead>
-                  <TableHead className="py-2.5 px-3 text-sm">Audit / Status</TableHead>
+                  <TableHead className="py-2.5 px-3 text-xs sm:text-sm">Date & Category</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm">Type</TableHead>
+                  <TableHead className="hidden md:table-cell py-2.5 px-3 text-sm">Account / Wallet</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2.5 px-3 text-sm">Description</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Inflow (+)</TableHead>
+                  <TableHead className="hidden sm:table-cell py-2.5 px-3 text-sm text-right">Outflow (-)</TableHead>
+                  <TableHead className="table-cell sm:hidden py-2.5 px-3 text-xs text-right">Amount</TableHead>
+                  <TableHead className="hidden xl:table-cell py-2.5 px-3 text-sm">Audit / Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -721,11 +734,35 @@ export default function FinanceDashboardTab() {
                   filteredLedger.map((item) => {
                     const isIncome = item.type === "INCOME";
                     return (
-                      <TableRow key={item.id} className="hover:bg-muted/40">
-                        <TableCell className="py-2 px-3 text-sm whitespace-nowrap">
-                          {new Date(item.date).toLocaleDateString()}
+                      <TableRow
+                        key={item.id}
+                        className="hover:bg-muted/40 cursor-pointer transition-colors"
+                        onClick={() => setSelectedLedgerItem(item)}
+                      >
+                        <TableCell className="py-2 px-3 text-xs sm:text-sm">
+                          <div className="font-medium text-foreground">
+                            {item.category}
+                            {item.subCategory && (
+                              <span className="text-[11px] text-muted-foreground ml-1">
+                                ({item.subCategory})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                            <span>{new Date(item.date).toLocaleDateString()}</span>
+                            <span>•</span>
+                            <Badge
+                              variant={isIncome ? "default" : "destructive"}
+                              className="text-[9px] px-1 py-0 h-4 font-semibold"
+                            >
+                              {item.type}
+                            </Badge>
+                          </div>
+                          <span className="hidden sm:inline text-xs text-muted-foreground">
+                            {new Date(item.date).toLocaleDateString()}
+                          </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm">
                           <Badge
                             variant={isIncome ? "default" : "destructive"}
                             className="font-semibold text-[11px]"
@@ -733,15 +770,7 @@ export default function FinanceDashboardTab() {
                             {isIncome ? "INCOME" : "EXPENSE"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm font-medium">
-                          {item.category}
-                          {item.subCategory && (
-                            <span className="text-xs text-muted-foreground ml-1">
-                              ({item.subCategory})
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">
+                        <TableCell className="hidden md:table-cell py-2 px-3 text-sm">
                           {item.walletName ? (
                             <Badge variant="outline" className="font-normal bg-muted/40 text-xs">
                               {item.walletName}
@@ -750,16 +779,19 @@ export default function FinanceDashboardTab() {
                             <span className="text-muted-foreground text-xs italic">Unspecified</span>
                           )}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm max-w-[280px] truncate" title={item.description}>
+                        <TableCell className="hidden lg:table-cell py-2 px-3 text-sm max-w-[280px] truncate" title={item.description}>
                           {item.description}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm text-right font-bold text-emerald-600 font-mono">
+                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right font-bold text-emerald-600 font-mono">
                           {isIncome ? `+ PKR ${Number(item.amount).toLocaleString()}` : "-"}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm text-right font-bold text-rose-600 font-mono">
+                        <TableCell className="hidden sm:table-cell py-2 px-3 text-sm text-right font-bold text-rose-600 font-mono">
                           {!isIncome ? `- PKR ${Number(item.amount).toLocaleString()}` : "-"}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                        <TableCell className={`table-cell sm:hidden py-2 px-3 text-xs text-right font-bold font-mono ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
+                          {isIncome ? "+" : "-"} PKR {Number(item.amount).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="hidden xl:table-cell py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
                           {item.auditText || item.status || "-"}
                         </TableCell>
                       </TableRow>
@@ -908,6 +940,63 @@ export default function FinanceDashboardTab() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Transaction Details Dialog for Mobile and Desktop inspection */}
+      <Dialog open={!!selectedLedgerItem} onOpenChange={(open) => !open && setSelectedLedgerItem(null)}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Transaction Details</DialogTitle>
+          </DialogHeader>
+          {selectedLedgerItem && (
+            <div className="space-y-3 text-xs sm:text-sm pt-2">
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Type:</span>
+                <Badge variant={selectedLedgerItem.type === "INCOME" ? "default" : "destructive"}>
+                  {selectedLedgerItem.type}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Amount:</span>
+                <span className={`font-bold font-mono ${selectedLedgerItem.type === "INCOME" ? "text-emerald-600" : "text-rose-600"}`}>
+                  {selectedLedgerItem.type === "INCOME" ? "+" : "-"} PKR {Number(selectedLedgerItem.amount).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Category:</span>
+                <span className="font-medium">{selectedLedgerItem.category}</span>
+              </div>
+              {selectedLedgerItem.subCategory && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Sub Category:</span>
+                  <span>{selectedLedgerItem.subCategory}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Date:</span>
+                <span>{new Date(selectedLedgerItem.date).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b">
+                <span className="text-muted-foreground">Account / Wallet:</span>
+                <span>{selectedLedgerItem.walletName || "Unspecified"}</span>
+              </div>
+              {selectedLedgerItem.auditText && (
+                <div className="flex justify-between items-center py-1.5 border-b">
+                  <span className="text-muted-foreground">Audit / Status:</span>
+                  <span className="text-xs text-muted-foreground">{selectedLedgerItem.auditText}</span>
+                </div>
+              )}
+              {selectedLedgerItem.description && (
+                <div className="py-1.5">
+                  <span className="text-muted-foreground block mb-1">Description:</span>
+                  <p className="text-xs bg-muted/40 p-2.5 rounded border leading-relaxed">
+                    {selectedLedgerItem.description}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -28,8 +28,16 @@ class FinanceService {
     let walletRecord = null;
     let walletTx = null;
 
-    if (data.walletId) {
-      const wallet = await Wallet.findById(data.walletId);
+    let targetWalletId = data.walletId;
+    if (!targetWalletId) {
+      const defaultWallet = await Wallet.findOne({ name: /United Bank Limited/i, status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ type: 'BANK', status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ status: 'ACTIVE' });
+      if (defaultWallet) targetWalletId = defaultWallet._id;
+    }
+
+    if (targetWalletId) {
+      const wallet = await Wallet.findById(targetWalletId);
       if (!wallet) throw new Error('Selected Account / Wallet not found');
 
       // Credit wallet
@@ -116,11 +124,20 @@ class FinanceService {
   async createExpense(data, userId) {
     const expenseData = { ...data };
 
-    if (expenseData.walletId) {
-      const wallet = await Wallet.findById(expenseData.walletId);
-      if (!wallet) throw new Error('Selected Account / Wallet not found');
-      expenseData.walletId = wallet._id;
-      expenseData.walletName = wallet.name;
+    let targetWalletId = expenseData.walletId;
+    if (!targetWalletId) {
+      const defaultWallet = await Wallet.findOne({ name: /United Bank Limited/i, status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ type: 'BANK', status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ status: 'ACTIVE' });
+      if (defaultWallet) targetWalletId = defaultWallet._id;
+    }
+
+    if (targetWalletId) {
+      const wallet = await Wallet.findById(targetWalletId);
+      if (wallet) {
+        expenseData.walletId = wallet._id;
+        expenseData.walletName = wallet.name;
+      }
     }
 
     // Defer wallet deduction and transaction creation until approval!
@@ -174,7 +191,14 @@ class FinanceService {
       return expense; // Already approved
     }
 
-    const targetWalletId = customWalletId || expense.walletId;
+    let targetWalletId = customWalletId || expense.walletId;
+    if (!targetWalletId) {
+      const defaultWallet = await Wallet.findOne({ name: /United Bank Limited/i, status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ type: 'BANK', status: 'ACTIVE' }) ||
+                            await Wallet.findOne({ status: 'ACTIVE' });
+      if (defaultWallet) targetWalletId = defaultWallet._id;
+    }
+
     if (targetWalletId) {
       const wallet = await Wallet.findById(targetWalletId);
       if (!wallet) throw new Error('Selected Account / Wallet not found');

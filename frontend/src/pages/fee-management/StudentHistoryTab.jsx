@@ -405,7 +405,28 @@ export const StudentHistoryTab = () => {
                       </div>
 
                       {/* LEVEL 1: Installment Financial Summary Table */}
-                      <div className="overflow-x-auto">
+                      <div className="grid grid-cols-2 sm:hidden p-2.5 gap-2 text-xs border-b bg-muted/20">
+                        <div className="p-2 rounded bg-slate-50 border">
+                          <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Total Amount</span>
+                          <span className="font-bold text-sm text-slate-900 font-mono">PKR {formatAmount(inst.totalAmount)}</span>
+                        </div>
+                        <div className="p-2 rounded bg-green-50/70 border border-green-200">
+                          <span className="text-green-800 block text-[10px] uppercase font-semibold">Paid Amount</span>
+                          <span className="font-bold text-sm text-green-700 font-mono">PKR {formatAmount(inst.paidAmount)}</span>
+                        </div>
+                        <div className="p-2 rounded bg-orange-50/70 border border-orange-200">
+                          <span className="text-orange-800 block text-[10px] uppercase font-semibold">Pending</span>
+                          <span className={cn("font-bold text-sm font-mono", Number(inst.pendingAmount) > 0 ? "text-orange-600" : "text-green-600")}>
+                            PKR {formatAmount(inst.pendingAmount)}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-50 border">
+                          <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Base Payable</span>
+                          <span className="font-semibold text-sm font-mono">PKR {formatAmount(inst.basePayable)}</span>
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:block overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-muted/50 border-b text-slate-700">
@@ -476,7 +497,43 @@ export const StudentHistoryTab = () => {
                             {inst.challans.map((challan, ci) => (
                               <div key={challan.id || ci} className="border rounded-md overflow-hidden bg-white shadow-xs">
                                 {/* LEVEL 2: Challan Table */}
-                                <div className="overflow-x-auto">
+                                <div className="sm:hidden p-3 space-y-2 border-b bg-slate-50/50">
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-mono font-bold text-primary flex items-center gap-1.5 text-xs">
+                                      <FileText className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                                      {challan.challanNumber || challan.challanNo}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-[10px] font-semibold",
+                                        challan.status === "PAID" && "bg-green-50 border-green-400 text-green-700",
+                                        challan.status === "PARTIAL" && "bg-yellow-50 border-yellow-400 text-yellow-700",
+                                        challan.status === "PENDING" && "bg-orange-50 border-orange-400 text-orange-600",
+                                        challan.status === "OVERDUE" && "bg-red-50 border-red-500 text-red-600",
+                                        challan.status === "VOID" && "bg-slate-100 border-slate-300 text-slate-500",
+                                        challan.status === "SUPERSEDED" && "bg-slate-100 border-slate-300 text-slate-500",
+                                        challan.status === "SETTLED" && "bg-blue-50 border-blue-400 text-blue-600"
+                                      )}
+                                    >
+                                      {challan.status}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs pt-1 border-t">
+                                    <span className="text-muted-foreground text-[11px]">Due: {formatDate(challan.dueDate)}</span>
+                                    <span className="font-bold font-mono text-slate-900">
+                                      PKR {formatAmount(challan.snapshotTotalDue ?? challan.totalAmount ?? 0)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs text-green-700">
+                                    <span className="text-[11px]">Received / Settled:</span>
+                                    <span className="font-semibold font-mono">
+                                      PKR {formatAmount(challan.amountReceived ?? challan.paidAmount ?? 0)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="hidden sm:block overflow-x-auto">
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="bg-slate-100/90 border-b text-slate-700">
@@ -583,7 +640,34 @@ export const StudentHistoryTab = () => {
                                     </span>
                                   </div>
 
-                                  <div className="overflow-x-auto border rounded bg-white">
+                                  {/* Mobile Transaction Cards */}
+                                  <div className="sm:hidden space-y-2">
+                                    {Array.isArray(challan.transactions) && challan.transactions.length > 0 ? (
+                                      challan.transactions.map((tx, ti) => (
+                                        <div key={tx.id || ti} className="p-2.5 rounded border bg-white text-xs space-y-1">
+                                          <div className="flex justify-between items-center">
+                                            <span className="font-mono font-medium text-slate-900">{tx.receiptNo || "—"}</span>
+                                            <span className="font-bold text-emerald-600 font-mono">PKR {formatAmount(tx.amountPaid)}</span>
+                                          </div>
+                                          <div className="flex justify-between text-[11px] text-muted-foreground">
+                                            <span>{formatDateTime(tx.paidDate)}</span>
+                                            <Badge variant="outline" className="text-[9px] py-0">{tx.paymentMode || "Cash"}</Badge>
+                                          </div>
+                                          {tx.walletName && (
+                                            <div className="text-[11px] text-muted-foreground">
+                                              Account: {tx.walletName}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="text-center py-4 text-muted-foreground text-xs">
+                                        No payment transactions recorded for this challan.
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="hidden sm:block overflow-x-auto border rounded bg-white">
                                     <table className="w-full text-xs">
                                       <thead>
                                         <tr className="bg-muted/40 border-b text-[11px] text-muted-foreground">

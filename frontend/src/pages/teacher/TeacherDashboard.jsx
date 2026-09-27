@@ -515,10 +515,10 @@ export default function TeacherDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/20 border-b">
-                        <TableHead className="py-2 px-3 text-xs font-semibold w-[50px]">#</TableHead>
-                        <TableHead className="py-2 px-3 text-xs font-semibold">Document Title</TableHead>
-                        <TableHead className="py-2 px-3 text-xs font-semibold">Category</TableHead>
-                        <TableHead className="py-2 px-3 text-xs font-semibold text-center w-[160px]">Status</TableHead>
+                        <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold w-[40px] sm:w-[50px] hidden sm:table-cell">#</TableHead>
+                        <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Document Title</TableHead>
+                        <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden sm:table-cell">Category</TableHead>
+                        <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-right sm:text-center w-[120px] sm:w-[160px]">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -527,26 +527,29 @@ export default function TeacherDashboard() {
                         const isSubmitted = doc.submitted;
                         return (
                           <TableRow key={doc.key || idx} className="hover:bg-muted/30">
-                            <TableCell className="py-2.5 px-3 text-xs text-muted-foreground font-mono">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs text-muted-foreground font-mono hidden sm:table-cell">
                               {idx + 1}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs font-semibold text-foreground">
-                              <div className="flex items-center gap-2">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-semibold text-foreground">
+                              <div className="flex items-center gap-1.5 sm:gap-2">
                                 <IconComp className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                                <span>{doc.label}</span>
+                                <div>
+                                  <div>{doc.label}</div>
+                                  <div className="sm:hidden text-[10px] text-muted-foreground font-normal mt-0.5">{doc.category}</div>
+                                </div>
                               </div>
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs text-muted-foreground">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs text-muted-foreground hidden sm:table-cell">
                               {doc.category}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-center">
+                            <TableCell className="py-2 px-2 sm:px-3 text-right sm:text-center">
                               {isSubmitted ? (
-                                <Badge className="bg-primary/10 text-primary border-primary/20 font-semibold text-xs gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Submitted
+                                <Badge className="bg-primary/10 text-primary border-primary/20 font-semibold text-[10px] sm:text-xs gap-1">
+                                  <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Submitted
                                 </Badge>
                               ) : (
-                                <Badge variant="outline" className="text-muted-foreground text-xs font-medium gap-1 bg-muted/40">
-                                  <XCircle className="w-3.5 h-3.5 text-muted-foreground" /> Not Submitted
+                                <Badge variant="outline" className="text-muted-foreground text-[10px] sm:text-xs font-medium gap-1 bg-muted/40">
+                                  <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground" /> Pending
                                 </Badge>
                               )}
                             </TableCell>
@@ -1010,12 +1013,12 @@ export default function TeacherDashboard() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40">
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Date</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Day</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Status</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Check-in</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Check-out</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Details / Notes</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Date</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden sm:table-cell">Day</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Status</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Check-in</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden sm:table-cell">Check-out</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden md:table-cell">Details / Notes</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1024,38 +1027,44 @@ export default function TeacherDashboard() {
                           const st = rec.status || "NOT_MARKED";
                           return (
                             <TableRow key={rec.date} className={isSun ? "bg-muted/20 text-muted-foreground" : ""}>
-                              <TableCell className="py-2 px-3 text-xs font-medium whitespace-nowrap">
-                                {rec.date}
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs font-medium whitespace-nowrap">
+                                <div>{rec.date}</div>
+                                <div className="sm:hidden text-[10px] text-muted-foreground">
+                                  <span className={isSun ? "font-semibold text-rose-500" : ""}>{rec.dayOfWeek}</span>
+                                </div>
                               </TableCell>
-                              <TableCell className="py-2 px-3 text-xs whitespace-nowrap">
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs whitespace-nowrap hidden sm:table-cell">
                                 <span className={isSun ? "font-semibold text-rose-500" : ""}>{rec.dayOfWeek}</span>
                               </TableCell>
-                              <TableCell className="py-2 px-3 text-xs">
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs">
                                 <Badge
                                   className={
                                     st === "PRESENT"
-                                      ? "bg-emerald-600 text-white"
+                                      ? "bg-emerald-600 text-white text-[10px] sm:text-xs"
                                       : st === "ABSENT"
-                                      ? "bg-rose-600 text-white"
+                                      ? "bg-rose-600 text-white text-[10px] sm:text-xs"
                                       : st === "HALF_DAY" || st === "HALF DAY"
-                                      ? "bg-amber-500 text-white"
+                                      ? "bg-amber-500 text-white text-[10px] sm:text-xs"
                                       : st === "LEAVE"
-                                      ? "bg-blue-600 text-white"
+                                      ? "bg-blue-600 text-white text-[10px] sm:text-xs"
                                       : st === "HOLIDAY"
-                                      ? "bg-purple-600 text-white"
-                                      : "bg-muted text-muted-foreground border"
+                                      ? "bg-purple-600 text-white text-[10px] sm:text-xs"
+                                      : "bg-muted text-muted-foreground border text-[10px] sm:text-xs"
                                   }
                                 >
                                   {st === "NOT_MARKED" ? (isSun ? "Off" : "Not Marked") : st}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="py-2 px-3 text-xs whitespace-nowrap font-mono">
-                                {formatTime12h(rec.checkInTime)}
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs whitespace-nowrap font-mono">
+                                <div>{formatTime12h(rec.checkInTime)}</div>
+                                <div className="sm:hidden text-[10px] text-muted-foreground">
+                                  out: {formatTime12h(rec.checkOutTime)}
+                                </div>
                               </TableCell>
-                              <TableCell className="py-2 px-3 text-xs whitespace-nowrap font-mono">
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs whitespace-nowrap font-mono hidden sm:table-cell">
                                 {formatTime12h(rec.checkOutTime)}
                               </TableCell>
-                              <TableCell className="py-2 px-3 text-xs text-muted-foreground">
+                              <TableCell className="py-2 px-2 sm:px-3 text-xs text-muted-foreground hidden md:table-cell">
                                 {st === "ABSENT" ? (
                                   <span className="text-rose-600 font-medium">Fine: {formatPKR(absentDeduction)}</span>
                                 ) : (
@@ -1098,38 +1107,38 @@ export default function TeacherDashboard() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40">
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Month</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Current Salary</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Allowances</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Deductions</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Net Salary</TableHead>
-                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Status</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Month</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden md:table-cell">Current Salary</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden lg:table-cell">Allowances</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold hidden lg:table-cell">Deductions</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Net Salary</TableHead>
+                          <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold">Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {payrollHistory.map((payroll) => (
                           <TableRow key={payroll._id || payroll.id || payroll.month}>
-                            <TableCell className="py-2.5 px-3 text-xs font-semibold">{payroll.month}</TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs font-mono font-medium">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-semibold">{payroll.month}</TableCell>
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-mono font-medium hidden md:table-cell">
                               {formatPKR(payroll.currentSalary ?? payroll.basicSalary)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs font-mono text-emerald-600 font-medium">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-mono text-emerald-600 font-medium hidden lg:table-cell">
                               +{formatPKR(payroll.totalAllowances || 0)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs font-mono text-rose-600 font-medium">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-mono text-rose-600 font-medium hidden lg:table-cell">
                               -{formatPKR(payroll.totalDeductions || 0)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs font-mono font-bold text-foreground">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs font-mono font-bold text-foreground">
                               {formatPKR(payroll.netSalary)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-3 text-xs">
+                            <TableCell className="py-2 px-2 sm:px-3 text-xs">
                               <Badge
                                 className={
                                   payroll.status === "PAID"
-                                    ? "bg-emerald-600 text-white"
+                                    ? "bg-emerald-600 text-white text-[10px] sm:text-xs"
                                     : payroll.status === "PENDING"
-                                    ? "bg-amber-500 text-white"
-                                    : "bg-muted-foreground text-white"
+                                    ? "bg-amber-500 text-white text-[10px] sm:text-xs"
+                                    : "bg-muted-foreground text-white text-[10px] sm:text-xs"
                                 }
                               >
                                 {payroll.status}

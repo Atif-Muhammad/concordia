@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     getInventoryExpenses,
@@ -63,14 +63,29 @@ export default function InventoryExpensesTab() {
         walletId: ""
     });
 
+    // Pre-select United Bank Limited (Main Account) as default wallet
+    useEffect(() => {
+        if (activeWallets.length > 0 && !expenseData.walletId) {
+            const ubl = activeWallets.find((w) => /United Bank Limited/i.test(w.name)) ||
+                        activeWallets.find((w) => w.type === "BANK") ||
+                        activeWallets[0];
+            if (ubl) {
+                setExpenseData((prev) => ({ ...prev, walletId: (ubl.id || ubl._id).toString() }));
+            }
+        }
+    }, [activeWallets, expenseData.walletId]);
+
     const resetExpenseForm = () => {
+        const ubl = activeWallets.find((w) => /United Bank Limited/i.test(w.name)) ||
+                    activeWallets.find((w) => w.type === "BANK") ||
+                    activeWallets[0];
         setExpenseData({
             expenseType: "Maintenance",
             amount: 0,
             date: new Date().toISOString().split('T')[0],
             description: "",
             vendor: "",
-            walletId: ""
+            walletId: ubl ? (ubl.id || ubl._id).toString() : ""
         });
         setSelectedItemId("");
     };

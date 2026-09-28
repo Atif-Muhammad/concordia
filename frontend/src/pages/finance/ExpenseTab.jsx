@@ -262,27 +262,43 @@ export default function ExpenseTab() {
   };
 
   const getExpenseStatusVariant = (status) => {
-    if (status === "APPROVED") return "default";
-    if (status === "REJECTED") return "destructive";
+    const s = String(status || "").toUpperCase();
+    if (s === "APPROVED") return "default";
+    if (s === "REJECTED") return "destructive";
     return "secondary";
   };
 
   const formatAuditDate = (value) => (value ? new Date(value).toLocaleString() : "");
 
   const getExpenseAuditText = (item) => {
+    if (!item) return "";
     if (item.source) return `Automated ${item.source}`;
-    if (item.status === "APPROVED") {
-      return item.approvedAt
-        ? `Approved by ${item.approvedByName || "Unknown"} at ${formatAuditDate(item.approvedAt)}`
-        : "Approved";
+    const statusUpper = String(item.status || "").toUpperCase();
+    if (statusUpper === "APPROVED") {
+      const approverName =
+        item.approvedByName ||
+        item.approvedBy?.name ||
+        (typeof item.approvedBy === "string" && item.approvedBy ? item.approvedBy : "") ||
+        "Administrator";
+      const approvalTime = item.approvedAt || item.updatedAt;
+      return approvalTime
+        ? `Approved by ${approverName} at ${formatAuditDate(approvalTime)}`
+        : `Approved by ${approverName}`;
     }
-    if (item.status === "REJECTED") {
-      const reason = item.rejectionReason ? ` - ${item.rejectionReason}` : "";
-      return item.rejectedAt
-        ? `Rejected by ${item.rejectedByName || "Unknown"} at ${formatAuditDate(item.rejectedAt)}${reason}`
-        : `Rejected${reason}`;
+    if (statusUpper === "REJECTED") {
+      const rejecterName =
+        item.rejectedByName ||
+        item.rejectedBy?.name ||
+        (typeof item.rejectedBy === "string" && item.rejectedBy ? item.rejectedBy : "") ||
+        "Administrator";
+      const reason = item.rejectionReason || item.notes ? ` - ${item.rejectionReason || item.notes}` : "";
+      const rejectTime = item.rejectedAt || item.updatedAt;
+      return rejectTime
+        ? `Rejected by ${rejecterName} at ${formatAuditDate(rejectTime)}${reason}`
+        : `Rejected by ${rejecterName}${reason}`;
     }
-    return item.createdByName ? `Submitted by ${item.createdByName}` : "Pending approval";
+    const creatorName = item.createdByName || item.createdBy?.name;
+    return creatorName ? `Submitted by ${creatorName}` : "Pending approval";
   };
 
   return (
@@ -632,7 +648,7 @@ export default function ExpenseTab() {
                 <span className="text-muted-foreground">Paid From Account:</span>
                 <span>{selectedExpense.walletName || "Unspecified"}</span>
               </div>
-              {selectedExpense.auditText && (
+              {getExpenseAuditText(selectedExpense) && (
                 <div className="flex justify-between items-center py-1.5 border-b">
                   <span className="text-muted-foreground">Audit / Log:</span>
                   <span className="text-xs text-muted-foreground">{getExpenseAuditText(selectedExpense)}</span>

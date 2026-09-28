@@ -96,6 +96,9 @@ export const normalizeChallan = (c) => {
   const studentId = student?._id?.toString() || student?.id || (typeof c.studentId === 'string' ? c.studentId : c.studentId?.toString());
   const challanNumber = c.challanNumber || c.challanNo || '';
   const challanId = c._id?.toString() || c.id?.toString();
+  const studentName = c.studentName || (student ? `${student.fName || ''} ${student.lName || ''}`.trim() : '') || student?.name || '';
+  const fatherName = student?.fatherOrguardian || student?.fatherName || c.fatherName || '';
+  const rollNumber = student?.rollNumber || student?.admissionNo || c.rollNumber || c.rollNo || '';
 
   const isExtra = Boolean(
     c.isExtra === true ||
@@ -107,7 +110,13 @@ export const normalizeChallan = (c) => {
   let basePayable = 0;
   let headsAmount = 0;
   let arrearsAmount = 0;
-  const lateFeeFine = Number(c.lateFeeAmount ?? c.snapshotLateFee ?? c.lateFeeFine ?? c.fineAmount ?? 0);
+  const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
+  const existingFine = Number(c.lateFeeAmount ?? c.snapshotLateFee ?? c.lateFeeFine ?? c.fineAmount ?? 0);
+  const rateCandidate = Number(c.lateFeeRatePerDay || inst.lateFeeRatePerDay || 0);
+  const autoFine = (!isSettledOrVoid && c.dueDate && rateCandidate > 0)
+    ? calculateLateFee(c.dueDate, rateCandidate)
+    : 0;
+  const lateFeeFine = existingFine > 0 ? existingFine : autoFine;
   const discount = Number(c.discountAmount ?? c.discount ?? 0);
   const advanceApplied = isExtra ? 0 : Number(c.advanceApplied ?? 0);
   const advanceFromChallanNo = c.advanceFromChallanNo || '';
@@ -187,13 +196,18 @@ export const normalizeChallan = (c) => {
     studentClass: inst.class ?? student?.class ?? c.studentClass ?? student?.classId ?? c.classId ?? null,
     studentProgram: inst.student?.program ?? student?.program ?? c.studentProgram ?? student?.programId ?? null,
     studentSection: inst.student?.section ?? student?.section ?? c.studentSection ?? student?.sectionId ?? null,
-    fatherName: student?.fatherOrguardian ?? c.fatherName ?? '',
+    studentName,
+    fatherName,
+    rollNumber,
+    rollNo: rollNumber,
     basePayable,
     amount: isExtra ? headsAmount : basePayable,
     headsAmount,
     arrearsAmount,
     lateFeeFine,
+    lateFeeAmount: lateFeeFine,
     fineAmount: lateFeeFine,
+    lateFeeRatePerDay: rateCandidate || null,
     grossAmount,
     discountAmount: discount,
     discount,
@@ -239,8 +253,14 @@ export const getSelectedHeadsTotal = (challan) => {
   if (challan.challanHeads && Array.isArray(challan.challanHeads) && challan.challanHeads.length > 0) {
     return challan.challanHeads.reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
   }
-  if (challan.heads && Array.isArray(challan.heads) && !challan.installmentNumber) {
-    return challan.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+  if (challan.heads && Array.isArray(challan.heads) && challan.heads.length > 0) {
+    return challan.heads.reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
+  }
+  if (challan.installment?.heads && Array.isArray(challan.installment.heads) && challan.installment.heads.length > 0) {
+    return challan.installment.heads.reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
+  }
+  if (challan.headsAmount != null && !isNaN(Number(challan.headsAmount)) && Number(challan.headsAmount) > 0) {
+    return Number(challan.headsAmount);
   }
   try {
     const raw = typeof challan?.selectedHeads === 'string'
@@ -248,8 +268,8 @@ export const getSelectedHeadsTotal = (challan) => {
       : (challan?.selectedHeads || []);
     if (!Array.isArray(raw)) return 0;
     return raw
-      .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
-      .reduce((sum, h) => sum + (h.amount || 0), 0);
+      .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false)
+      .reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
   } catch { return 0; }
 };
 
@@ -296,24 +316,54 @@ export const getTotalArrears = (challan) => {
     return Number(challan.arrearsAmount);
   }
   if (Array.isArray(challan.arrearAllocations) && challan.arrearAllocations.length > 0) {
-    return challan.arrearAllocations.reduce((sum, a) => sum + (Number(a.amountCarriedForward) || 0), 0);
+    return challan.arrearAllocations.reduce((sum, a) => sum + (Number(a.amountCarriedForward ?? a.amountSettled ?? a.amount) || 0), 0);
   }
   return getRecursiveArrears(challan) + getSupersededArrears(challan);
 };
 
+export const getChallanGrossTotal = (challan) => {
+  if (!challan) return 0;
+  const isExtra = Boolean(
+    challan?.isExtra ||
+    challan?.challanType === 'FEE_HEADS_ONLY' ||
+    challan?.type === 'EXTRA' ||
+    (!challan?.installmentNumber && !challan?.installmentId && !challan?.installment && (Array.isArray(challan?.heads) || Array.isArray(challan?.challanHeads)))
+  );
+  if (isExtra) {
+    const headsTotal = Number(getSelectedHeadsTotal(challan) || challan.headsAmount || challan.amount || 0);
+    const lateFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? challan.fineAmount ?? 0);
+    const extraFine = Number(challan.snapshotExtraFine ?? challan.installment?.extraFine ?? 0);
+    return headsTotal + lateFine + extraFine;
+  }
+  const baseAmount = Number(challan.snapshotBaseAmount ?? challan.basePayable ?? challan.amount ?? 0);
+  const headsAmount = Number(getSelectedHeadsTotal(challan) || challan.headsAmount || 0);
+  const arrearsAmount = challan.arrearsAmount != null
+    ? Number(challan.arrearsAmount)
+    : (challan.snapshotArrearsAmount != null
+        ? Number(challan.snapshotArrearsAmount)
+        : Number(getTotalArrears(challan) || 0));
+  const extraFine = Number(challan.snapshotExtraFine ?? challan.installment?.extraFine ?? 0);
+  const hasAbsenteeInHeads = (challan.challanHeads || challan.heads || []).some(h => (h?.name || '').toLowerCase().includes('absent'));
+  const absentiesFine = hasAbsenteeInHeads
+    ? 0
+    : Number(challan.absenteeFineAmount ?? challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? 0);
+  const lateFeeFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
+  const discount = Math.abs(Number(challan.snapshotDiscount ?? challan.discount ?? challan.installment?.discount ?? 0));
+
+  return Math.max(0, baseAmount + headsAmount + arrearsAmount + extraFine + absentiesFine + lateFeeFine - discount);
+};
+
 export const getChallanTotal = (challan) => {
-  if (challan.netPayable != null && !isNaN(Number(challan.netPayable)) && Number(challan.netPayable) > 0) {
-    return Number(challan.netPayable);
-  }
-  if (challan.totalAmount != null && !isNaN(Number(challan.totalAmount)) && Number(challan.totalAmount) > 0) {
-    return Number(challan.totalAmount);
-  }
-  const absentiesFine = Number(challan?.snapshotAbsentiesFine ?? challan?.installment?.absentiesFine ?? 0);
-  return (challan.amount || 0) +
-    getSelectedHeadsTotal(challan) +
-    (challan.lateFeeFine || 0) +
-    absentiesFine +
-    getTotalArrears(challan);
+  if (!challan) return 0;
+  return getChallanGrossTotal(challan);
+};
+
+export const getChallanNetPayable = (challan) => {
+  if (!challan) return 0;
+  const gross = getChallanGrossTotal(challan);
+  const advance = Number(challan.advanceApplied || challan.advanceAmount || 0);
+  const directPaid = Number(challan.directPaidAmount ?? challan.paidAmount ?? 0);
+  return Math.max(0, gross - advance - directPaid);
 };
 
 export const formatAmount = (amount) => {
@@ -674,12 +724,21 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     `;
   }
 
-  const studentClass = challan.studentClass?.name || classes.find(c => c.id === student.classId)?.name || student.class?.name || "N/A";
-  const studentProgram = challan.studentProgram?.name || programs.find(p => p.id === student.programId)?.name || student.program?.name || "";
-  const studentSection = challan.studentSection?.name || student.section?.name || student.sectionName || "";
+  const rawClass = challan.studentClass || student.classId || student.class || challan.classId || challan.class;
+  const rawClassName = typeof rawClass === 'object' ? rawClass?.name : (classes.find(c => String(c.id || c._id) === String(rawClass))?.name || (typeof rawClass === 'string' && !/^[0-9a-fA-F]{24}$/.test(rawClass) ? rawClass : null));
+  const studentClass = rawClassName || challan.className || "N/A";
+
+  const rawProgram = challan.studentProgram || student.programId || student.program || challan.programId || challan.program;
+  const rawProgramName = typeof rawProgram === 'object' ? rawProgram?.name : (programs.find(p => String(p.id || p._id) === String(rawProgram))?.name || (typeof rawProgram === 'string' && !/^[0-9a-fA-F]{24}$/.test(rawProgram) ? rawProgram : null));
+  const studentProgram = rawProgramName || challan.programName || "";
+
+  const rawSection = challan.studentSection || student.sectionId || student.section || challan.sectionId || challan.section;
+  const rawSectionName = typeof rawSection === 'object' ? rawSection?.name : (typeof rawSection === 'string' && !/^[0-9a-fA-F]{24}$/.test(rawSection) ? rawSection : null);
+  const studentSection = rawSectionName || challan.sectionName || "";
+
   const programClassSection = studentSection
     ? `${studentProgram} / ${studentClass} / ${studentSection}`.replace(/^\/\s*/, '').trim()
-    : studentProgram ? `${studentProgram} / ${studentClass}` : studentClass;
+    : studentProgram ? `${studentProgram} / ${studentClass}`.replace(/^\/\s*/, '').trim() : studentClass;
 
   const isExtraChallan = Boolean(
     challan.isExtra === true ||
@@ -689,10 +748,31 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   );
 
   const tuitionOnly = isExtraChallan ? 0 : Number(challan.snapshotBaseAmount ?? challan.amount ?? 0);
-  let headsTotal = Number(challan.fineAmount ?? 0);
   const extraFine = Number(challan.installment?.extraFine || 0);
-  const absentiesFine = Number((challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine) || 0);
-  const lateFee = Number(challan.snapshotLateFee ?? challan.lateFeeFine ?? 0);
+  const hasAbsenteeInHeads = (challan.challanHeads || challan.heads || []).some(h => (h?.name || '').toLowerCase().includes('absent'));
+  const absentiesFine = hasAbsenteeInHeads
+    ? 0
+    : Number(challan.absenteeFineAmount ?? challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? 0);
+
+  const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+  const configuredRate = isExtraChallan ? extraChallanLateFee : (lateFeeRatePerDay || options.feeSettings?.lateFeeRatePerDay || 0);
+  const effectiveLateFeeRate = Number(
+    challan.installment?.lateFeeRatePerDay ??
+    challan.lateFeeRatePerDay ??
+    (configuredRate !== undefined && configuredRate !== null ? configuredRate : 0)
+  );
+  const existingFine = Number(
+    challan.snapshotLateFee ??
+    challan.lateFeeAmount ??
+    challan.lateFeeFine ??
+    challan.fineAmount ??
+    0
+  );
+  const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveLateFeeRate > 0)
+    ? calculateLateFee(challan.dueDate, effectiveLateFeeRate)
+    : 0;
+  const lateFee = existingFine > 0 ? existingFine : autoFine;
+
   const scholarship = Number(challan.snapshotDiscount) || Number(challan.discount) || Number(challan.installment?.discount) || 0;
   const originalArrears = isExtraChallan ? 0 : Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? getTotalArrears(challan) ?? 0);
 
@@ -713,12 +793,16 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   }
 
   const headsSnapshotTotal = headsSnapshot.reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
+  let headsTotal = 0;
   if (headsSnapshotTotal > 0 || isExtraChallan) {
     headsTotal = headsSnapshotTotal > 0 ? headsSnapshotTotal : Number(challan.amount || 0);
+  } else {
+    headsTotal = Number(challan.headsAmount || 0);
   }
 
-  let grossTotal = tuitionOnly + headsTotal + lateFee + originalArrears;
-  let standardTotal = grossTotal - Math.abs(scholarship);
+  const appliedAdvance = Number(challan.advanceApplied || challan.advanceAmount || 0);
+  let grossTotal = tuitionOnly + headsTotal + lateFee + extraFine + absentiesFine + originalArrears;
+  let standardTotal = Math.max(0, grossTotal - Math.abs(scholarship) - appliedAdvance);
   let netPayable = Math.max(0, standardTotal - (challan.paidAmount || 0));
 
   const headsRowsList = [];
@@ -844,7 +928,6 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   }
 
   let advanceRowsHtml = "";
-  const appliedAdvance = Number(challan.advanceApplied || challan.advanceAmount || 0);
   if (appliedAdvance > 0) {
     const sourceChallanNo = challan.advanceFromChallanNo || (challan.advanceAllocations?.[0]?.sourceChallanNo) || "";
     const allInsts = (() => {
@@ -900,7 +983,9 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   const isAdvanceAdjustedInstallment = isInstallmentChallanType && appliedAdvance > 0 && !!challan.advanceFromChallanNo;
   const totalSnap = isExtraChallanType
     ? Math.max(Number(challan.snapshotTotalDue ?? 0), Number(challan.totalAmount ?? 0), standardTotal)
-    : Number(challan.snapshotTotalDue ?? standardTotal ?? 0);
+    : (isSettledOrVoid
+        ? Number(challan.snapshotTotalDue ?? challan.netPayable ?? challan.totalAmount ?? standardTotal)
+        : standardTotal);
   const alreadyPaid = isSettled 
     ? Number(challan.totalSettledAmount ?? challan.netPayable ?? challan.totalAmount ?? totalSnap) 
     : directPaid;
@@ -920,10 +1005,15 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   html = html.replace(/\{\{challanNumber\}\}/g, challan.challanNumber || "");
   html = html.replace(/\{\{issueDate\}\}/g, safeFormatDate(challan.issueDate || challan.generatedDate || challan.createdAt));
   html = html.replace(/\{\{dueDate\}\}/g, safeFormatDate(challan.dueDate));
-  html = html.replace(/\{\{studentName\}\}/g, `${student.fName || ''} ${student.lName || ''}`.trim() || challan.studentName || "");
-  html = html.replace(/\{\{fatherName\}\}/g, student.fatherOrguardian || student.fatherName || challan.fatherName || "");
+  const finalStudentName = `${student.fName || ''} ${student.lName || ''}`.trim() || student.name || challan.studentName || challan.name || "";
+  const finalFatherName = student.fatherOrguardian || student.fatherName || challan.fatherName || challan.fatherOrguardian || "";
+  const finalRollNo = student.rollNumber || student.admissionNo || challan.rollNumber || challan.rollNo || challan.studentId || "";
+
+  html = html.replace(/\{\{studentName\}\}/g, finalStudentName);
+  html = html.replace(/\{\{fatherName\}\}/g, finalFatherName);
   html = html.replace(/\{\{class\}\}/g, programClassSection);
-  html = html.replace(/\{\{rollNo\}\}/g, student.rollNumber || challan.rollNumber || "");
+  html = html.replace(/\{\{rollNo\}\}/g, finalRollNo);
+  html = html.replace(/\{\{studentId\}\}/g, finalRollNo);
   html = html.replace(/\{\{session\}\}/g, challanSession);
   html = html.replace(/\{\{month\}\}/g, challanMonth);
   html = html.replace(/\{\{installmentNo\}\}/g, challanInstNo !== "" ? String(challanInstNo) : "");
@@ -948,9 +1038,9 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   html = html.replace(/\{\{feeHeadsRows\}\}/g, feeHeadsRowsHtml);
   html = html.replace(/\{\{arrearsRows\}\}/g, arrearsRowsHtml);
   html = html.replace(/\{\{arrears\}\}/g, totalArrears.toLocaleString());
-  const configuredRate = isExtraChallanType ? extraChallanLateFee : lateFeeRatePerDay;
   const slipRate = challan.installment?.lateFeeRatePerDay ?? (configuredRate !== undefined && configuredRate !== null ? configuredRate : 0);
-  html = html.replace(/\{\{lateFeeRatePerDay\}\}/g, slipRate.toString());
+  const displayRate = effectiveLateFeeRate > 0 ? effectiveLateFeeRate : (slipRate || 0);
+  html = html.replace(/\{\{lateFeeRatePerDay\}\}/g, displayRate.toString());
   html = html.replace(/\{\{bankName\}\}/g, options.bankName || options.feeSettings?.bankName || "United Bank Limited");
   html = html.replace(/\{\{accountNumber\}\}/g, options.accountNumber || options.feeSettings?.accountNumber || "");
   html = html.replace(/\{\{accountTitle\}\}/g, options.accountTitle || options.feeSettings?.accountTitle || "Concordia College Peshawar");
@@ -1025,11 +1115,29 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, getPaidChallanRowsHtml({ ...challan, remarks: latestRemarks }, feeChallans));
     html = html.replace(/\{\{lateFee\}\}/g, latestRemarks || (challan.status === 'PARTIAL' ? '-' : '-'));
   } else {
-    html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, '');
+    if (lateFee > 0) {
+      html = html.replace(
+        /<tr class="late-fee-row">[\s\S]*?<\/tr>/gi,
+        `<tr class="late-fee-row" style="color: #b91c1c; font-weight: bold; background-color: #fef2f2;">
+          <td>Late Fee Fine (Overdue)</td>
+          <td style="text-align: right;">PKR ${lateFee.toLocaleString()} (Rs. ${displayRate}/day)</td>
+        </tr>`
+      );
+      html = html.replace(/<td>Total Payable within due date<\/td>/gi,
+        `<td style="${cellStyle}">Total Payable (Overdue)</td>`);
+    } else {
+      html = html.replace(
+        /<tr class="late-fee-row">[\s\S]*?<\/tr>/gi,
+        `<tr class="late-fee-row">
+          <td>Late Fee Fine after due date</td>
+          <td style="text-align: right;">Rs. ${displayRate} Per Day</td>
+        </tr>`
+      );
+      html = html.replace(/<td>Total Payable within due date<\/td>/gi,
+        `<td style="${cellStyle}">Total Payable within due date</td>`);
+    }
     html = html.replace(/\{\{totalPayable\}\}/g, remainingPayable.toLocaleString());
-    html = html.replace(/<td>Total Payable within due date<\/td>/gi,
-      `<td style="${cellStyle}">Total Payable within due date</td>`);
-    html = html.replace(/\{\{lateFee\}\}/g, lateFee.toLocaleString());
+    html = html.replace(/\{\{lateFee\}\}/g, lateFee > 0 ? lateFee.toLocaleString() : `Rs. ${displayRate} Per Day`);
   }
 
   const currentInstNo = challan.installmentNumber || challan.installment?.installmentNumber || 0;

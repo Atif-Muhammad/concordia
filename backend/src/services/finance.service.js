@@ -118,10 +118,67 @@ class FinanceService {
     if (subCategory && subCategory !== 'all') query.subCategory = subCategory;
     if (status && status !== 'all') query.status = { $regex: new RegExp(`^${status}$`, 'i') };
 
-    return FinanceExpense.find(query).populate('approvedBy', 'name').sort({ date: -1 });
+    const expenses = await FinanceExpense.find(query)
+      .populate('approvedBy', 'name role email')
+      .populate('rejectedBy', 'name role email')
+      .populate('createdBy', 'name role email')
+      .populate({ path: 'transactionId', select: 'performedByName performedBy createdAt' })
+      .sort({ date: -1, createdAt: -1 });
+
+    return expenses.map((exp) => {
+      const obj = exp.toObject ? exp.toObject({ virtuals: true }) : { ...exp };
+      const isApproved = String(obj.status || '').toUpperCase() === 'APPROVED';
+      const isRejected = String(obj.status || '').toUpperCase() === 'REJECTED';
+
+      // 1. Resolve Approver's Name from DB
+      let approvedByName = obj.approvedByName;
+      if (!approvedByName && obj.approvedBy && typeof obj.approvedBy === 'object') {
+        approvedByName = obj.approvedBy.name;
+      }
+      if (!approvedByName && obj.transactionId?.performedByName) {
+        approvedByName = obj.transactionId.performedByName.replace(/\s*\([^)]*\)$/, '').trim();
+      }
+      if (!approvedByName && isApproved) {
+        approvedByName = 'Administrator';
+      }
+
+      // 2. Resolve Approval Timestamp
+      const approvedAt =
+        obj.approvedAt ||
+        (isApproved ? (obj.transactionId?.createdAt || obj.updatedAt || obj.createdAt) : null);
+
+      // 3. Resolve Rejecter's Name from DB
+      let rejectedByName = obj.rejectedByName;
+      if (!rejectedByName && obj.rejectedBy && typeof obj.rejectedBy === 'object') {
+        rejectedByName = obj.rejectedBy.name;
+      }
+      if (!rejectedByName && isRejected) {
+        rejectedByName = 'Administrator';
+      }
+
+      // 4. Resolve Rejection Timestamp
+      const rejectedAt =
+        obj.rejectedAt ||
+        (isRejected ? (obj.updatedAt || obj.createdAt) : null);
+
+      // 5. Resolve Creator's Name
+      let createdByName = obj.createdByName;
+      if (!createdByName && obj.createdBy && typeof obj.createdBy === 'object') {
+        createdByName = obj.createdBy.name;
+      }
+
+      return {
+        ...obj,
+        approvedByName: approvedByName || '',
+        approvedAt,
+        rejectedByName: rejectedByName || '',
+        rejectedAt,
+        createdByName: createdByName || '',
+      };
+    });
   }
 
-  async createExpense(data, userId) {
+  async createExpense(data, userId, userName = null) {
     const expenseData = { ...data };
 
     let targetWalletId = expenseData.walletId;
@@ -140,6 +197,16 @@ class FinanceService {
       }
     }
 
+    if (userId) {
+      expenseData.createdBy = userId;
+      let creatorName = userName;
+      if (!creatorName) {
+        const u = await User.findById(userId).select('name');
+        if (u) creatorName = u.name;
+      }
+      expenseData.createdByName = creatorName || '';
+    }
+
     // Defer wallet deduction and transaction creation until approval!
     expenseData.transactionId = null;
     expenseData.status = 'Pending';
@@ -152,7 +219,7 @@ class FinanceService {
     if (!expense) return null;
 
     // Only revert deduction if the expense was actually approved and deducted
-    if (expense.status === 'Approved' && expense.walletId) {
+    if (String(expense.status || '').toUpperCase() === 'APPROVED' && expense.walletId) {
       const wallet = await Wallet.findById(expense.walletId);
       if (wallet) {
         const amount = Number(expense.amount || 0);
@@ -183,13 +250,24 @@ class FinanceService {
     return FinanceExpense.findByIdAndDelete(id);
   }
 
-  async approveExpense(id, userId, customWalletId = null) {
+  async approveExpense(id, userId, customWalletId = null, userName = null) {
     const expense = await FinanceExpense.findById(id);
     if (!expense) throw new Error('Expense not found');
 
-    if (expense.status === 'Approved') {
+    if (String(expense.status || '').toUpperCase() === 'APPROVED') {
       return expense; // Already approved
     }
+
+    let approverName = userName;
+    let approverRole = 'Staff';
+    if (userId) {
+      const u = await User.findById(userId).select('name role');
+      if (u) {
+        approverName = u.name;
+        approverRole = u.role;
+      }
+    }
+    if (!approverName) approverName = 'Administrator';
 
     let targetWalletId = customWalletId || expense.walletId;
     if (!targetWalletId) {
@@ -209,7 +287,6 @@ class FinanceService {
       wallet.currentBalance = (Number(wallet.currentBalance) || 0) - amount;
       await wallet.save();
 
-      const user = userId ? await User.findById(userId).select('name role') : null;
       const txDate = expense.date || new Date().toISOString().split('T')[0];
 
       const walletTx = await WalletTransaction.create({
@@ -222,7 +299,7 @@ class FinanceService {
         sourceModule: 'Finance Expense',
         description: expense.description || `Finance Expense: ${expense.category}${expense.subCategory ? ' - ' + expense.subCategory : ''}`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: `${approverName} (${approverRole})`,
         balanceAfterSource: wallet.currentBalance,
       });
 
@@ -233,15 +310,27 @@ class FinanceService {
 
     expense.status = 'Approved';
     expense.approvedBy = userId || null;
-    return expense.save();
+    expense.approvedByName = approverName;
+    expense.approvedAt = new Date();
+    await expense.save();
+
+    await expense.populate('approvedBy', 'name role email');
+    return expense;
   }
 
-  async rejectExpense(id, userId, rejectionReason) {
+  async rejectExpense(id, userId, rejectionReason, userName = null) {
     const expense = await FinanceExpense.findById(id);
     if (!expense) throw new Error('Expense not found');
 
+    let rejecterName = userName;
+    if (userId && !rejecterName) {
+      const u = await User.findById(userId).select('name role');
+      if (u) rejecterName = u.name;
+    }
+    if (!rejecterName) rejecterName = 'Administrator';
+
     // If previously approved and deducted, revert deduction
-    if (expense.status === 'Approved' && expense.walletId && expense.transactionId) {
+    if (String(expense.status || '').toUpperCase() === 'APPROVED' && expense.walletId && expense.transactionId) {
       const wallet = await Wallet.findById(expense.walletId);
       if (wallet) {
         wallet.currentBalance = (Number(wallet.currentBalance) || 0) + Number(expense.amount || 0);
@@ -253,8 +342,13 @@ class FinanceService {
 
     expense.status = 'Rejected';
     expense.rejectedBy = userId || null;
+    expense.rejectedByName = rejecterName;
+    expense.rejectedAt = new Date();
     if (rejectionReason) expense.notes = rejectionReason;
-    return expense.save();
+    await expense.save();
+
+    await expense.populate('rejectedBy', 'name role email');
+    return expense;
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -358,9 +452,13 @@ class FinanceService {
     const query = {};
     if (dateFrom && dateTo) {
       query.date = { $gte: dateFrom, $lte: dateTo };
+    } else if (dateFrom) {
+      query.date = { $gte: dateFrom };
+    } else if (dateTo) {
+      query.date = { $lte: dateTo };
     }
     return FinanceClosing.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ date: -1, createdAt: -1 })
       .populate('closedBy', 'name role email');
   }
 
@@ -460,7 +558,11 @@ class FinanceService {
       walletId: item.walletId,
       walletName: item.walletName,
       status: item.status || 'Pending',
-      auditText: item.approvedBy ? `Approved by ${item.approvedBy.name}` : (item.status === 'Approved' ? 'Approved' : 'Pending'),
+      auditText: (() => {
+        const isApproved = String(item.status || '').toUpperCase() === 'APPROVED';
+        const approverName = item.approvedByName || item.approvedBy?.name || (isApproved ? 'Administrator' : '');
+        return approverName ? `Approved by ${approverName}` : (isApproved ? 'Approved' : 'Pending');
+      })(),
       createdAt: item.createdAt,
     }));
 

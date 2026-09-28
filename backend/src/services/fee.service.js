@@ -16,8 +16,74 @@ const {
   Program,
   Section,
   HostelChallan,
-  AcademicSession
+  AcademicSession,
+  Attendance
 } = require('../models');
+
+const getPreviousMonthInfo = (monthInput) => {
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  if (!monthInput) {
+    const now = new Date();
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevYear = prevDate.getFullYear();
+    const prevMonthNum = prevDate.getMonth() + 1;
+    const prevMonthStr = `${prevYear}-${String(prevMonthNum).padStart(2, '0')}`;
+    return {
+      prevMonthStr,
+      prevMonthName: monthNames[prevDate.getMonth()],
+      prevMonthYear: prevYear
+    };
+  }
+
+  const str = String(monthInput).trim();
+  if (/^\d{4}-\d{1,2}$/.test(str)) {
+    const [y, m] = str.split('-').map(Number);
+    const date = new Date(y, m - 1, 1);
+    date.setMonth(date.getMonth() - 1);
+    const prevYear = date.getFullYear();
+    const prevMonthNum = date.getMonth() + 1;
+    const prevMonthStr = `${prevYear}-${String(prevMonthNum).padStart(2, '0')}`;
+    return {
+      prevMonthStr,
+      prevMonthName: monthNames[date.getMonth()],
+      prevMonthYear: prevYear
+    };
+  }
+
+  const parts = str.split(/\s+/);
+  let monthIdx = -1;
+  let year = new Date().getFullYear();
+
+  for (const part of parts) {
+    const idx = monthNames.findIndex(m => m.toLowerCase() === part.toLowerCase());
+    if (idx !== -1) monthIdx = idx;
+    else if (/^\d{4}$/.test(part)) year = Number(part);
+  }
+
+  if (monthIdx !== -1) {
+    const date = new Date(year, monthIdx, 1);
+    date.setMonth(date.getMonth() - 1);
+    const prevYear = date.getFullYear();
+    const prevMonthNum = date.getMonth() + 1;
+    const prevMonthStr = `${prevYear}-${String(prevMonthNum).padStart(2, '0')}`;
+    return {
+      prevMonthStr,
+      prevMonthName: monthNames[date.getMonth()],
+      prevMonthYear: prevYear
+    };
+  }
+
+  const now = new Date();
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYear = prevDate.getFullYear();
+  const prevMonthNum = prevDate.getMonth() + 1;
+  const prevMonthStr = `${prevYear}-${String(prevMonthNum).padStart(2, '0')}`;
+  return {
+    prevMonthStr,
+    prevMonthName: monthNames[prevDate.getMonth()],
+    prevMonthYear: prevYear
+  };
+};
 
 class FeeService {
   // Fee Heads
@@ -316,7 +382,9 @@ class FeeService {
         studentClass: student?.classId || c.classId,
         studentProgram: student?.programId,
         studentSection: student?.sectionId,
-        fatherName: student?.fatherOrguardian || '',
+        studentName: student ? `${student.fName || ''} ${student.lName || ''}`.trim() : (c.studentName || ''),
+        fatherName: student?.fatherOrguardian || student?.fatherName || c.fatherName || '',
+        rollNumber: student?.rollNumber || student?.admissionNo || c.rollNumber || '',
         basePayable,
         headsAmount,
         arrearsAmount,
@@ -420,9 +488,19 @@ class FeeService {
     const settledByChallanId = c.settledByChallanId || (revChallanIds.length ? revChallanIds[0] : (c.supersededBy?._id || null));
     const totalSettledAmount = isSettled ? netPayable : (directPaidAmount + settledViaArrearsAmount);
 
+    const student = (c.studentId && typeof c.studentId === 'object') ? c.studentId : null;
+
     return {
       ...c,
       id: c._id?.toString(),
+      student,
+      studentId: student?._id?.toString() || c.studentId?.toString(),
+      studentClass: student?.classId || c.classId,
+      studentProgram: student?.programId,
+      studentSection: student?.sectionId,
+      studentName: student ? `${student.fName || ''} ${student.lName || ''}`.trim() : (c.studentName || ''),
+      fatherName: student?.fatherOrguardian || student?.fatherName || c.fatherName || '',
+      rollNumber: student?.rollNumber || student?.admissionNo || c.rollNumber || '',
       directPaidAmount,
       settledViaArrearsAmount,
       totalSettledAmount,
@@ -459,6 +537,46 @@ class FeeService {
   async createChallan(data) {
     if (!data.challanNo) {
       data.challanNo = await this.generate8DigitChallanNo();
+    }
+    if (data.studentId && data.month && data.absenteeCount === undefined) {
+      try {
+        const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(data.month);
+        const settings = await this.getSettings().catch(() => null);
+        const absenteeRate = Number(settings?.absenteeFinePerSubject) || 50;
+        const studentObjId = mongoose.Types.ObjectId.isValid(data.studentId)
+          ? new mongoose.Types.ObjectId(String(data.studentId))
+          : data.studentId;
+        const count = await Attendance.countDocuments({
+          studentId: studentObjId,
+          status: { $regex: /^absent$/i },
+          date: { $regex: `^${prevMonthStr}` }
+        });
+        if (count > 0) {
+          const fine = count * absenteeRate;
+          data.absenteeCount = count;
+          data.absenteeFineAmount = fine;
+          data.absenteeMonth = prevMonthName;
+          data.absenteeRate = absenteeRate;
+
+          data.challanHeads = data.challanHeads || [];
+          data.challanHeads.push({
+            name: `Absentee Fine (${count} subject ${count === 1 ? 'absentie' : 'absenties'} in ${prevMonthName})`,
+            category: 'custom',
+            amount: fine,
+            isCustom: true,
+            appliedAt: new Date()
+          });
+          data.headsAmount = (Number(data.headsAmount) || 0) + fine;
+          const basePay = Number(data.basePayable ?? data.amount ?? 0);
+          const arrears = Number(data.arrearsAmount || 0);
+          const heads = Number(data.headsAmount || 0);
+          data.grossAmount = basePay + arrears + heads;
+          data.netPayable = Math.max(0, data.grossAmount - (Number(data.advanceApplied) || 0) - (Number(data.discountAmount) || 0));
+          data.totalAmount = data.netPayable;
+        }
+      } catch (err) {
+        console.error('Error auto-calculating absentee fine in createChallan:', err);
+      }
     }
     return FeeChallan.create(data);
   }
@@ -1778,6 +1896,46 @@ class FeeService {
       }).lean()
     ]);
 
+    // Calculate absentee fine preview for previous month
+    const absenteeCountMap = new Map();
+    let absenteeRate = 50;
+    let targetPrevMonthName = '';
+
+    if (students.length > 0) {
+      try {
+        const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(filters.month);
+        targetPrevMonthName = prevMonthName;
+        const settings = await this.getSettings().catch(() => null);
+        absenteeRate = Number(settings?.absenteeFinePerSubject) || 50;
+
+        const objectIdStudentIds = studentIds.map(id =>
+          id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id))
+        );
+
+        const attendanceCounts = await Attendance.aggregate([
+          {
+            $match: {
+              studentId: { $in: objectIdStudentIds },
+              status: { $regex: /^absent$/i },
+              date: { $regex: `^${prevMonthStr}` }
+            }
+          },
+          {
+            $group: {
+              _id: '$studentId',
+              count: { $sum: 1 }
+            }
+          }
+        ]);
+
+        attendanceCounts.forEach(item => {
+          absenteeCountMap.set(item._id.toString(), item.count);
+        });
+      } catch (err) {
+        console.error('Error fetching attendance counts in getInstallmentPlans:', err);
+      }
+    }
+
     return students.map(s => {
       const studentChallans = challans.filter(c => c.studentId?.toString() === s._id.toString());
       const studentCredits = creditLedgers.filter(cl => cl.studentId?.toString() === s._id.toString());
@@ -1815,6 +1973,9 @@ class FeeService {
         };
       });
 
+      const count = absenteeCountMap.get(s._id.toString()) || 0;
+      const absenteeFineAmount = count * absenteeRate;
+
       return {
         ...s,
         id: s._id.toString(),
@@ -1825,7 +1986,11 @@ class FeeService {
         feeInstallments: installments,
         challans: studentChallans,
         availableAdvanceCredit,
-        creditDetails: studentCredits
+        creditDetails: studentCredits,
+        absenteeCount: count,
+        absenteeFineAmount,
+        absenteeMonth: count > 0 ? targetPrevMonthName : '',
+        absenteeRate
       };
     });
   }
@@ -1844,6 +2009,35 @@ class FeeService {
       .populate('classId')
       .populate('programId')
       .populate('sectionId');
+
+    const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(month);
+    const settings = await this.getSettings().catch(() => null);
+    const absenteeRate = Number(settings?.absenteeFinePerSubject) || 50;
+
+    const objectIdStudentIds = studentIds.map(id =>
+      id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id))
+    );
+
+    const attendanceCounts = await Attendance.aggregate([
+      {
+        $match: {
+          studentId: { $in: objectIdStudentIds },
+          status: { $regex: /^absent$/i },
+          date: { $regex: `^${prevMonthStr}` }
+        }
+      },
+      {
+        $group: {
+          _id: '$studentId',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const absenteeCountMap = new Map();
+    attendanceCounts.forEach(item => {
+      absenteeCountMap.set(item._id.toString(), item.count);
+    });
 
     for (const student of students) {
       try {
@@ -1884,13 +2078,28 @@ class FeeService {
         });
 
         if (existing) {
+          const studentObj = student.toObject ? student.toObject() : student;
+          const existingObj = existing.toObject ? existing.toObject() : existing;
+          const fullName = `${student.fName || ''} ${student.lName || ''}`.trim();
           results.push({
             studentId: student._id.toString(),
-            studentName: `${student.fName} ${student.lName || ''}`.trim(),
+            studentName: fullName,
             status: 'ALREADY_EXISTS',
             reason: `Challan ${existing.challanNo} already exists for ${monthName || month}`,
             challanNumber: existing.challanNo,
-            challan: existing
+            challan: {
+              ...existingObj,
+              id: existing._id?.toString(),
+              challanNumber: existing.challanNo,
+              student: studentObj,
+              studentId: studentObj,
+              studentName: fullName,
+              fatherName: student.fatherOrguardian || student.fatherName || '',
+              rollNumber: student.rollNumber || student.admissionNo || '',
+              studentClass: student.classId,
+              studentProgram: student.programId,
+              studentSection: student.sectionId,
+            }
           });
           continue;
         }
@@ -1969,7 +2178,25 @@ class FeeService {
         }).sort({ createdAt: 1 });
 
         const totalAvailableCredit = creditRecords.reduce((sum, r) => sum + (Number(r.remainingAmount) || 0), 0);
-        const grossAmount = basePayable + totalArrears;
+
+        // Calculate absentee fine for previous month
+        const absenteeCount = absenteeCountMap.get(student._id.toString()) || 0;
+        const absenteeFineAmount = absenteeCount * absenteeRate;
+        const challanHeads = [];
+        let headsAmount = 0;
+
+        if (absenteeCount > 0 && absenteeFineAmount > 0) {
+          challanHeads.push({
+            name: `Absentee Fine (${absenteeCount} subject ${absenteeCount === 1 ? 'absentie' : 'absenties'} in ${prevMonthName})`,
+            category: 'custom',
+            amount: absenteeFineAmount,
+            isCustom: true,
+            appliedAt: new Date()
+          });
+          headsAmount += absenteeFineAmount;
+        }
+
+        const grossAmount = basePayable + totalArrears + headsAmount;
         const advanceToApply = Math.min(grossAmount, totalAvailableCredit);
         const netPayable = Math.max(0, grossAmount - advanceToApply);
         const isFullyPaidByAdvance = (netPayable === 0 && advanceToApply > 0);
@@ -1982,6 +2209,8 @@ class FeeService {
           installmentNumber,
           amount: basePayable,
           basePayable,
+          challanHeads,
+          headsAmount,
           arrearsAmount: totalArrears,
           grossAmount,
           advanceApplied: advanceToApply,
@@ -1998,7 +2227,11 @@ class FeeService {
           status: isFullyPaidByAdvance ? 'PAID' : 'PENDING',
           paidAmount: isFullyPaidByAdvance ? advanceToApply : 0,
           paidDate: isFullyPaidByAdvance ? new Date() : undefined,
-          paidBy: isFullyPaidByAdvance ? 'Advance Credit' : 'Cash'
+          paidBy: isFullyPaidByAdvance ? 'Advance Credit' : 'Cash',
+          absenteeCount,
+          absenteeFineAmount,
+          absenteeMonth: absenteeCount > 0 ? prevMonthName : '',
+          absenteeRate
         });
 
         // 3. Mark prior challans as SUPERSEDED
@@ -2080,12 +2313,27 @@ class FeeService {
           await student.save();
         }
 
+        const studentObj = student.toObject ? student.toObject() : student;
+        const createdObj = createdChallan.toObject ? createdChallan.toObject() : createdChallan;
+        const fullName = `${student.fName || ''} ${student.lName || ''}`.trim();
         results.push({
           studentId: student._id.toString(),
-          studentName: `${student.fName} ${student.lName || ''}`.trim(),
+          studentName: fullName,
           status: 'CREATED',
           challanNumber: challanNo,
-          challan: createdChallan
+          challan: {
+            ...createdObj,
+            id: createdChallan._id?.toString(),
+            challanNumber: challanNo,
+            student: studentObj,
+            studentId: studentObj,
+            studentName: fullName,
+            fatherName: student.fatherOrguardian || student.fatherName || '',
+            rollNumber: student.rollNumber || student.admissionNo || '',
+            studentClass: student.classId,
+            studentProgram: student.programId,
+            studentSection: student.sectionId,
+          }
         });
       } catch (err) {
         results.push({

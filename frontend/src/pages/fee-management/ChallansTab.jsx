@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import {
   SlidersHorizontal,
   X,
@@ -42,6 +49,8 @@ import {
   Calendar as CalendarIcon,
   Minus,
   Layers,
+  MoreVertical,
+  DollarSign,
 } from "lucide-react";
 import {
   getFeeChallans,
@@ -69,6 +78,8 @@ import {
   getTotalArrears,
   getRecursiveArrears,
   getChallanTotal,
+  getChallanGrossTotal,
+  getChallanNetPayable,
   generateChallanHtml,
   applyPaidChallanPrintTreatment,
   htmlIncludesChallanNumber,
@@ -259,6 +270,7 @@ export const ChallansTab = ({
           ...(generateForm.classId && generateForm.classId !== "all" ? { classId: generateForm.classId } : {}),
           ...(generateForm.sectionId && generateForm.sectionId !== "all" ? { sectionId: generateForm.sectionId } : {}),
           ...(generateForm.sessionId && generateForm.sessionId !== "all" ? { sessionId: generateForm.sessionId } : {}),
+          ...(generateForm.month ? { month: generateForm.month } : {}),
         });
 
         const [selY, sm] = (generateForm.month || '').split('-').map(Number);
@@ -356,14 +368,45 @@ export const ChallansTab = ({
       const blockedCount = results.filter(r => r.status === 'BLOCKED').length;
       const existsCount = results.filter(r => r.status === 'ALREADY_EXISTS').length;
 
-      const mappedResults = results.map(r => ({
-        studentId: r.studentId,
-        studentName: r.studentName || `Student #${r.studentId}`,
-        status: r.status,
-        reason: r.reason || r.error || r.message || '',
-        challanNumber: r.challanNumber || r.challan?.challanNumber,
-        challan: r.challan || null,
-      }));
+      const mappedResults = results.map(r => {
+        const studentInfo = bulkStudents.find(s => String(s.id || s._id) === String(r.studentId));
+        const rawChallan = r.challan || {};
+        const challanId = rawChallan.id || rawChallan._id;
+        const challanNumber = r.challanNumber || rawChallan.challanNo || rawChallan.challanNumber || '';
+        const studentObj = studentInfo || rawChallan.student || (rawChallan.studentId && typeof rawChallan.studentId === 'object' ? rawChallan.studentId : null);
+        const studentFullName = r.studentName || (studentInfo ? `${studentInfo.fName || ''} ${studentInfo.lName || ''}`.trim() : rawChallan.studentName) || `Student #${r.studentId}`;
+        const fatherFullName = studentInfo?.fatherOrguardian || studentInfo?.fatherName || rawChallan.fatherName || '';
+        const rollNum = studentInfo?.rollNumber || studentInfo?.admissionNo || rawChallan.rollNumber || '';
+        const studentClass = studentInfo?.classId || studentInfo?.class || rawChallan.studentClass || rawChallan.classId;
+        const studentProgram = studentInfo?.programId || studentInfo?.program || rawChallan.studentProgram || rawChallan.programId;
+        const studentSection = studentInfo?.sectionId || studentInfo?.section || rawChallan.studentSection || rawChallan.sectionId;
+
+        const challanObj = {
+          ...rawChallan,
+          id: challanId,
+          _id: challanId,
+          challanNumber,
+          challanNo: challanNumber,
+          student: studentObj,
+          studentId: studentObj,
+          studentName: studentFullName,
+          fatherName: fatherFullName,
+          rollNumber: rollNum,
+          rollNo: rollNum,
+          studentClass,
+          studentProgram,
+          studentSection,
+        };
+
+        return {
+          studentId: r.studentId,
+          studentName: studentFullName,
+          status: r.status,
+          reason: r.reason || r.error || r.message || '',
+          challanNumber,
+          challan: challanObj,
+        };
+      });
 
       setGenerateResults(mappedResults);
 
@@ -443,8 +486,9 @@ export const ChallansTab = ({
 
   // Print Single Installment Challan
   const printInstallmentChallan = async (challanId, fallbackChallan = null) => {
-    const challan = fallbackChallan || feeChallans.find(c => c.id === challanId);
+    let challan = fallbackChallan || feeChallans.find(c => c.id === challanId);
     if (!challan) return;
+    challan = { ...challan, lateFeeRatePerDay: challan.lateFeeRatePerDay || challan.installment?.lateFeeRatePerDay || lateFeeRatePerDay };
 
     setPrintingChallanId(`installment-${challanId}`);
     const printWindow = window.open('', '_blank');
@@ -490,8 +534,9 @@ export const ChallansTab = ({
 
   // Print Generated Challan
   const printGeneratedChallan = async (result) => {
-    if (!result?.challan?.id) return;
-    const key = result.challan.id;
+    const challanId = result?.challan?.id || result?.challan?._id || result?.challanNumber;
+    if (!challanId) return;
+    const key = result.challan?.id || result.challan?._id || result.studentId;
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
@@ -500,7 +545,21 @@ export const ChallansTab = ({
 
     setGeneratedPrintingKey(key);
     try {
-      const normalized = normalizeChallan(result.challan);
+      const studentInfo = bulkStudents.find(s => String(s.id || s._id) === String(result.studentId));
+      const challanWithStudent = {
+        ...result.challan,
+        id: challanId,
+        _id: challanId,
+        student: result.challan?.student || studentInfo,
+        studentName: result.challan?.studentName || result.studentName || (studentInfo ? `${studentInfo.fName || ''} ${studentInfo.lName || ''}`.trim() : ''),
+        fatherName: result.challan?.fatherName || studentInfo?.fatherOrguardian || '',
+        rollNumber: result.challan?.rollNumber || studentInfo?.rollNumber || studentInfo?.admissionNo || '',
+        studentClass: result.challan?.studentClass || studentInfo?.classId || studentInfo?.class,
+        studentProgram: result.challan?.studentProgram || studentInfo?.programId || studentInfo?.program,
+        studentSection: result.challan?.studentSection || studentInfo?.sectionId || studentInfo?.section,
+        lateFeeRatePerDay: result.challan?.lateFeeRatePerDay || lateFeeRatePerDay,
+      };
+      const normalized = normalizeChallan(challanWithStudent);
       const tpl = installmentTemplate || await getDefaultFeeChallanTemplate("INSTALLMENT");
       const baseHtml = generateChallanHtml(
         normalized,
@@ -508,7 +567,7 @@ export const ChallansTab = ({
         { lateFeeRatePerDay, classes, programs, feeHeads, feeChallans, academicSessions }
       );
       const html = applyPaidChallanPrintTreatment(baseHtml, normalized);
-      await openManagedPrintWindow({ html, title: "Challan #" + (result.challanNumber || result.challan.challanNumber || ""), toast, printWindow });
+      await openManagedPrintWindow({ html, title: "Challan #" + (result.challanNumber || result.challan?.challanNumber || result.challan?.challanNo || ""), toast, printWindow });
     } catch (error) {
       toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
       printWindow.close?.();
@@ -518,7 +577,7 @@ export const ChallansTab = ({
   };
 
   const printGeneratedChallans = async (created = []) => {
-    const printable = created.filter(r => r?.challan?.id);
+    const printable = created.filter(r => r?.challan && (r.challan.id || r.challan._id || r.challanNumber));
     if (printable.length === 0) return;
 
     setGeneratedPrintingKey("all");
@@ -529,7 +588,22 @@ export const ChallansTab = ({
         title: "Generated Challans",
         toast,
         renderers: printable.map(r => () => {
-          const normalized = normalizeChallan(r.challan);
+          const studentInfo = bulkStudents.find(s => String(s.id || s._id) === String(r.studentId));
+          const challanId = r.challan.id || r.challan._id || r.challanNumber;
+          const challanWithStudent = {
+            ...r.challan,
+            id: challanId,
+            _id: challanId,
+            student: r.challan?.student || studentInfo,
+            studentName: r.challan?.studentName || r.studentName || (studentInfo ? `${studentInfo.fName || ''} ${studentInfo.lName || ''}`.trim() : ''),
+            fatherName: r.challan?.fatherName || studentInfo?.fatherOrguardian || '',
+            rollNumber: r.challan?.rollNumber || studentInfo?.rollNumber || studentInfo?.admissionNo || '',
+            studentClass: r.challan?.studentClass || studentInfo?.classId || studentInfo?.class,
+            studentProgram: r.challan?.studentProgram || studentInfo?.programId || studentInfo?.program,
+            studentSection: r.challan?.studentSection || studentInfo?.sectionId || studentInfo?.section,
+            lateFeeRatePerDay: r.challan?.lateFeeRatePerDay || lateFeeRatePerDay,
+          };
+          const normalized = normalizeChallan(challanWithStudent);
           const baseHtml = generateChallanHtml(
             normalized,
             tplHtml,
@@ -651,6 +725,107 @@ export const ChallansTab = ({
     } finally {
       setBulkPreviewPrinting(false);
     }
+  };
+
+  const handleEditChallan = async (challan) => {
+    setEditingChallan(challan);
+    let fetchedPlan = [];
+    const effectiveStudentId = extractId(challan.studentId || challan.student?._id || challan.student);
+    try {
+      if (effectiveStudentId) {
+        const results = await getInstallmentPlans({ studentId: effectiveStudentId });
+        fetchedPlan = results[0]?.feeInstallments || [];
+        setGenStudentPlan(fetchedPlan);
+      }
+    } catch (error) { console.error("Failed to fetch plan for edit:", error); }
+
+    const rawCandidateHeads = [];
+    const addCandidateHeads = (arr) => {
+      if (!arr) return;
+      let parsed = arr;
+      if (typeof arr === "string") {
+        try { parsed = JSON.parse(arr); } catch (e) { parsed = []; }
+      }
+      if (Array.isArray(parsed)) {
+        parsed.forEach(item => {
+          if (item) rawCandidateHeads.push(item);
+        });
+      }
+    };
+
+    addCandidateHeads(challan.challanHeads);
+    addCandidateHeads(challan.selectedHeads);
+    addCandidateHeads(challan.heads);
+    addCandidateHeads(challan.installment?.challanHeads);
+    addCandidateHeads(challan.installment?.heads);
+    addCandidateHeads(challan.installment?.selectedHeads);
+
+    if (rawCandidateHeads.length === 0 && Array.isArray(fetchedPlan)) {
+      const matchingInst = fetchedPlan.find(inst =>
+        (challan.installmentId && extractId(inst._id || inst.id) === extractId(challan.installmentId)) ||
+        (challan.installmentNumber && Number(inst.installmentNumber) === Number(challan.installmentNumber)) ||
+        (challan.month && inst.month && String(challan.month).trim().toLowerCase() === String(inst.month).trim().toLowerCase())
+      );
+      if (matchingInst) {
+        addCandidateHeads(matchingInst.challanHeads);
+        addCandidateHeads(matchingInst.heads);
+        addCandidateHeads(matchingInst.selectedHeads);
+      }
+    }
+
+    const nonTuitionCatalogHeads = (feeHeads || []).filter(h => !h.isTuition);
+    const matchedHeadIds = new Set();
+    const customHeadsList = [];
+
+    rawCandidateHeads.forEach(item => {
+      if (!item) return;
+      const itemId = typeof item === 'object' ? extractId(item.id || item._id || item.headId) : extractId(item);
+      const itemName = typeof item === 'object' ? (item.headName || item.name) : null;
+      const catalogMatch = nonTuitionCatalogHeads.find(h =>
+        (itemId && extractId(h.id || h._id) === itemId) ||
+        (itemName && String(h.name).trim().toLowerCase() === String(itemName).trim().toLowerCase())
+      );
+
+      if (catalogMatch) {
+        matchedHeadIds.add(extractId(catalogMatch.id || catalogMatch._id));
+      } else if (typeof item === 'object' && item.name && item.amount) {
+        customHeadsList.push({ name: item.name, amount: Number(item.amount) || 0 });
+      }
+    });
+
+    let foundOtherHead = null;
+    if (customHeadsList.length === 1) {
+      foundOtherHead = {
+        name: customHeadsList[0].name || 'Other',
+        amount: customHeadsList[0].amount || 0
+      };
+    } else if (customHeadsList.length > 1) {
+      const totalCustom = customHeadsList.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+      const names = customHeadsList.map(h => h.name).filter(Boolean).join(', ');
+      foundOtherHead = {
+        name: names || 'Other',
+        amount: totalCustom
+      };
+    }
+
+    const selectedHeadIds = Array.from(matchedHeadIds);
+
+    setChallanForm({
+      studentId: effectiveStudentId,
+      amount: (challan.basePayable || challan.snapshotBaseAmount || challan.amount || 0).toString(),
+      dueDate: challan.dueDate ? new Date(challan.dueDate) : null,
+      remarks: challan.remarks || "",
+      installmentNumber: (challan.installmentNumber || 0).toString(),
+      arrearsAmount: (challan.arrearsAmount || challan.snapshotArrearsAmount || 0).toString(),
+      arrearsSelections: [],
+      isOtherEnabled: !!foundOtherHead,
+      otherName: foundOtherHead?.name || "Other",
+      otherAmount: foundOtherHead ? String(foundOtherHead.amount || 0) : "0",
+      selectedHeads: selectedHeadIds,
+      fineAmount: (challan.lateFeeAmount || challan.snapshotLateFee || challan.lateFeeFine || challan.fineAmount || 0).toString(),
+      discount: Math.abs(challan.discountAmount || challan.discount || 0),
+    });
+    setChallanOpen(true);
   };
 
   const handleSubmitChallan = () => {
@@ -894,15 +1069,6 @@ export const ChallansTab = ({
               )}
             </div>
 
-            {/* Bulk Print button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setBulkPrintOpen(true)}
-              className="h-9 gap-1.5 shrink-0"
-            >
-              <Printer className="w-4 h-4" /> Bulk Print
-            </Button>
 
             {/* Generate button */}
             {canCreate && (
@@ -932,7 +1098,7 @@ export const ChallansTab = ({
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden lg:table-cell">Arrears</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden xl:table-cell">Extra/Heads</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden xl:table-cell">Fine (Late Fee)</TableHead>
-                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-foreground bg-slate-100">Total</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-foreground bg-slate-100 whitespace-nowrap min-w-[105px]">Total</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-green-700 bg-green-50 hidden lg:table-cell">Paid Amount</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden md:table-cell">Due Date</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground">Status</TableHead>
@@ -1058,19 +1224,38 @@ export const ChallansTab = ({
                           </Tooltip>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-bold bg-slate-50/50">
+                      <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-bold bg-slate-50/50 whitespace-nowrap min-w-[105px]">
                         {(() => {
                           const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
-                          const autoFine = (!isSettledOrVoid && challan.dueDate)
-                            ? calculateLateFee(challan.dueDate, lateFeeRatePerDay || challan.installment?.lateFeeRatePerDay || 0)
+                          const effectiveRate = Number(
+                            challan.installment?.lateFeeRatePerDay ??
+                            challan.lateFeeRatePerDay ??
+                            lateFeeRatePerDay ??
+                            0
+                          );
+                          const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveRate > 0)
+                            ? calculateLateFee(challan.dueDate, effectiveRate)
                             : 0;
-                          const baseTotal = Number(challan.snapshotTotalDue ?? getChallanTotal(challan));
-                          const effectiveTotal = existingFine > 0 ? baseTotal : (baseTotal + autoFine);
+                          const effectiveFine = existingFine > 0 ? existingFine : autoFine;
+
+                          const grossTotal = getChallanGrossTotal(challan);
+                          const fineIncluded = existingFine > 0 && Number(challan.lateFeeAmount || challan.snapshotLateFee || 0) > 0;
+                          const totalWithFine = fineIncluded ? grossTotal : (grossTotal + effectiveFine);
+
+                          const advanceApplied = Number(challan.advanceApplied || challan.advanceAmount || 0);
+                          const directPaid = Number(challan.directPaidAmount ?? challan.paidAmount ?? 0);
+                          const netDue = Math.max(0, totalWithFine - advanceApplied - (challan.status === 'SETTLED' ? 0 : directPaid));
+
                           return (
-                            <div>
-                              <div>PKR {formatAmount(effectiveTotal)}</div>
-                              <div className="md:hidden text-[10px] font-normal text-muted-foreground mt-0.5">
+                            <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                              <span className="font-bold text-slate-900">PKR {formatAmount(totalWithFine)}</span>
+                              {advanceApplied > 0 && (
+                                <span className="text-[11px] text-purple-700 font-semibold font-mono whitespace-nowrap" title={`Net after PKR ${formatAmount(advanceApplied)} advance`}>
+                                  Net: PKR {formatAmount(netDue)}
+                                </span>
+                              )}
+                              <div className="md:hidden text-[10px] font-normal text-muted-foreground mt-0.5 whitespace-nowrap">
                                 {challan.month || (challan.installmentNumber === 0 ? "Extra" : `Inst #${challan.installmentNumber}`)}
                               </div>
                             </div>
@@ -1315,249 +1500,98 @@ export const ChallansTab = ({
                         </div>
                       </TableCell>
                       <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm text-right hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1 justify-end">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button size="sm" variant="ghost" onClick={() => {
-                                setSelectedChallanDetails(challan);
-                                setDetailsDialogOpen(true);
-                              }}>
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>View Details</TooltipContent>
-                          </Tooltip>
-
-                          {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED") ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button size="sm" variant="ghost" onClick={async () => {
-                                  setEditingChallan(challan);
-                                  let fetchedPlan = [];
-                                  const effectiveStudentId = extractId(challan.studentId || challan.student?._id || challan.student);
-                                  try {
-                                    if (effectiveStudentId) {
-                                      const results = await getInstallmentPlans({ studentId: effectiveStudentId });
-                                      fetchedPlan = results[0]?.feeInstallments || [];
-                                      setGenStudentPlan(fetchedPlan);
-                                    }
-                                  } catch (error) { console.error("Failed to fetch plan for edit:", error); }
-
-                                  // Extract candidate heads from all possible challan properties
-                                  const rawCandidateHeads = [];
-                                  const addCandidateHeads = (arr) => {
-                                    if (!arr) return;
-                                    let parsed = arr;
-                                    if (typeof arr === "string") {
-                                      try { parsed = JSON.parse(arr); } catch (e) { parsed = []; }
-                                    }
-                                    if (Array.isArray(parsed)) {
-                                      parsed.forEach(item => {
-                                        if (item) rawCandidateHeads.push(item);
-                                      });
-                                    }
-                                  };
-
-                                  addCandidateHeads(challan.challanHeads);
-                                  addCandidateHeads(challan.selectedHeads);
-                                  addCandidateHeads(challan.heads);
-                                  addCandidateHeads(challan.installment?.challanHeads);
-                                  addCandidateHeads(challan.installment?.heads);
-                                  addCandidateHeads(challan.installment?.selectedHeads);
-
-                                  // If no heads found directly on challan, check matching installment in fetchedPlan
-                                  if (rawCandidateHeads.length === 0 && Array.isArray(fetchedPlan)) {
-                                    const matchingInst = fetchedPlan.find(inst =>
-                                      (challan.installmentId && extractId(inst._id || inst.id) === extractId(challan.installmentId)) ||
-                                      (challan.installmentNumber && Number(inst.installmentNumber) === Number(challan.installmentNumber)) ||
-                                      (challan.month && inst.month && String(challan.month).trim().toLowerCase() === String(inst.month).trim().toLowerCase())
-                                    );
-                                    if (matchingInst) {
-                                      addCandidateHeads(matchingInst.challanHeads);
-                                      addCandidateHeads(matchingInst.heads);
-                                      addCandidateHeads(matchingInst.selectedHeads);
-                                    }
-                                  }
-
-                                  const nonTuitionCatalogHeads = (feeHeads || []).filter(h => !h.isTuition);
-                                  const matchedHeadIds = new Set();
-                                  const customHeadsList = [];
-
-                                  rawCandidateHeads.forEach(item => {
-                                    if (!item) return;
-
-                                    if (typeof item === 'string') {
-                                      const trimmed = item.trim();
-                                      const matched = nonTuitionCatalogHeads.find(cat =>
-                                        extractId(cat.id || cat._id) === trimmed ||
-                                        (cat.name || '').trim().toLowerCase() === trimmed.toLowerCase()
-                                      );
-                                      if (matched) {
-                                        matchedHeadIds.add(extractId(matched.id || matched._id));
-                                      } else if (trimmed && trimmed.toLowerCase() !== 'tuition') {
-                                        customHeadsList.push({ name: trimmed, amount: 0 });
-                                      }
-                                      return;
-                                    }
-
-                                    // Item is an object
-                                    const candidateId = typeof item.headId === 'object' && item.headId !== null
-                                      ? extractId(item.headId._id || item.headId.id)
-                                      : extractId(item.headId || (item.id !== -1 && item.id !== '-1' ? item.id : null));
-
-                                    const candidateName = (
-                                      item.name ||
-                                      item.headName ||
-                                      item.feeHead?.name ||
-                                      (typeof item.headId === 'object' && item.headId ? item.headId.name : '') ||
-                                      ''
-                                    ).trim();
-                                    const candidateNameLower = candidateName.toLowerCase();
-
-                                    const isExplicitCustom = item.isCustom === true ||
-                                      item.id === -1 ||
-                                      item.id === '-1' ||
-                                      candidateNameLower === 'other' ||
-                                      candidateNameLower === 'fine';
-
-                                    let matchedCat = null;
-                                    if (candidateId) {
-                                      matchedCat = nonTuitionCatalogHeads.find(cat => extractId(cat.id || cat._id) === candidateId);
-                                    }
-                                    if (!matchedCat && candidateNameLower && !isExplicitCustom) {
-                                      matchedCat = nonTuitionCatalogHeads.find(cat => (cat.name || '').trim().toLowerCase() === candidateNameLower);
-                                    }
-
-                                    if (matchedCat) {
-                                      matchedHeadIds.add(extractId(matchedCat.id || matchedCat._id));
-                                    } else if (isExplicitCustom || (candidateName && Number(item.amount) > 0)) {
-                                      customHeadsList.push({
-                                        name: candidateName || 'Other',
-                                        amount: Number(item.amount) || 0
-                                      });
-                                    }
-                                  });
-
-                                  let foundOtherHead = null;
-                                  if (customHeadsList.length === 1) {
-                                    foundOtherHead = {
-                                      name: customHeadsList[0].name || 'Other',
-                                      amount: customHeadsList[0].amount || 0
-                                    };
-                                  } else if (customHeadsList.length > 1) {
-                                    const totalCustom = customHeadsList.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
-                                    const names = customHeadsList.map(h => h.name).filter(Boolean).join(', ');
-                                    foundOtherHead = {
-                                      name: names || 'Other',
-                                      amount: totalCustom
-                                    };
-                                  }
-
-                                  const selectedHeadIds = Array.from(matchedHeadIds);
-
-                                  setChallanForm({
-                                    studentId: effectiveStudentId,
-                                    amount: (challan.basePayable || challan.snapshotBaseAmount || challan.amount || 0).toString(),
-                                    dueDate: challan.dueDate ? new Date(challan.dueDate) : null,
-                                    remarks: challan.remarks || "",
-                                    installmentNumber: (challan.installmentNumber || 0).toString(),
-                                    arrearsAmount: (challan.arrearsAmount || challan.snapshotArrearsAmount || 0).toString(),
-                                    arrearsSelections: [],
-                                    isOtherEnabled: !!foundOtherHead,
-                                    otherName: foundOtherHead?.name || "Other",
-                                    otherAmount: foundOtherHead ? String(foundOtherHead.amount || 0) : "0",
-                                    selectedHeads: selectedHeadIds,
-                                    fineAmount: (challan.lateFeeAmount || challan.snapshotLateFee || challan.lateFeeFine || challan.fineAmount || 0).toString(),
-                                    discount: Math.abs(challan.discountAmount || challan.discount || 0),
-                                  });
-                                  setChallanOpen(true);
-                                }}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Edit Challan</TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="p-2 text-muted-foreground/50 cursor-not-allowed">
-                                  <Lock className="w-4 h-4" />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>Paid or settled challans cannot be edited</TooltipContent>
-                            </Tooltip>
-                          ))}
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
+                        <div className="flex justify-end">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                className="h-8 w-8 p-0 hover:bg-slate-100 data-[state=open]:bg-slate-100 rounded-md"
+                                title="Actions"
+                              >
+                                <span className="sr-only">Open actions menu</span>
+                                <MoreVertical className="w-4 h-4 text-slate-600" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44 z-50">
+                              <DropdownMenuItem
+                                className="cursor-pointer gap-2"
+                                onClick={() => {
+                                  setSelectedChallanDetails(challan);
+                                  setDetailsDialogOpen(true);
+                                }}
+                              >
+                                <Eye className="w-4 h-4 text-slate-500" />
+                                <span>View Details</span>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem
+                                className="cursor-pointer gap-2"
                                 onClick={() => printInstallmentChallan(challan.id, challan)}
                                 disabled={printingChallanId === `installment-${challan.id}`}
                               >
-                                <Printer className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Print Challan</TooltipContent>
-                          </Tooltip>
+                                <Printer className="w-4 h-4 text-slate-500" />
+                                <span>Print Challan</span>
+                              </DropdownMenuItem>
 
-                          {canPayFee && challan.status !== "PAID" && challan.status !== "VOID" && challan.status !== "SUPERSEDED" && challan.status !== "SETTLED" && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-success border-success hover:bg-success hover:text-white h-8 px-2"
+                              {canPayFee && !['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status) && (
+                                <DropdownMenuItem
+                                  className="cursor-pointer gap-2 text-emerald-700 focus:text-emerald-800 focus:bg-emerald-50 font-medium"
                                   onClick={() => {
                                     setItemToPay(challan);
                                     setPaymentDialogOpen(true);
                                   }}
                                 >
-                                  Pay
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Record Payment</TooltipContent>
-                            </Tooltip>
-                          )}
+                                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                                  <span>Record Payment</span>
+                                </DropdownMenuItem>
+                              )}
 
-                          {challan.paymentHistory && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button size="sm" variant="ghost" onClick={() => {
-                                  setSelectedChallanForHistory(challan);
-                                  setHistoryDialogOpen(true);
-                                }}>
-                                  <History className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Payment History</TooltipContent>
-                            </Tooltip>
-                          )}
+                              {canUpdate && !['PAID', 'SETTLED'].includes(challan.status) && (
+                                <DropdownMenuItem
+                                  className="cursor-pointer gap-2"
+                                  onClick={() => handleEditChallan(challan)}
+                                >
+                                  <Edit className="w-4 h-4 text-blue-500" />
+                                  <span>Edit Challan</span>
+                                </DropdownMenuItem>
+                              )}
 
-                          {canDelete && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost" 
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              {challan.paymentHistory && (
+                                <DropdownMenuItem
+                                  className="cursor-pointer gap-2"
                                   onClick={() => {
-                                    setItemToDelete({ 
-                                      type: "challan", 
-                                      id: challan.id, 
-                                      status: challan.status,
-                                      number: challan.challanNumber 
-                                    });
-                                    setDeleteDialogOpen(true);
+                                    setSelectedChallanForHistory(challan);
+                                    setHistoryDialogOpen(true);
                                   }}
                                 >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Delete Challan</TooltipContent>
-                            </Tooltip>
-                          )}
+                                  <History className="w-4 h-4 text-slate-500" />
+                                  <span>Payment History</span>
+                                </DropdownMenuItem>
+                              )}
+
+                              {canDelete && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="cursor-pointer gap-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                    onClick={() => {
+                                      setItemToDelete({
+                                        type: "challan",
+                                        id: challan.id,
+                                        status: challan.status,
+                                        number: challan.challanNumber
+                                      });
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                    <span>Delete Challan</span>
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1775,15 +1809,16 @@ export const ChallansTab = ({
                         <TableHead className="p-1">Student</TableHead>
                         <TableHead className="p-1 text-right">Base Tuition</TableHead>
                         <TableHead className="p-1 text-right">Arrears</TableHead>
+                        <TableHead className="p-1 text-right">Absent Fine</TableHead>
                         <TableHead className="p-1 text-right">Advance Credit</TableHead>
                         <TableHead className="p-1 text-right">Net Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {isFetchingBulkStudents ? (
-                        <TableRow><TableCell colSpan={6} className="text-center py-6 text-xs text-muted-foreground">Fetching students...</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={7} className="text-center py-6 text-xs text-muted-foreground">Fetching students...</TableCell></TableRow>
                       ) : bulkStudents.length === 0 ? (
-                        <TableRow><TableCell colSpan={6} className="text-center py-6 text-xs text-muted-foreground italic">No students match filter.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={7} className="text-center py-6 text-xs text-muted-foreground italic">No students match filter.</TableCell></TableRow>
                       ) : (
                         bulkStudents.map(student => {
                           const [, sm] = (generateForm.month || '').split('-').map(Number);
@@ -1828,7 +1863,9 @@ export const ChallansTab = ({
                           }, 0);
 
                           const arrearsAmount = arrearsFromChallans + arrearsFromInsts;
-                          const grossAmount = baseAmount + arrearsAmount;
+                          const absenteeFine = Number(student.absenteeFineAmount || 0);
+                          const absenteeCount = Number(student.absenteeCount || 0);
+                          const grossAmount = baseAmount + arrearsAmount + absenteeFine;
                           const availableAdvance = Number(student.availableAdvanceCredit || 0);
                           const advanceCredit = Math.min(grossAmount, availableAdvance);
                           const netAmount = Math.max(0, grossAmount - advanceCredit);
@@ -1864,6 +1901,20 @@ export const ChallansTab = ({
                               <TableCell className="p-1 text-right font-medium">
                                 {arrearsAmount > 0 ? (
                                   <span className="text-amber-600 font-semibold">PKR {formatAmount(arrearsAmount)}</span>
+                                ) : (
+                                  <span className="text-muted-foreground/60">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="p-1 text-right font-medium">
+                                {absenteeFine > 0 ? (
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-rose-600 font-semibold font-mono">
+                                      PKR {formatAmount(absenteeFine)}
+                                    </span>
+                                    <span className="text-[9px] text-muted-foreground">
+                                      {absenteeCount} {absenteeCount === 1 ? 'absentie' : 'absenties'}
+                                    </span>
+                                  </div>
                                 ) : (
                                   <span className="text-muted-foreground/60">—</span>
                                 )}
@@ -1966,7 +2017,14 @@ export const ChallansTab = ({
                           </Badge>
                           {res.reason && <p className="text-[9px] text-red-500 italic mt-0.5">{res.reason}</p>}
                         </TableCell>
-                        <TableCell className="text-xs font-mono">{res.challanNumber || '-'}</TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {res.challanNumber || '-'}
+                          {Number(res.challan?.absenteeFineAmount || 0) > 0 && (
+                            <span className="block text-[9px] text-rose-600 font-sans">
+                              incl. PKR {formatAmount(res.challan.absenteeFineAmount)} absent fine ({res.challan.absenteeCount})
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
                           {res.challan?.id && (
                             <Button

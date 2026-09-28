@@ -190,10 +190,7 @@ const DashboardLayout = ({ children }) => {
     <div className="min-h-screen bg-background">
       {/* Desktop Sidebar */}
       <aside
-        className={cn(
-          "hidden lg:fixed lg:inset-y-0 lg:flex lg:flex-col bg-gradient-to-b from-[#bd5319] via-[#b64b11] to-[#9e3e0a] text-white shadow-xl z-30 transition-all duration-300 ease-in-out relative overflow-hidden",
-          sidebarCollapsed ? "lg:w-16" : "lg:w-64"
-        )}
+        className={`hidden lg:fixed lg:inset-y-0 lg:flex lg:flex-col bg-gradient-to-b from-[#bd5319] via-[#b64b11] to-[#9e3e0a] text-white shadow-xl z-30 transition-all duration-300 ease-in-out relative overflow-hidden ${sidebarCollapsed ? "lg:w-16" : "lg:w-64"}`}
       >
         {/* Botanical watermark in bottom left */}
         <div className="absolute bottom-16 left-0 w-36 h-36 pointer-events-none opacity-25 overflow-hidden z-0 select-none">
@@ -317,7 +314,7 @@ const DashboardLayout = ({ children }) => {
             className="lg:hidden fixed inset-0 bg-foreground/20 z-40 backdrop-blur-xs"
             onClick={() => setSidebarOpen(false)}
           />
-          <aside className="lg:hidden fixed inset-y-0 left-0 w-64 bg-gradient-to-b from-[#bd5319] via-[#b64b11] to-[#9e3e0a] text-white z-50 shadow-2xl relative overflow-hidden">
+          <aside className="lg:hidden fixed inset-y-0 left-0 w-64 bg-gradient-to-b from-[#bd5319] via-[#b64b11] to-[#9e3e0a] text-white z-50 shadow-2xl overflow-hidden">
             {/* Botanical watermark */}
             <div className="absolute bottom-16 left-0 w-40 h-40 pointer-events-none opacity-25 overflow-hidden z-0 select-none">
               <svg viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full text-white">
@@ -330,21 +327,19 @@ const DashboardLayout = ({ children }) => {
             </div>
 
             <div className="flex flex-col h-full pt-5 relative z-10">
-              <div className="flex items-center justify-between px-5 pb-5 border-b border-black/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 bg-white/15 rounded-xl flex items-center justify-center">
-                    <GraduationCap className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-white text-base leading-tight">Concordia</h2>
-                    <p className="text-[11px] text-white/70">College CMS</p>
-                  </div>
+              <div className="flex items-center justify-between px-4 pb-4 border-b border-black/10">
+                <div className="h-12 flex items-center overflow-hidden">
+                  <img
+                    src={settings?.logo || logo}
+                    alt="Logo"
+                    className="h-full object-contain"
+                  />
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setSidebarOpen(false)}
-                  className="text-white hover:bg-white/10 h-8 w-8"
+                  className="text-white hover:bg-white/10 h-8 w-8 shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </Button>

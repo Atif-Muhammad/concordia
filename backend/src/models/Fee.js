@@ -133,6 +133,10 @@ const FeeChallanSchema = new mongoose.Schema({
   excessCreditGenerated: { type: Number, default: 0 },
 
   selectedHeads: [{ type: mongoose.Schema.Types.Mixed }],
+  absenteeCount: { type: Number, default: 0 },
+  absenteeFineAmount: { type: Number, default: 0 },
+  absenteeMonth: { type: String, default: '' },
+  absenteeRate: { type: Number, default: 50 },
   remarks: { type: String, default: '' },
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet' },
   walletName: { type: String }
@@ -229,6 +233,7 @@ FeePaymentReceiptSchema.set('toObject', { virtuals: true });
 const FeeSettingsSchema = new mongoose.Schema({
   lateFeeRatePerDay: { type: Number, default: 0 },
   lateFeeFinePerDay: { type: Number, default: 0 },
+  absenteeFinePerSubject: { type: Number, default: 50 },
   extraChallanLateFee: { type: Number, default: 0 },
   challanPrefix: { type: String, default: 'CH-' },
   defaultDueDays: { type: Number, default: 10 },

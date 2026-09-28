@@ -30,11 +30,17 @@ const FinanceExpenseSchema = new mongoose.Schema({
   transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'WalletTransaction', default: null },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected'],
+    enum: ['Pending', 'Approved', 'Rejected', 'PENDING', 'APPROVED', 'REJECTED'],
     default: 'Pending'
   },
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedByName: { type: String, default: '' },
+  approvedAt: { type: Date, default: null },
   rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  rejectedByName: { type: String, default: '' },
+  rejectedAt: { type: Date, default: null },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdByName: { type: String, default: '' },
   notes: { type: String, default: '' },
   source: { type: String, default: '' }
 }, { timestamps: true });

@@ -8,6 +8,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -53,6 +54,7 @@ import {
   ArrowUpRight,
   Activity,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -99,6 +101,8 @@ export default function ClosingTab() {
   const [viewSnapshotData, setViewSnapshotData] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
   const [selectedWalletDetail, setSelectedWalletDetail] = useState(null);
+  const [closingDateFrom, setClosingDateFrom] = useState("");
+  const [closingDateTo, setClosingDateTo] = useState("");
 
   // Fetch live holdings and changes since last closing
   const {
@@ -114,8 +118,12 @@ export default function ClosingTab() {
     data: closingsHistory = [],
     isLoading: isHistoryLoading,
   } = useQuery({
-    queryKey: ["financeClosings"],
-    queryFn: () => getFinanceClosings(),
+    queryKey: ["financeClosings", closingDateFrom, closingDateTo],
+    queryFn: () =>
+      getFinanceClosings({
+        dateFrom: closingDateFrom || undefined,
+        dateTo: closingDateTo || undefined,
+      }),
   });
 
   const lastClosing = dashboardData?.lastClosing || null;
@@ -457,7 +465,7 @@ export default function ClosingTab() {
       {/* Historical Closings Checkpoints */}
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
                 <History className="w-5 h-5 text-muted-foreground" />
@@ -467,9 +475,93 @@ export default function ClosingTab() {
                 Permanent records of all historical closings and snapshot reconciliations.
               </CardDescription>
             </div>
-            <Badge variant="secondary">
-              {closingsHistory.length} Checkpoints
-            </Badge>
+            <div className="flex items-center gap-2">
+              {(closingDateFrom || closingDateTo) && (
+                <Badge variant="outline" className="text-xs bg-primary/5 text-primary border-primary/20">
+                  Filtered
+                </Badge>
+              )}
+              <Badge variant="secondary">
+                {closingsHistory.length} Checkpoints
+              </Badge>
+            </div>
+          </div>
+
+          {/* Date Filter Bar */}
+          <div className="flex flex-wrap items-end gap-2.5 pt-3 border-t mt-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                From Date
+              </Label>
+              <Input
+                type="date"
+                className="h-8 text-xs w-[145px]"
+                value={closingDateFrom}
+                onChange={(e) => setClosingDateFrom(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                To Date
+              </Label>
+              <Input
+                type="date"
+                className="h-8 text-xs w-[145px]"
+                value={closingDateTo}
+                onChange={(e) => setClosingDateTo(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 pt-1 sm:pt-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs px-2.5"
+                onClick={() => {
+                  const now = new Date();
+                  const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+                  const today = now.toISOString().split("T")[0];
+                  setClosingDateFrom(firstDay);
+                  setClosingDateTo(today);
+                }}
+              >
+                This Month
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs px-2.5"
+                onClick={() => {
+                  const now = new Date();
+                  const d = new Date();
+                  d.setDate(d.getDate() - 30);
+                  setClosingDateFrom(d.toISOString().split("T")[0]);
+                  setClosingDateTo(now.toISOString().split("T")[0]);
+                }}
+              >
+                Last 30 Days
+              </Button>
+
+              {(closingDateFrom || closingDateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs px-2 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setClosingDateFrom("");
+                    setClosingDateTo("");
+                  }}
+                  title="Clear date filters"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -503,7 +595,28 @@ export default function ClosingTab() {
                       colSpan={8}
                       className="text-center py-10 text-muted-foreground"
                     >
-                      No historical closings recorded yet.
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <AlertCircle className="w-6 h-6 text-muted-foreground/60" />
+                        <span>
+                          {closingDateFrom || closingDateTo
+                            ? "No historical closings found matching the selected date range."
+                            : "No historical closings recorded yet."}
+                        </span>
+                        {(closingDateFrom || closingDateTo) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs mt-1"
+                            onClick={() => {
+                              setClosingDateFrom("");
+                              setClosingDateTo("");
+                            }}
+                          >
+                            <RotateCcw className="w-3 h-3 mr-1" />
+                            Reset Filters
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : (

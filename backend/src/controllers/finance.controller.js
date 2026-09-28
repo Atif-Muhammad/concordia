@@ -41,7 +41,11 @@ class FinanceController {
 
   async createExpense(req, res, next) {
     try {
-      const expense = await financeService.createExpense(req.body, req.user?.id || req.user?._id);
+      const expense = await financeService.createExpense(
+        req.body,
+        req.user?.id || req.user?._id,
+        req.user?.name
+      );
       res.status(201).json(expense);
     } catch (err) {
       next(err);
@@ -62,7 +66,8 @@ class FinanceController {
       const expense = await financeService.approveExpense(
         req.params.id,
         req.user?.id || req.user?._id,
-        req.body?.walletId
+        req.body?.walletId,
+        req.user?.name
       );
       res.json(expense);
     } catch (err) {
@@ -72,7 +77,12 @@ class FinanceController {
 
   async rejectExpense(req, res, next) {
     try {
-      const expense = await financeService.rejectExpense(req.params.id, req.user?.id || req.user?._id, req.body.rejectionReason);
+      const expense = await financeService.rejectExpense(
+        req.params.id,
+        req.user?.id || req.user?._id,
+        req.body?.rejectionReason,
+        req.user?.name
+      );
       res.json(expense);
     } catch (err) {
       next(err);

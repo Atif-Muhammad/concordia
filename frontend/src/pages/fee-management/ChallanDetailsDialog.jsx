@@ -19,6 +19,10 @@ import {
   applyPaidChallanPrintTreatment,
   getRecursiveArrears,
   getSelectedHeadsTotal,
+  getTotalArrears,
+  calculateLateFee,
+  getChallanGrossTotal,
+  getChallanNetPayable,
   htmlIncludesChallanNumber,
   setCachedTemplate,
   getCachedTemplate,
@@ -93,10 +97,10 @@ export const ChallanDetailsDialog = ({
     }
 
     try {
-      const tpl = templateData || await getDefaultFeeChallanTemplate(templateType);
+      const challanWithRate = { ...currentChallan, lateFeeRatePerDay: currentChallan.lateFeeRatePerDay || lateFeeRatePerDay };
       const baseHtml = generateChallanHtml(
-        currentChallan,
-        tpl?.htmlContent || getCachedTemplate(templateType),
+        challanWithRate,
+        templateData?.htmlContent || getCachedTemplate(templateType),
         { feeHeads, feeChallans, classes, programs, academicSessions, lateFeeRatePerDay }
       );
       const finalHtml = applyPaidChallanPrintTreatment(baseHtml, currentChallan, feeChallans);
@@ -129,19 +133,45 @@ export const ChallanDetailsDialog = ({
   const isVoid = currentChallan.status === "VOID";
   const isSettled = currentChallan.status === "SETTLED";
   const discountVal = Number(currentChallan.snapshotDiscount || currentChallan.discount || currentChallan.installment?.discount || 0);
-  const absentiesFineVal = Number(currentChallan.snapshotAbsentiesFine ?? currentChallan.installment?.absentiesFine ?? 0);
-  const lateFeeFineVal = Number(currentChallan.snapshotLateFee ?? currentChallan.lateFeeFine ?? 0);
+  const hasAbsenteeInHeads = (currentChallan.challanHeads || currentChallan.heads || []).some(h => (h?.name || '').toLowerCase().includes('absent'));
+  const absentiesFineVal = hasAbsenteeInHeads
+    ? 0
+    : Number(currentChallan.absenteeFineAmount ?? currentChallan.snapshotAbsentiesFine ?? currentChallan.installment?.absentiesFine ?? 0);
   const extraFineVal = Number(currentChallan.snapshotExtraFine ?? currentChallan.installment?.extraFine ?? 0);
+  const appliedAdvance = Number(currentChallan.advanceApplied || currentChallan.advanceAmount || 0);
 
-  const totalDue = (Number(currentChallan.snapshotTotalDue) || 0) > 0
-    ? Number(currentChallan.snapshotTotalDue)
-    : (Number(currentChallan.netPayable) || Number(currentChallan.totalAmount) || (
-        (currentChallan.snapshotBaseAmount != null ? Number(currentChallan.snapshotBaseAmount) : (currentChallan.amount || 0)) +
-        extraFineVal +
-        absentiesFineVal +
-        lateFeeFineVal -
-        discountVal
+  const effectiveRate = Number(
+    currentChallan.installment?.lateFeeRatePerDay ??
+    currentChallan.lateFeeRatePerDay ??
+    lateFeeRatePerDay ??
+    0
+  );
+  const existingFine = Number(currentChallan.snapshotLateFee ?? currentChallan.lateFeeAmount ?? currentChallan.lateFeeFine ?? 0);
+  const autoFine = (!isSettled && !isVoid && currentChallan.dueDate && effectiveRate > 0)
+    ? calculateLateFee(currentChallan.dueDate, effectiveRate)
+    : 0;
+  const lateFeeFineVal = existingFine > 0 ? existingFine : autoFine;
+
+  const baseAmount = Number(currentChallan.snapshotBaseAmount ?? currentChallan.basePayable ?? (currentChallan.amount || 0));
+  const headsVal = Number(getSelectedHeadsTotal(currentChallan) || currentChallan.headsAmount || 0);
+  const arrearsVal = Number(currentChallan.arrearsAmount != null
+    ? currentChallan.arrearsAmount
+    : (currentChallan.snapshotArrearsAmount != null
+        ? currentChallan.snapshotArrearsAmount
+        : (Array.isArray(currentChallan.arrearAllocations) && currentChallan.arrearAllocations.length > 0
+            ? currentChallan.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward ?? a.amountSettled ?? a.amount) || 0), 0)
+            : getRecursiveArrears(currentChallan)
+          )
       ));
+
+  const grossBill = isExtra
+    ? Math.max(0, (currentChallan.amount || 0) + lateFeeFineVal + extraFineVal)
+    : Math.max(0, baseAmount + headsVal + arrearsVal + extraFineVal + absentiesFineVal + lateFeeFineVal - Math.abs(discountVal));
+
+  const totalDue = isSettled
+    ? Number(currentChallan.snapshotTotalDue || currentChallan.netPayable || currentChallan.totalAmount || grossBill)
+    : Math.max(0, grossBill - appliedAdvance);
+
   const directPaid = Number(currentChallan.directPaidAmount ?? currentChallan.paidAmount ?? 0);
   let settledArrears = Number(currentChallan.settledViaArrearsAmount ?? currentChallan.settledAmount ?? 0);
   if (isSettled && settledArrears === 0 && directPaid < totalDue) {
@@ -149,7 +179,7 @@ export const ChallanDetailsDialog = ({
   }
   const totalEffectiveSettled = isSettled ? totalDue : (directPaid + settledArrears);
   const settledInChallanNo = currentChallan.settledByChallanNo || currentChallan.settledByChallanNumber || (currentChallan.supersededBy?.challanNumber || currentChallan.supersededBy?.challanNo || '');
-  const remaining = isSettled ? 0 : Math.max(0, totalDue - totalEffectiveSettled);
+  const remaining = isSettled ? 0 : Math.max(0, totalDue - directPaid - settledArrears);
   const fullySettled = isSettled || (totalEffectiveSettled >= totalDue - 0.01 && totalDue > 0);
 
   return (
@@ -472,7 +502,7 @@ export const ChallanDetailsDialog = ({
                                   {alloc.sourceChallanNo ? ` (Challan #${alloc.sourceChallanNo})` : ''}
                                 </TableCell>
                                 <TableCell className="text-xs px-3 text-right py-1.5 text-amber-600">
-                                  {formatAmount(alloc.amountCarriedForward)}
+                                  {formatAmount(alloc.amountCarriedForward ?? alloc.amountSettled ?? alloc.amount)}
                                 </TableCell>
                               </TableRow>
                             ))
@@ -538,6 +568,16 @@ export const ChallanDetailsDialog = ({
                               return null; 
                             }
                           })()}
+                          {(!Array.isArray(currentChallan.arrearAllocations) || currentChallan.arrearAllocations.length === 0) && (
+                            <TableRow className="bg-amber-50/10">
+                              <TableCell className="text-xs px-3 py-1.5 text-amber-600 italic">
+                                Previous Outstanding Balance (Arrears)
+                              </TableCell>
+                              <TableCell className="text-xs px-3 text-right py-1.5 text-amber-600">
+                                {formatAmount(totalArr)}
+                              </TableCell>
+                            </TableRow>
+                          )}
                         </>
                       );
                     })()}
@@ -545,15 +585,22 @@ export const ChallanDetailsDialog = ({
                     {/* Dynamic Fee Heads */}
                     {(() => {
                       try {
-                        const raw = currentChallan.challanHeads || (
-                          (currentChallan.selectedHeads && typeof currentChallan.selectedHeads === 'string')
-                            ? JSON.parse(currentChallan.selectedHeads)
-                            : (currentChallan.heads || currentChallan.selectedHeads || [])
-                        );
+                        const raw = (Array.isArray(currentChallan.challanHeads) && currentChallan.challanHeads.length > 0)
+                          ? currentChallan.challanHeads
+                          : ((Array.isArray(currentChallan.heads) && currentChallan.heads.length > 0)
+                              ? currentChallan.heads
+                              : (Array.isArray(currentChallan.installment?.heads) && currentChallan.installment.heads.length > 0
+                                  ? currentChallan.installment.heads
+                                  : ((currentChallan.selectedHeads && typeof currentChallan.selectedHeads === 'string')
+                                      ? (() => { try { return JSON.parse(currentChallan.selectedHeads); } catch(e) { return []; } })()
+                                      : (Array.isArray(currentChallan.selectedHeads) ? currentChallan.selectedHeads : [])
+                                    )
+                                )
+                            );
                         
                         const activeHeads = Array.isArray(raw) ? raw.filter(h => 
                           (typeof h === 'object' && h !== null && (h.isSelected !== false) && (Number(h.amount) > 0 || Number(h.discountAmount) > 0)) || 
-                          (typeof h === 'number')
+                          (typeof h === 'number') || (typeof h === 'string')
                         ) : [];
 
                         // If it is an extra challan and no individual head rows were matched, fallback to the challan amount
@@ -583,7 +630,7 @@ export const ChallanDetailsDialog = ({
                             name = item.headName || item.name || (item.feeHead?.name) || "Fee Head";
                             amount = parseFloat(item.amount) || 0;
                           } else {
-                            const head = (feeHeads || []).find(h => Number(h.id) === Number(item));
+                            const head = (feeHeads || []).find(h => String(h.id || h._id) === String(item));
                             if (head) { name = head.name; amount = parseFloat(head.amount) || 0; }
                           }
                           if (!name || Number(amount) === 0) return null;
@@ -600,7 +647,7 @@ export const ChallanDetailsDialog = ({
                     })()}
 
                     {/* Fines & Late Fees */}
-                    {(currentChallan.snapshotLateFee ?? currentChallan.lateFeeFine) > 0 && (
+                    {lateFeeFineVal > 0 && (
                       <TableRow className="text-destructive bg-destructive/5 font-medium">
                         <TableCell className="text-sm px-3 py-2">
                           {currentChallan.status === "VOID"
@@ -615,10 +662,17 @@ export const ChallanDetailsDialog = ({
                                   </TooltipContent>
                                 </Tooltip>
                               </span>
-                            : "Late Fee Fine (Calculated Overdue)"
+                            : <span className="flex items-center gap-1.5">
+                                Late Fee Fine (Overdue)
+                                {effectiveRate > 0 && (
+                                  <span className="text-[10px] text-red-500 font-normal">
+                                    (Rs. {effectiveRate}/day)
+                                  </span>
+                                )}
+                              </span>
                           }
                         </TableCell>
-                        <TableCell className="text-sm px-3 text-right font-bold py-2">{formatAmount(currentChallan.snapshotLateFee ?? currentChallan.lateFeeFine)}</TableCell>
+                        <TableCell className="text-sm px-3 text-right font-bold py-2">{formatAmount(lateFeeFineVal)}</TableCell>
                       </TableRow>
                     )}
 
@@ -631,18 +685,18 @@ export const ChallanDetailsDialog = ({
                     )}
 
                     {/* Absentees Fine */}
-                    {(Number((currentChallan.snapshotAbsentiesFine ?? currentChallan.installment?.absentiesFine) || 0) > 0) && (
+                    {(!hasAbsenteeInHeads && absentiesFineVal > 0) && (
                       <TableRow className="text-destructive bg-destructive/5 font-medium border-t border-destructive/20">
                         <TableCell className="text-sm px-3 py-2 italic">
                           Fine (Absentees)
-                          {(Number((currentChallan.snapshotTotalAbsenties ?? currentChallan.installment?.totalAbsenties) || 0) > 0) && (
+                          {(Number(currentChallan.absenteeCount || currentChallan.snapshotTotalAbsenties || currentChallan.installment?.totalAbsenties || 0) > 0) && (
                             <span className="text-[10px] text-muted-foreground ml-1">
-                              ({Number((currentChallan.snapshotTotalAbsenties ?? currentChallan.installment?.totalAbsenties) || 0)} days x 50)
+                              ({Number(currentChallan.absenteeCount || currentChallan.snapshotTotalAbsenties || currentChallan.installment?.totalAbsenties || 0)} subject absenties x {currentChallan.absenteeRate || 50})
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="text-sm px-3 text-right font-bold py-2">
-                          {formatAmount(Number((currentChallan.snapshotAbsentiesFine ?? currentChallan.installment?.absentiesFine) || 0))}
+                          {formatAmount(absentiesFineVal)}
                         </TableCell>
                       </TableRow>
                     )}
@@ -659,98 +713,118 @@ export const ChallanDetailsDialog = ({
                       );
                     })()}
 
-                    {/* Collection Summary */}
-                    {(() => {
-                      const isV = currentChallan.status === 'VOID';
-                      const isSet = currentChallan.status === 'SETTLED';
-                      const discV = Number(currentChallan.snapshotDiscount) || Number(currentChallan.discount) || Number(currentChallan.installment?.discount) || 0;
-                      const absV = Number(currentChallan.snapshotAbsentiesFine ?? currentChallan.installment?.absentiesFine ?? 0);
-                      const tDue = (Number(currentChallan.snapshotTotalDue) || 0) > 0
-                        ? Number(currentChallan.snapshotTotalDue)
-                        : (Number(currentChallan.netPayable) || Number(currentChallan.totalAmount) || (isV
-                          ? Math.max(0, (currentChallan.amount || 0) + (currentChallan.fineAmount || 0) + absV + (currentChallan.lateFeeFine || 0) - Math.abs(discV))
-                          : Math.max(0, (currentChallan.amount || 0) + getSelectedHeadsTotal(currentChallan) + absV + (currentChallan.lateFeeFine || 0) + getRecursiveArrears(currentChallan) - Math.abs(discV))));
-                      
-                      const dPaid = Number(currentChallan.directPaidAmount ?? currentChallan.paidAmount ?? 0);
-                      let sArrears = Number(currentChallan.settledViaArrearsAmount ?? currentChallan.settledAmount ?? 0);
-                      if (isSet && sArrears === 0 && dPaid < tDue) {
-                        sArrears = Math.max(0, tDue - dPaid);
-                      }
-                      const effectivePaid = isSet 
-                        ? tDue 
-                        : isV 
-                          ? (currentChallan.settledAmount || 0) 
-                          : (dPaid + sArrears);
-                      
-                      const rem = isSet ? 0 : Math.max(0, tDue - effectivePaid);
-                      const sChallanNo = currentChallan.settledByChallanNo || currentChallan.settledByChallanNumber || (currentChallan.supersededBy?.challanNumber || currentChallan.supersededBy?.challanNo || '');
-
-                      return (
-                        <>
-                          <TableRow className="bg-primary/5 border-t-2 border-border">
-                            <TableCell className="text-sm px-3 py-3">
-                              <span className="text-base font-black text-primary uppercase tracking-tight">Total Payable Amount</span>
-                            </TableCell>
-                            <TableCell className="text-sm px-3 text-right py-3">
-                              <span className="text-xl font-black text-primary">PKR {formatAmount(tDue)}</span>
-                            </TableCell>
-                          </TableRow>
-                          
-                          {effectivePaid > 0 && (
-                            <>
-                              <TableRow className="bg-success/5">
-                                <TableCell className="text-sm px-3 py-2">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-semibold text-success">
-                                      {isSet ? "Total Amount Settled" : "Amount Paid / Settled"}
-                                    </span>
-                                    {isSet && (
-                                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-300 text-emerald-700 bg-emerald-50">
-                                        Settled
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-sm px-3 text-right font-bold py-2 text-success">
-                                  - PKR {formatAmount(effectivePaid)}
-                                </TableCell>
-                              </TableRow>
-                              {sArrears > 0 && (
-                                <>
-                                  <TableRow className="bg-slate-50/50">
-                                    <TableCell className="text-xs px-3 py-1.5 pl-6 text-slate-500 font-medium">
-                                      ↳ Direct Payment (Cash/Bank)
-                                    </TableCell>
-                                    <TableCell className="text-xs px-3 text-right py-1.5 font-medium text-slate-700">
-                                      PKR {formatAmount(dPaid)}
-                                    </TableCell>
-                                  </TableRow>
-                                  <TableRow className="bg-amber-50/20">
-                                    <TableCell className="text-xs px-3 py-1.5 pl-6 text-amber-700 font-medium">
-                                      ↳ Settled via Arrears {sChallanNo ? `(in Challan #${sChallanNo})` : '(Rolled forward)'}
-                                    </TableCell>
-                                    <TableCell className="text-xs px-3 text-right py-1.5 font-medium text-amber-700">
-                                      PKR {formatAmount(sArrears)}
-                                    </TableCell>
-                                  </TableRow>
-                                </>
-                              )}
-                            </>
-                          )}
-
-                          <TableRow className="bg-slate-100/50 border-t">
-                            <TableCell className="text-sm px-3 py-2">
-                              <span className="font-black text-slate-700 uppercase">Remaining Balance</span>
-                            </TableCell>
-                            <TableCell className="text-sm px-3 text-right py-2">
-                              <span className={cn("text-lg font-black", rem === 0 ? "text-emerald-600" : rem < 0 ? "text-blue-600" : "text-slate-800")}>
-                                {rem === 0 ? "PKR 0 (Fully Settled)" : `${rem < 0 ? '-' : ''}PKR ${formatAmount(Math.abs(rem))}`}
+                    {/* Advance Payment Credited */}
+                    {appliedAdvance > 0 && (
+                      <TableRow className="text-purple-700 bg-purple-50/40 font-medium border-t border-purple-200/60">
+                        <TableCell className="text-sm px-3 py-2 italic">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold">Advance Payment Credited</span>
+                            {currentChallan.advanceFromChallanNo && (
+                              <span className="font-mono text-xs not-italic font-semibold text-purple-900">
+                                ({currentChallan.advanceFromMonth ? `${currentChallan.advanceFromMonth} ` : ''}Challan #{currentChallan.advanceFromChallanNo})
                               </span>
-                            </TableCell>
-                          </TableRow>
-                        </>
-                      );
-                    })()}
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm px-3 text-right font-bold py-2 text-purple-700">
+                          - {formatAmount(appliedAdvance)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+
+                    {/* Collection Summary */}
+                    {appliedAdvance > 0 ? (
+                      <>
+                        <TableRow className="bg-slate-100/70 border-t-2 border-slate-300">
+                          <TableCell className="text-sm px-3 py-2 font-bold text-slate-700">
+                            Total Bill Amount (Gross)
+                          </TableCell>
+                          <TableCell className="text-sm px-3 text-right py-2 font-bold text-slate-800">
+                            PKR {formatAmount(grossBill)}
+                          </TableCell>
+                        </TableRow>
+                        <TableRow className="bg-purple-50/50">
+                          <TableCell className="text-sm px-3 py-1.5 text-purple-700 font-medium">
+                            Less: Advance Payment Credited
+                          </TableCell>
+                          <TableCell className="text-sm px-3 text-right py-1.5 font-bold text-purple-700">
+                            - PKR {formatAmount(appliedAdvance)}
+                          </TableCell>
+                        </TableRow>
+                        <TableRow className="bg-primary/5 border-t-2 border-primary/20">
+                          <TableCell className="text-sm px-3 py-3">
+                            <span className="text-base font-black text-primary uppercase tracking-tight">Total Payable Amount</span>
+                          </TableCell>
+                          <TableCell className="text-sm px-3 text-right py-3">
+                            <span className="text-xl font-black text-primary">PKR {formatAmount(totalDue)}</span>
+                          </TableCell>
+                        </TableRow>
+                      </>
+                    ) : (
+                      <TableRow className="bg-primary/5 border-t-2 border-border">
+                        <TableCell className="text-sm px-3 py-3">
+                          <span className="text-base font-black text-primary uppercase tracking-tight">Total Payable Amount</span>
+                        </TableCell>
+                        <TableCell className="text-sm px-3 text-right py-3">
+                          <span className="text-xl font-black text-primary">PKR {formatAmount(totalDue)}</span>
+                        </TableCell>
+                      </TableRow>
+                    )}
+
+                    {totalEffectiveSettled > 0 && (
+                      <>
+                        <TableRow className="bg-success/5">
+                          <TableCell className="text-sm px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-success">
+                                {isSettled ? "Total Amount Settled" : "Amount Paid / Settled"}
+                              </span>
+                              {isSettled && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-300 text-emerald-700 bg-emerald-50">
+                                  Settled
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm px-3 text-right font-bold py-2 text-success">
+                            - PKR {formatAmount(totalEffectiveSettled)}
+                          </TableCell>
+                        </TableRow>
+                        {settledArrears > 0 && (
+                          <>
+                            <TableRow className="bg-slate-50/50">
+                              <TableCell className="text-xs px-3 py-1.5 pl-6 text-slate-500 font-medium">
+                                ↳ Direct Payment (Cash/Bank)
+                              </TableCell>
+                              <TableCell className="text-xs px-3 text-right py-1.5 font-medium text-slate-700">
+                                PKR {formatAmount(directPaid)}
+                              </TableCell>
+                            </TableRow>
+                            <TableRow className="bg-amber-50/20">
+                              <TableCell className="text-xs px-3 py-1.5 pl-6 text-amber-700 font-medium">
+                                ↳ Settled via Arrears {settledInChallanNo ? `(in Challan #${settledInChallanNo})` : '(Rolled forward)'}
+                              </TableCell>
+                              <TableCell className="text-xs px-3 text-right py-1.5 font-medium text-amber-700">
+                                PKR {formatAmount(settledArrears)}
+                              </TableCell>
+                            </TableRow>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {!isVoid && (
+                      <TableRow className="bg-slate-100/50 border-t">
+                        <TableCell className="text-sm px-3 py-2">
+                          <span className="font-black text-slate-700 uppercase">Remaining Balance</span>
+                        </TableCell>
+                        <TableCell className="text-sm px-3 text-right py-2">
+                          <span className={cn("text-lg font-black", remaining === 0 ? "text-emerald-600" : remaining < 0 ? "text-blue-600" : "text-slate-800")}>
+                            {remaining === 0 ? "PKR 0 (Fully Settled)" : `${remaining < 0 ? '-' : ''}PKR ${formatAmount(Math.abs(remaining))}`}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>

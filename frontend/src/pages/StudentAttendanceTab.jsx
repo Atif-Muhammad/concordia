@@ -175,7 +175,7 @@ export const StudentAttendanceTab = ({
 
                 {reportData && reportData.length > 0 && (
                     <>
-                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mt-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mt-6">
                             <Card>
                                 <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Total Days</p>
@@ -192,6 +192,13 @@ export const StudentAttendanceTab = ({
                                 <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Absent</p>
                                     <p className="text-2xl font-bold text-red-600">{studentStats.absentCount}</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Absent Fine (Est.)</p>
+                                    <p className="text-2xl font-bold text-rose-600">PKR {(studentStats.absentCount * 50).toLocaleString()}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">PKR 50/subject absentee</p>
                                 </CardContent>
                             </Card>
                             <Card>

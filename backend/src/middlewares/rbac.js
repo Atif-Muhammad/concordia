@@ -36,7 +36,7 @@ const checkPermission = (moduleLabel, subModuleId = '_root', action = 'read') =>
         );
         const moduleActions = matchedModuleKey ? actions[matchedModuleKey] : (actions[moduleLabel] || actions[moduleLabel?.toLowerCase()]);
 
-        if (moduleActions && typeof moduleActions === 'object') {
+        if (moduleActions && typeof moduleActions === 'object' && Object.keys(moduleActions).length > 0) {
           const key = subModuleId || '_root';
           const normalizedKey = key.toLowerCase().replace(/[-_\s]/g, '');
 
@@ -52,7 +52,7 @@ const checkPermission = (moduleLabel, subModuleId = '_root', action = 'read') =>
           });
           const subActions = matchedSubKey
             ? moduleActions[matchedSubKey]
-            : (moduleActions[key] || moduleActions['_root'] || moduleActions[moduleLabel] || Object.values(moduleActions)[0]);
+            : (moduleActions[key] || moduleActions['_root'] || moduleActions[moduleLabel]);
 
           if (subActions && typeof subActions === 'object') {
             const act = action.toLowerCase();
@@ -68,14 +68,40 @@ const checkPermission = (moduleLabel, subModuleId = '_root', action = 'read') =>
             if (['close', 'closing'].includes(act) && (subActions.closing === true || subActions.close === true)) {
               return next();
             }
+            // If explicit subActions are configured and action is false/unauthorized, deny
+            return res.status(403).json({
+              message: `Forbidden: You do not have '${action}' permission for ${moduleLabel} (${subModuleId})`
+            });
           }
+
+          // Granular permissions are configured for this module, but this submodule is not granted
+          return res.status(403).json({
+            message: `Forbidden: You do not have '${action}' permission for ${moduleLabel} (${subModuleId})`
+          });
         }
       }
 
-      // If user has module/submodule access and this is a read action, allow
+      // Check subModules map if granular actions are not configured
+      const subModulesConfig = user.permissions?.subModules;
+      if (subModulesConfig && typeof subModulesConfig === 'object') {
+        const matchedSubKey = Object.keys(subModulesConfig).find(
+          (k) => k.toLowerCase() === moduleLabel?.toLowerCase()
+        );
+        const configuredSubs = matchedSubKey ? subModulesConfig[matchedSubKey] : subModulesConfig[moduleLabel];
+        if (Array.isArray(configuredSubs)) {
+          if (configuredSubs.includes(subModuleId) && action.toLowerCase() === 'read') {
+            return next();
+          }
+          return res.status(403).json({
+            message: `Forbidden: You do not have '${action}' permission for ${moduleLabel} (${subModuleId})`
+          });
+        }
+      }
+
+      // If user has module access and this is a read action (and no granular restrictions configured), allow
       if (action.toLowerCase() === 'read') {
         const modules = user.permissions?.modules || [];
-        if (modules.includes(moduleLabel)) {
+        if (modules.some((m) => m.toLowerCase() === moduleLabel.toLowerCase())) {
           return next();
         }
       }

@@ -230,10 +230,12 @@ class StaffController {
 
   async previewStaffId(req, res, next) {
     try {
-      const { isTeaching, isNonTeaching } = req.query;
+      const { isTeaching, isNonTeaching, isSupportingStaff, joinDate } = req.query;
       const preview = await staffService.previewStaffId({
         isTeaching: isTeaching === 'true',
-        isNonTeaching: isNonTeaching === 'true'
+        isNonTeaching: isNonTeaching === 'true',
+        isSupportingStaff: isSupportingStaff === 'true',
+        joinDate: joinDate || req.query.joinDate
       });
       res.json(preview);
     } catch (err) {

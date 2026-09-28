@@ -211,17 +211,44 @@ export const isDualRoleStaff = (user) =>
   Boolean(user?.isStaff && user?.isTeaching && user?.isNonTeaching);
 
 export const hasExplicitModuleAccess = (user, moduleLabel) => {
+  if (user?.role === "SUPER_ADMIN" || user?.role === "Super Admin" || user?.permissions?.all === true) return true;
+  if (!user || !moduleLabel) return false;
+
+  const target = moduleLabel.toLowerCase();
+
+  // 1. Check granular actions / crud
+  const actions = user?.permissions?.actions || user?.permissions?.crud;
+  if (actions && typeof actions === "object") {
+    const matchedKey = Object.keys(actions).find((k) => k.toLowerCase() === target);
+    if (matchedKey && actions[matchedKey] && typeof actions[matchedKey] === "object") {
+      const moduleActions = actions[matchedKey];
+      const hasAnyActive = Object.values(moduleActions).some((sub) =>
+        sub && typeof sub === "object" ? Object.values(sub).some(Boolean) : Boolean(sub)
+      );
+      if (hasAnyActive) return true;
+    }
+  }
+
+  // 2. Check subModules
+  const subModules = user?.permissions?.subModules;
+  if (subModules && typeof subModules === "object") {
+    const matchedKey = Object.keys(subModules).find((k) => k.toLowerCase() === target);
+    if (matchedKey && Array.isArray(subModules[matchedKey]) && subModules[matchedKey].length > 0) {
+      return true;
+    }
+  }
+
+  // 3. Check modules array
   const modules = user?.permissions?.modules;
-  const configuredSubmodules = user?.permissions?.subModules?.[moduleLabel];
-  return (
-    user?.permissions?.all === true ||
-    (Array.isArray(modules) && modules.includes(moduleLabel)) ||
-    (Array.isArray(configuredSubmodules) && configuredSubmodules.length > 0)
-  );
+  if (Array.isArray(modules) && modules.some((m) => m?.toLowerCase() === target)) {
+    return true;
+  }
+
+  return false;
 };
 
 export const hasModuleAccess = (user, moduleLabel) => {
-  if (user?.role === "SUPER_ADMIN") return true;
+  if (user?.role === "SUPER_ADMIN" || user?.role === "Super Admin" || user?.permissions?.all === true) return true;
   // Personalized Staff Dashboard is accessible to all staff
   if (moduleLabel === "Dashboard") return true;
   const role = user?.role;
@@ -232,8 +259,11 @@ export const hasModuleAccess = (user, moduleLabel) => {
 };
 
 export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
+  if (!user) return false;
+  if (user?.role === "SUPER_ADMIN" || user?.role === "Super Admin" || user?.permissions?.all === true) return true;
   if (!hasModuleAccess(user, moduleLabel)) return false;
-  if (!subModuleId || user?.role === "SUPER_ADMIN") return true;
+  if (!subModuleId) return true;
+
   const role = user?.role;
   const isTeacher = role === "Teacher" || role === "TEACHER";
   const usesTeacherFallback =
@@ -241,12 +271,62 @@ export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
     ["Attendance", "Examination", "Complaints"].includes(moduleLabel) &&
     !hasExplicitModuleAccess(user, moduleLabel);
   if (usesTeacherFallback) return true;
+
   const module = MODULE_BY_LABEL[moduleLabel];
   const subModules = module?.subModules || [];
   if (!subModules.length) return true;
-  const configured = user?.permissions?.subModules?.[moduleLabel];
-  if (!Array.isArray(configured)) return true;
-  return configured.includes(subModuleId);
+
+  // 1. Check granular actions / crud permissions first
+  const actions = user?.permissions?.actions || user?.permissions?.crud;
+  if (actions && typeof actions === "object") {
+    const matchedModuleKey = Object.keys(actions).find(
+      (k) => k.toLowerCase() === moduleLabel?.toLowerCase()
+    );
+    const moduleActions = matchedModuleKey
+      ? actions[matchedModuleKey]
+      : (actions[moduleLabel] || actions[moduleLabel?.toLowerCase()]);
+
+    if (moduleActions && typeof moduleActions === "object" && Object.keys(moduleActions).length > 0) {
+      const key = subModuleId || "_root";
+      const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
+
+      const matchedSubKey = Object.keys(moduleActions).find(
+        (k) => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[-_]/g, "") === normalizedKey
+      );
+      const subActions = matchedSubKey
+        ? moduleActions[matchedSubKey]
+        : (moduleActions[key] || moduleActions["_root"] || moduleActions[moduleLabel]);
+
+      if (subActions && typeof subActions === "object") {
+        if (typeof subActions.read === "boolean") {
+          return subActions.read;
+        }
+        return Object.values(subActions).some(Boolean);
+      }
+      // Module has granular permissions defined, but this submodule is not granted
+      return false;
+    }
+  }
+
+  // 2. Check explicit subModules array configuration
+  const subModulesConfig = user?.permissions?.subModules;
+  if (subModulesConfig && typeof subModulesConfig === "object") {
+    const matchedKey = Object.keys(subModulesConfig).find(
+      (k) => k.toLowerCase() === moduleLabel?.toLowerCase()
+    );
+    const configured = matchedKey ? subModulesConfig[matchedKey] : subModulesConfig[moduleLabel];
+    if (Array.isArray(configured)) {
+      return configured.includes(subModuleId);
+    }
+  }
+
+  // 3. Fallback to module-level access: if user was granted module and no submodule restrictions exist
+  const modules = user?.permissions?.modules;
+  if (Array.isArray(modules)) {
+    return modules.some((m) => m?.toLowerCase() === moduleLabel?.toLowerCase());
+  }
+
+  return true;
 };
 
 export const getAllowedSubmodules = (user, module) => {
@@ -290,7 +370,7 @@ export const hasPermission = (user, moduleLabel, subModuleId, action = "read") =
     );
     const moduleActions = matchedModuleKey ? actions[matchedModuleKey] : (actions[moduleLabel] || actions[moduleLabel?.toLowerCase()]);
 
-    if (moduleActions && typeof moduleActions === "object") {
+    if (moduleActions && typeof moduleActions === "object" && Object.keys(moduleActions).length > 0) {
       const key = subModuleId || "_root";
       const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
 
@@ -321,7 +401,12 @@ export const hasPermission = (user, moduleLabel, subModuleId, action = "read") =
         if (["close", "closing"].includes(act) && (subActions.closing !== undefined || subActions.close !== undefined)) {
           return Boolean(subActions.closing ?? subActions.close);
         }
+        if (act === "read") {
+          return Object.values(subActions).some(Boolean);
+        }
+        return false;
       }
+      return false;
     }
   }
 

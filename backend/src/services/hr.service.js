@@ -7,7 +7,8 @@ const {
   Leave,
   Attendance,
   Wallet,
-  WalletTransaction
+  WalletTransaction,
+  User
 } = require('../models');
 const mongoose = require('mongoose');
 const getDateRangeStrings = (startStr, endStr) => {
@@ -832,15 +833,53 @@ class HrService {
       })
       .sort({ createdAt: -1 });
 
-    const formatted = leaves.map(l => {
-      const s = l.staffId;
+    const formatted = await Promise.all(leaves.map(async (l) => {
+      let s = l.staffId;
+      let rawStaffId = s?._id ? s._id.toString() : (l._doc?.staffId ? l._doc.staffId.toString() : (l.staffId ? l.staffId.toString() : ''));
+
+      // If staff not populated (e.g. staffId was saved as User id or string)
+      if (!s || !s.name) {
+        if (rawStaffId && mongoose.Types.ObjectId.isValid(rawStaffId)) {
+          let staffDoc = await Staff.findById(rawStaffId).populate('departmentId').lean();
+          if (!staffDoc) {
+            const userDoc = await User.findById(rawStaffId).lean();
+            if (userDoc) {
+              if (userDoc.refId) {
+                staffDoc = await Staff.findById(userDoc.refId).populate('departmentId').lean();
+              }
+              if (!staffDoc && userDoc.email) {
+                staffDoc = await Staff.findOne({ email: userDoc.email }).populate('departmentId').lean();
+              }
+              if (!staffDoc) {
+                const isTeacher = userDoc.role === 'TEACHER' || userDoc.role === 'Teacher';
+                s = {
+                  _id: userDoc._id,
+                  name: userDoc.name || 'Staff Member',
+                  isTeaching: isTeacher,
+                  isNonTeaching: !isTeacher,
+                  departmentId: null
+                };
+              }
+            }
+          }
+          if (staffDoc) {
+            s = staffDoc;
+            // Auto-heal in background
+            Leave.updateOne({ _id: l._id }, { $set: { staffId: staffDoc._id } }).catch(() => {});
+          }
+        }
+      }
+
+      const isTeaching = !!s?.isTeaching;
+      const isNonTeaching = !!s?.isNonTeaching;
+
       return {
         id: l._id.toString(),
         leaveId: l._id.toString(),
-        staffId: s?._id?.toString() || (typeof s === 'string' ? s : ''),
-        name: s?.name || 'Unknown Staff',
-        isTeaching: !!s?.isTeaching,
-        isNonTeaching: !!s?.isNonTeaching,
+        staffId: s?._id?.toString() || rawStaffId,
+        name: s?.name || 'Staff Member',
+        isTeaching,
+        isNonTeaching,
         department: s?.departmentId ? { name: s.departmentId.name } : (s?.empDepartment || null),
         leaveType: l.leaveType || 'CASUAL',
         startDate: l.fromDate,
@@ -851,7 +890,7 @@ class HrService {
         locked: !!l.locked,
         actionAudit: l.actionAudit || []
       };
-    });
+    }));
 
     if (role === 'teacher') {
       return formatted.filter(r => r.isTeaching);
@@ -863,8 +902,32 @@ class HrService {
   }
 
   async upsertLeave(data, user) {
-    const { leaveId, staffId, startDate, endDate, days, month, reason, status, leaveType } = data;
+    let { leaveId, staffId, startDate, endDate, days, month, reason, status, leaveType } = data;
     const normStatus = status || 'PENDING';
+
+    // Resolve staffId if it points to a User or if missing
+    if (staffId && mongoose.Types.ObjectId.isValid(staffId)) {
+      const staffDoc = await Staff.findById(staffId);
+      if (!staffDoc) {
+        const userDoc = await User.findById(staffId);
+        if (userDoc) {
+          if (userDoc.refId) {
+            staffId = userDoc.refId;
+          } else if (userDoc.email) {
+            const matchStaff = await Staff.findOne({ email: userDoc.email });
+            if (matchStaff) staffId = matchStaff._id;
+          }
+        }
+      }
+    } else if (!staffId && user) {
+      if (user.refId) {
+        staffId = user.refId;
+      } else if (user.email) {
+        const matchStaff = await Staff.findOne({ email: user.email });
+        if (matchStaff) staffId = matchStaff._id;
+        else staffId = user._id || user.id;
+      }
+    }
 
     const payload = {
       applicantType: 'STAFF',

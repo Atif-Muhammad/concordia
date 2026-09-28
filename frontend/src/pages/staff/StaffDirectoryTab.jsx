@@ -119,6 +119,36 @@ const EMP_DEPARTMENTS = [
 const STAFF_TYPES = ["PERMANENT", "CONTRACT"];
 const STAFF_STATUSES = ["ACTIVE", "TERMINATED", "RETIRED"];
 
+export const generateStaffIdFromJoinDate = (joinDateStr, existingId = "") => {
+    let year = "";
+    let month = "";
+    if (joinDateStr) {
+        const parts = String(joinDateStr).split("T")[0].split("-");
+        if (parts.length >= 2 && parts[0].length === 4) {
+            year = parts[0].slice(-2);
+            month = parts[1].padStart(2, "0");
+        } else {
+            const d = new Date(joinDateStr);
+            if (!isNaN(d.getTime())) {
+                year = String(d.getFullYear()).slice(-2);
+                month = String(d.getMonth() + 1).padStart(2, "0");
+            }
+        }
+    }
+    if (!year || !month) {
+        const now = new Date();
+        year = String(now.getFullYear()).slice(-2);
+        month = String(now.getMonth() + 1).padStart(2, "0");
+    }
+    let rand2 = "";
+    if (existingId && /^\d{6}$/.test(existingId)) {
+        rand2 = existingId.slice(-2);
+    } else {
+        rand2 = Math.floor(10 + Math.random() * 90).toString();
+    }
+    return `${year}${month}${rand2}`;
+};
+
 const initialFormData = {
     staffId: "",
     name: "",
@@ -1413,25 +1443,34 @@ export default function StaffDirectoryTab() {
     useEffect(() => {
         if (editingStaff) return;
         if (!dialogOpen) return;
-        if (!formData.isTeaching && !formData.isNonTeaching && !formData.isSupportingStaff) {
-            setFormData(prev => ({ ...prev, staffId: "" }));
-            return;
-        }
+
+        const targetDate = formData.joinDate || new Date().toISOString().split("T")[0];
+
         const timer = setTimeout(async () => {
             try {
                 const response = await previewStaffIdAPI({
                     isTeaching: formData.isTeaching,
                     isNonTeaching: formData.isNonTeaching,
                     isSupportingStaff: formData.isSupportingStaff,
-                    joinDate: formData.joinDate || undefined,
+                    joinDate: targetDate,
                 });
-                setFormData(prev => ({ ...prev, staffId: response?.staffId || prev.staffId }));
+                if (response?.staffId) {
+                    setFormData(prev => ({ ...prev, staffId: response.staffId }));
+                } else {
+                    setFormData(prev => ({
+                        ...prev,
+                        staffId: prev.staffId || generateStaffIdFromJoinDate(targetDate)
+                    }));
+                }
             } catch {
-                // keep silent
+                setFormData(prev => ({
+                    ...prev,
+                    staffId: prev.staffId || generateStaffIdFromJoinDate(targetDate)
+                }));
             }
-        }, 200);
+        }, 150);
         return () => clearTimeout(timer);
-    }, [dialogOpen, editingStaff, formData.isTeaching, formData.isNonTeaching, formData.isSupportingStaff, formData.joinDate]);
+    }, [dialogOpen, editingStaff, formData.joinDate]);
 
     const handleCloseDialog = () => {
         setDialogOpen(false);
@@ -2615,13 +2654,13 @@ export default function StaffDirectoryTab() {
                     </DialogHeader>
 
                     <div>
-                        <Label>Staff ID <span className="text-xs text-muted-foreground ml-1">Auto Generated</span></Label>
+                        <Label>Staff ID <span className="text-xs text-muted-foreground ml-1">Auto Generated (YYMM + 2 digits)</span></Label>
                         <Input
                             value={formData.staffId || ""}
                             readOnly
                             disabled
-                            placeholder="Auto-generated from role + join date"
-                            className="bg-muted/40"
+                            placeholder="Auto-generated from join date: e.g. 260828"
+                            className="bg-muted/40 font-mono font-medium"
                         />
                     </div>
 
@@ -2817,7 +2856,12 @@ export default function StaffDirectoryTab() {
                                         type="date"
                                         value={formData.joinDate}
                                         onChange={(e) => {
-                                            setFormData({ ...formData, joinDate: e.target.value });
+                                            const newJoinDate = e.target.value;
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                joinDate: newJoinDate,
+                                                staffId: editingStaff ? prev.staffId : generateStaffIdFromJoinDate(newJoinDate, prev.staffId)
+                                            }));
                                             setErrors(prev => { const next = {...prev}; delete next.joinDate; return next; });
                                         }}
                                         className={errors.joinDate ? "border-destructive" : ""}

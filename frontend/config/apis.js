@@ -316,11 +316,12 @@ export const updateStaffIdSettingsAPI = async (data) => {
   }
 };
 
-export const previewStaffIdAPI = async ({ isTeaching, isNonTeaching, joinDate }) => {
+export const previewStaffIdAPI = async ({ isTeaching, isNonTeaching, isSupportingStaff, joinDate }) => {
   try {
     const params = new URLSearchParams();
     params.append("isTeaching", String(Boolean(isTeaching)));
     params.append("isNonTeaching", String(Boolean(isNonTeaching)));
+    if (isSupportingStaff !== undefined) params.append("isSupportingStaff", String(Boolean(isSupportingStaff)));
     if (joinDate) params.append("joinDate", joinDate);
     const response = await axios.get(`${base_url}/hr/staff-id-preview?${params.toString()}`, {
       withCredentials: true,
@@ -1005,8 +1006,9 @@ export const createSection = async (data) => {
 };
 export const updateSection = async (secID, data) => {
   try {
+    const id = secID;
     const response = await axios.patch(
-      `${base_url}/academics/section/update?secID=${secID}`,
+      `${base_url}/academics/section/update?secID=${id}&sectionID=${id}&id=${id}`,
       data,
       { withCredentials: true }
     );
@@ -1023,8 +1025,9 @@ export const updateSection = async (secID, data) => {
 };
 export const deleteSection = async (secID) => {
   try {
+    const id = secID;
     const response = await axios.delete(
-      `${base_url}/academics/section/remove?secID=${secID}`,
+      `${base_url}/academics/section/remove?secID=${id}&sectionID=${id}&id=${id}`,
       { withCredentials: true }
     );
     return response.data;

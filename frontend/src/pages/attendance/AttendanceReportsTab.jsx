@@ -27,6 +27,7 @@ import {
   getTeacherClasses,
   getAttendanceReport,
 } from "../../../config/apis";
+import { hasPermission } from "@/lib/navigation.jsx";
 
 export default function AttendanceReportsTab() {
   const queryClient = useQueryClient();
@@ -34,8 +35,7 @@ export default function AttendanceReportsTab() {
   const isTeacher = currentUser?.role === "Teacher" || currentUser?.role === "TEACHER";
   const canViewAllReports = Boolean(
     currentUser?.permissions?.all === true ||
-    (currentUser?.permissions?.subModules?.Attendance?.includes("reports") &&
-     (currentUser?.role === "SUPER_ADMIN" || currentUser?.permissions?.modules?.includes("Attendance")))
+    hasPermission(currentUser, "Attendance", "reports", "read")
   );
   const isTeacherScoped = isTeacher && !canViewAllReports;
 

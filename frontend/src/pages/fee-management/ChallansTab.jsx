@@ -111,6 +111,9 @@ export const ChallansTab = ({
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState([]);
   const [challanSessionFilter, setChallanSessionFilter] = useState(activeSessionId);
+  const [selectedProgram, setSelectedProgram] = useState("all");
+  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedSection, setSelectedSection] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState("");
   const [page, setPage] = useState(1);
@@ -154,7 +157,7 @@ export const ChallansTab = ({
 
   // Main Challans Query
   const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
-    queryKey: ['feeChallans', challanSearch, challanFilter, challanSessionFilter, selectedInstallment, selectedMonth, page, limit],
+    queryKey: ['feeChallans', challanSearch, challanFilter, challanSessionFilter, selectedInstallment, selectedMonth, selectedProgram, selectedClass, selectedSection, page, limit],
     queryFn: () => {
       let monthName = "";
       let yr = "";
@@ -169,6 +172,9 @@ export const ChallansTab = ({
         search: challanSearch,
         status: challanFilter.length > 0 ? challanFilter.join(',') : undefined,
         sessionId: challanSessionFilter !== "all" ? challanSessionFilter : undefined,
+        programId: selectedProgram !== "all" ? selectedProgram : undefined,
+        classId: selectedClass !== "all" ? selectedClass : undefined,
+        sectionId: selectedSection !== "all" ? selectedSection : undefined,
         installmentNumber: selectedInstallment !== "all" ? selectedInstallment : undefined,
         month: monthName || undefined,
         year: yr || undefined,
@@ -238,6 +244,22 @@ export const ChallansTab = ({
   // Filtered sections based on selected class
   const availableSections = (isGenClassSelected && allowSectionsForGenClass)
     ? sections.filter(s => extractId(s.classId || s.class) === generateForm.classId)
+    : [];
+
+  // Filtered classes based on selected program for table filter
+  const filterAvailableClasses = classes.filter(c => {
+    if (!selectedProgram || selectedProgram === "all") return true;
+    return extractId(c.programId || c.program) === selectedProgram;
+  });
+
+  // Selected class object for table filter
+  const selectedTableClass = classes.find(c => extractId(c) === selectedClass);
+  const isTableClassSelected = selectedClass && selectedClass !== "all";
+  const allowSectionsForTableClass = isTableClassSelected ? selectedTableClass?.allowSections !== false : false;
+
+  // Filtered sections based on selected class for table filter
+  const filterAvailableSections = (isTableClassSelected && allowSectionsForTableClass)
+    ? sections.filter(s => extractId(s.classId || s.class) === selectedClass)
     : [];
 
   // Set default due date to 10th of chosen month
@@ -898,8 +920,83 @@ export const ChallansTab = ({
               placeholder="Challan #, name, roll..."
               value={challanSearch}
               onChange={(e) => { setChallanSearch(e.target.value); setPage(1); }}
-              className="w-[220px] h-9 text-xs"
+              className="w-[180px] h-9 text-xs"
             />
+
+            {/* Program Filter */}
+            <Select
+              value={selectedProgram}
+              onValueChange={(v) => {
+                setSelectedProgram(v);
+                setSelectedClass("all");
+                setSelectedSection("all");
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[140px] h-9 text-xs">
+                <SelectValue placeholder="All Programs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Programs</SelectItem>
+                {programs.map((p) => (
+                  <SelectItem key={extractId(p)} value={extractId(p)}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Class Filter */}
+            <Select
+              value={selectedClass}
+              onValueChange={(v) => {
+                setSelectedClass(v);
+                setSelectedSection("all");
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[130px] h-9 text-xs">
+                <SelectValue placeholder="All Classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Classes</SelectItem>
+                {filterAvailableClasses.map((c) => (
+                  <SelectItem key={extractId(c)} value={extractId(c)}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Section Filter (if applicable by allowSections in class) */}
+            <Select
+              value={selectedSection}
+              disabled={!isTableClassSelected || !allowSectionsForTableClass}
+              onValueChange={(v) => {
+                setSelectedSection(v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[130px] h-9 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                <SelectValue
+                  placeholder={
+                    !isTableClassSelected
+                      ? "All Sections"
+                      : !allowSectionsForTableClass
+                      ? "N/A for class"
+                      : "All Sections"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sections</SelectItem>
+                {filterAvailableSections.map((s) => (
+                  <SelectItem key={extractId(s)} value={extractId(s)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             {/* Filter icon popover */}
             <Popover>
@@ -908,18 +1005,21 @@ export const ChallansTab = ({
                   variant="outline"
                   size="sm"
                   className={`h-9 gap-1.5 ${
-                    (challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedInstallment !== "all" || selectedMonth)
+                    (challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth)
                       ? "border-primary text-primary"
                       : ""
                   }`}
                 >
                   <SlidersHorizontal className="w-4 h-4" />
                   Filters
-                  {(challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedInstallment !== "all" || selectedMonth) && (
+                  {(challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth) && (
                     <span className="ml-0.5 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
                       {[
                         challanFilter.length > 0 ? 1 : 0,
                         challanSessionFilter !== activeSessionId ? 1 : 0,
+                        selectedProgram !== "all" ? 1 : 0,
+                        selectedClass !== "all" ? 1 : 0,
+                        selectedSection !== "all" ? 1 : 0,
                         selectedInstallment !== "all" ? 1 : 0,
                         selectedMonth ? 1 : 0,
                       ].reduce((a, b) => a + b, 0)}
@@ -930,6 +1030,95 @@ export const ChallansTab = ({
               <PopoverContent className="w-[280px] p-4 max-h-[80vh] overflow-y-auto" align="start" side="bottom" sideOffset={4}>
                 <div className="space-y-4">
                   <p className="text-sm font-semibold text-foreground">Filters</p>
+
+                  {/* Program */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Program</Label>
+                    <Select
+                      value={selectedProgram}
+                      onValueChange={(v) => {
+                        setSelectedProgram(v);
+                        setSelectedClass("all");
+                        setSelectedSection("all");
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="All Programs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Programs</SelectItem>
+                        {programs.map((p) => (
+                          <SelectItem key={extractId(p)} value={extractId(p)}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Class */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Class</Label>
+                    <Select
+                      value={selectedClass}
+                      onValueChange={(v) => {
+                        setSelectedClass(v);
+                        setSelectedSection("all");
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="All Classes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Classes</SelectItem>
+                        {filterAvailableClasses.map((c) => (
+                          <SelectItem key={extractId(c)} value={extractId(c)}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Section */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground uppercase tracking-wide">Section</Label>
+                      {isTableClassSelected && !allowSectionsForTableClass && (
+                        <span className="text-[10px] text-amber-600 font-medium">N/A for class</span>
+                      )}
+                    </div>
+                    <Select
+                      value={selectedSection}
+                      disabled={!isTableClassSelected || !allowSectionsForTableClass}
+                      onValueChange={(v) => {
+                        setSelectedSection(v);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        <SelectValue
+                          placeholder={
+                            !isTableClassSelected
+                              ? "All Sections"
+                              : !allowSectionsForTableClass
+                              ? "N/A for class"
+                              : "All Sections"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sections</SelectItem>
+                        {filterAvailableSections.map((s) => (
+                          <SelectItem key={extractId(s)} value={extractId(s)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
                   {/* Status */}
                   <div className="space-y-1.5">
@@ -1027,6 +1216,9 @@ export const ChallansTab = ({
                       setChallanSearch("");
                       setChallanFilter([]);
                       setChallanSessionFilter(activeSessionId);
+                      setSelectedProgram("all");
+                      setSelectedClass("all");
+                      setSelectedSection("all");
                       setSelectedInstallment("all");
                       setSelectedMonth("");
                       setPage(1);
@@ -1052,6 +1244,30 @@ export const ChallansTab = ({
                 <span key="sess" className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
                   {academicSessions.find(s => s.id.toString() === challanSessionFilter)?.name || "Session"}
                   <button onClick={() => { setChallanSessionFilter(activeSessionId); setPage(1); }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedProgram !== "all" && (
+                <span key="prog" className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+                  {programs.find(p => extractId(p) === selectedProgram)?.name || "Program"}
+                  <button onClick={() => { setSelectedProgram("all"); setSelectedClass("all"); setSelectedSection("all"); setPage(1); }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedClass !== "all" && (
+                <span key="cls" className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+                  {classes.find(c => extractId(c) === selectedClass)?.name || "Class"}
+                  <button onClick={() => { setSelectedClass("all"); setSelectedSection("all"); setPage(1); }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedSection !== "all" && (
+                <span key="sec" className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+                  {sections.find(s => extractId(s) === selectedSection)?.name || "Section"}
+                  <button onClick={() => { setSelectedSection("all"); setPage(1); }}>
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -1127,11 +1343,28 @@ export const ChallansTab = ({
                     >
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-medium hidden sm:table-cell">{challan.challanNumber}</TableCell>
                       <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
-                        <div className="font-medium truncate max-w-[130px] sm:max-w-none">{challan.student?.fName} {challan.student?.lName}</div>
-                        <div className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1 font-mono">
-                          <span>{challan.student?.rollNumber}</span>
-                          <span className="sm:hidden text-primary font-semibold">#{challan.challanNumber}</span>
-                        </div>
+                        {(() => {
+                          const sName = challan.studentName || `${challan.student?.fName || ''} ${challan.student?.lName || ''}`.trim() || "Student";
+                          const fName = challan.fatherName || challan.student?.fatherOrguardian || challan.student?.fatherName || "";
+                          const roll = challan.rollNumber || challan.rollNo || challan.student?.rollNumber || "";
+                          return (
+                            <>
+                              <div className="font-medium truncate max-w-[140px] sm:max-w-[220px] leading-tight">
+                                {sName}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 truncate leading-tight mt-0.5">
+                                {roll && <span className="font-mono shrink-0">{roll}</span>}
+                                {roll && fName && <span className="text-muted-foreground/40 shrink-0">·</span>}
+                                {fName && (
+                                  <span className="truncate text-[10px] text-muted-foreground/80 font-normal">
+                                    {fName}
+                                  </span>
+                                )}
+                                <span className="sm:hidden text-primary font-semibold shrink-0 ml-auto">#{challan.challanNumber}</span>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
                         <div className="flex flex-col gap-1">

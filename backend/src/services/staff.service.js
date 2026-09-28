@@ -27,21 +27,48 @@ class StaffService {
     return Staff.findById(id).populate('departmentId');
   }
 
-  async createStaff(data) {
-    // Generate staffId if not provided
-    if (!data.staffId) {
-      const settings = await StaffIdSettings.findOne() || { teachingPrefix: 'T-', nonTeachingPrefix: 'NT-', dualPrefix: 'D-', supportingPrefix: 'SS-' };
-      let prefix = settings.nonTeachingPrefix;
-      if (data.isSupportingStaff) prefix = settings.supportingPrefix || 'SS-';
-      else if (data.isTeaching && data.isNonTeaching) prefix = settings.dualPrefix;
-      else if (data.isTeaching) prefix = settings.teachingPrefix;
+  generateStaffIdFromJoinDate(joinDate) {
+    let year = '';
+    let month = '';
+    if (joinDate) {
+      const parts = String(joinDate).split('T')[0].split('-');
+      if (parts.length >= 2 && parts[0].length === 4) {
+        year = parts[0].slice(-2);
+        month = parts[1].padStart(2, '0');
+      } else {
+        const d = new Date(joinDate);
+        if (!isNaN(d.getTime())) {
+          year = String(d.getFullYear()).slice(-2);
+          month = String(d.getMonth() + 1).padStart(2, '0');
+        }
+      }
+    }
+    if (!year || !month) {
+      const now = new Date();
+      year = String(now.getFullYear()).slice(-2);
+      month = String(now.getMonth() + 1).padStart(2, '0');
+    }
+    const rand2 = Math.floor(10 + Math.random() * 90).toString();
+    return `${year}${month}${rand2}`;
+  }
 
-      const count = await Staff.countDocuments({
-        isTeaching: Boolean(data.isTeaching),
-        isNonTeaching: Boolean(data.isNonTeaching),
-        isSupportingStaff: Boolean(data.isSupportingStaff)
-      });
-      data.staffId = `${prefix}${String(count + 1).padStart(4, '0')}`;
+  async generateUniqueStaffId(joinDate) {
+    let attempts = 0;
+    let staffId = '';
+    let exists = true;
+    while (exists && attempts < 50) {
+      attempts++;
+      staffId = this.generateStaffIdFromJoinDate(joinDate);
+      const match = await Staff.findOne({ staffId }).select('_id').lean();
+      exists = !!match;
+    }
+    return staffId;
+  }
+
+  async createStaff(data) {
+    // Generate staffId if not provided (format: YYMMRR from join date)
+    if (!data.staffId) {
+      data.staffId = await this.generateUniqueStaffId(data.joinDate);
     }
 
     if (data.password) {
@@ -225,20 +252,9 @@ class StaffService {
     return settings;
   }
 
-  async previewStaffId({ isTeaching, isNonTeaching, isSupportingStaff }) {
-    const settings = await this.getStaffIdSettings();
-    let prefix = settings.nonTeachingPrefix;
-    if (Boolean(isSupportingStaff)) prefix = settings.supportingPrefix || 'SS-';
-    else if (isTeaching && isNonTeaching) prefix = settings.dualPrefix;
-    else if (isTeaching) prefix = settings.teachingPrefix;
-
-    const count = await Staff.countDocuments({
-      isTeaching: Boolean(isTeaching),
-      isNonTeaching: Boolean(isNonTeaching),
-      isSupportingStaff: Boolean(isSupportingStaff)
-    });
-
-    return { staffId: `${prefix}${String(count + 1).padStart(4, '0')}` };
+  async previewStaffId({ joinDate }) {
+    const staffId = await this.generateUniqueStaffId(joinDate);
+    return { staffId };
   }
 }
 

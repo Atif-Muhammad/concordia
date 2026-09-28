@@ -4,53 +4,61 @@ const staffService = require('../services/staff.service');
 const { Staff, User } = require('../models');
 
 async function resolveTeacherIds(teacherIdParam, user) {
-  const ids = new Set();
+  const staffIds = new Set();
+  const fallbackIds = new Set();
 
-  const addIfValid = (val) => {
+  const addStaff = (val) => {
     if (val && mongoose.Types.ObjectId.isValid(val)) {
-      ids.add(val.toString());
+      staffIds.add(val.toString());
+    }
+  };
+  const addFallback = (val) => {
+    if (val && mongoose.Types.ObjectId.isValid(val)) {
+      fallbackIds.add(val.toString());
     }
   };
 
-  if (teacherIdParam) {
-    addIfValid(teacherIdParam);
+  if (teacherIdParam && mongoose.Types.ObjectId.isValid(teacherIdParam)) {
     try {
       const staff = await Staff.findById(teacherIdParam).lean();
       if (staff) {
-        addIfValid(staff._id);
-      }
-      const userDoc = await User.findById(teacherIdParam).lean();
-      if (userDoc) {
-        if (userDoc.refId) addIfValid(userDoc.refId);
-        if (userDoc.email) {
-          const staffByEmail = await Staff.findOne({ email: userDoc.email }).lean();
-          if (staffByEmail) addIfValid(staffByEmail._id);
+        addStaff(staff._id);
+      } else {
+        addFallback(teacherIdParam);
+        const userDoc = await User.findById(teacherIdParam).lean();
+        if (userDoc) {
+          if (userDoc.refId) addStaff(userDoc.refId);
+          if (userDoc.email) {
+            const staffByEmail = await Staff.findOne({ email: userDoc.email }).lean();
+            if (staffByEmail) addStaff(staffByEmail._id);
+          }
         }
       }
     } catch (e) {
-      // ignore
+      addFallback(teacherIdParam);
     }
   }
 
   if (user) {
-    addIfValid(user.id);
-    addIfValid(user._id);
-    addIfValid(user.refId);
+    if (user.refId) addStaff(user.refId);
     try {
       if (user.id && mongoose.Types.ObjectId.isValid(user.id)) {
         const userDoc = await User.findById(user.id).lean();
-        if (userDoc?.refId) addIfValid(userDoc.refId);
+        if (userDoc?.refId) addStaff(userDoc.refId);
       }
       if (user.email) {
         const staffByEmail = await Staff.findOne({ email: user.email }).lean();
-        if (staffByEmail) addIfValid(staffByEmail._id);
+        if (staffByEmail) addStaff(staffByEmail._id);
       }
     } catch (e) {
       // ignore
     }
+    addFallback(user.id);
+    addFallback(user._id);
   }
 
-  return Array.from(ids).map((id) => new mongoose.Types.ObjectId(id));
+  const combined = [...Array.from(staffIds), ...Array.from(fallbackIds)];
+  return combined.map((id) => new mongoose.Types.ObjectId(id));
 }
 
 class TeacherController {

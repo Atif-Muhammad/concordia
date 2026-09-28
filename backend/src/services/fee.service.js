@@ -159,7 +159,44 @@ class FeeService {
       }
     }
 
-    if (filters.search) {
+    const studentFilter = {};
+    if (filters.programId && filters.programId !== 'all') {
+      studentFilter.programId = filters.programId;
+    }
+    if (filters.classId && filters.classId !== 'all') {
+      studentFilter.classId = filters.classId;
+    }
+    if (filters.sectionId && filters.sectionId !== 'all') {
+      studentFilter.sectionId = filters.sectionId;
+    }
+
+    if (Object.keys(studentFilter).length > 0) {
+      const matchingStudents = await Student.find(studentFilter).select('_id').lean();
+      const filteredStudentIds = matchingStudents.map(s => s._id);
+
+      if (filters.search) {
+        const searchRegex = new RegExp(filters.search.trim(), 'i');
+        const searchStudents = await Student.find({
+          ...studentFilter,
+          $or: [
+            { fName: searchRegex },
+            { lName: searchRegex },
+            { rollNumber: searchRegex }
+          ]
+        }).select('_id').lean();
+        const searchStudentIds = searchStudents.map(s => s._id);
+
+        query.$and = query.$and || [];
+        query.$and.push({
+          $or: [
+            { challanNo: searchRegex, studentId: { $in: filteredStudentIds } },
+            { studentId: { $in: searchStudentIds } }
+          ]
+        });
+      } else {
+        query.studentId = { $in: filteredStudentIds };
+      }
+    } else if (filters.search) {
       const searchRegex = new RegExp(filters.search.trim(), 'i');
       const matchingStudents = await Student.find({
         $or: [

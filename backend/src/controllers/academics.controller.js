@@ -166,8 +166,14 @@ class AcademicsController {
 
   async updateSection(req, res, next) {
     try {
-      const id = req.query.sectionID || req.params.id;
+      const id = req.query.sectionID || req.query.secID || req.query.id || req.params.id || req.body?.id || req.body?.secID || req.body?.sectionID;
+      if (!id) {
+        return res.status(400).json({ message: 'Section ID is required' });
+      }
       const section = await academicsService.updateSection(id, req.body);
+      if (!section) {
+        return res.status(404).json({ message: 'Section not found' });
+      }
       res.json(section);
     } catch (err) {
       next(err);
@@ -176,8 +182,14 @@ class AcademicsController {
 
   async deleteSection(req, res, next) {
     try {
-      const id = req.query.sectionID || req.params.id;
-      await academicsService.deleteSection(id);
+      const id = req.query.sectionID || req.query.secID || req.query.id || req.params.id || req.body?.id || req.body?.secID || req.body?.sectionID;
+      if (!id) {
+        return res.status(400).json({ message: 'Section ID is required' });
+      }
+      const section = await academicsService.deleteSection(id);
+      if (!section) {
+        return res.status(404).json({ message: 'Section not found' });
+      }
       res.json({ message: 'Section deleted' });
     } catch (err) {
       next(err);

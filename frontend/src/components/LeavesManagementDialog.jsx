@@ -946,8 +946,8 @@ const LeavesManagementDialog = () => {
         try {
             await deleteStaffLeave(confirmDeleteId);
             toast({ title: "Leave request deleted" });
-            queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-            queryClient.invalidateQueries(["leaveBalance"]);
+            queryClient.invalidateQueries({ queryKey: ["leaveSheet"] });
+            queryClient.invalidateQueries({ queryKey: ["leaveBalance"] });
             refetch();
         } catch (error) {
             toast({ title: error.message || "Failed to delete", variant: "destructive" });
@@ -961,8 +961,8 @@ const LeavesManagementDialog = () => {
         try {
             await updateStaffLeaveStatus(leaveId, status);
             toast({ title: `Status updated to ${status}` });
-            queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-            queryClient.invalidateQueries(["leaveBalance"]);
+            queryClient.invalidateQueries({ queryKey: ["leaveSheet"] });
+            queryClient.invalidateQueries({ queryKey: ["leaveBalance"] });
             refetch();
         } catch (error) {
             toast({ title: error.message || "Failed to update status", variant: "destructive" });
@@ -976,8 +976,8 @@ const LeavesManagementDialog = () => {
         try {
             await toggleLockStaffLeave(leaveId, locked);
             toast({ title: locked ? "Leave locked" : "Leave unlocked" });
-            queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-            queryClient.invalidateQueries(["leaveBalance"]);
+            queryClient.invalidateQueries({ queryKey: ["leaveSheet"] });
+            queryClient.invalidateQueries({ queryKey: ["leaveBalance"] });
             refetch();
         } catch (error) {
             toast({ title: error.message || "Failed to toggle lock", variant: "destructive" });
@@ -1042,16 +1042,16 @@ const LeavesManagementDialog = () => {
             setStaffSearch("");
             setComboOpen(false);
             setStaffError("");
-            queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-            queryClient.invalidateQueries(["leaveBalance"]);
+            queryClient.invalidateQueries({ queryKey: ["leaveSheet"] });
+            queryClient.invalidateQueries({ queryKey: ["leaveBalance"] });
             refetch();
         } catch (error) {
             toast({
                 title: error.message || "Failed to create leave request",
                 variant: "destructive",
             });
-            queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-            queryClient.invalidateQueries(["leaveBalance"]);
+            queryClient.invalidateQueries({ queryKey: ["leaveSheet"] });
+            queryClient.invalidateQueries({ queryKey: ["leaveBalance"] });
             refetch();
         } finally {
             setIsCreating(false);
@@ -1065,16 +1065,21 @@ const LeavesManagementDialog = () => {
                 <div className="flex items-center gap-1.5 sm:gap-2">
                     <Label className="text-xs sm:text-sm">Month:</Label>
                     <Select
-                        value={String(parseInt(month.split("-")[1] || "1", 10))}
+                        value={month === "all" ? "all" : String(parseInt(month.split("-")[1] || "1", 10))}
                         onValueChange={(m) => {
-                            const y = month.split("-")[0] || String(new Date().getFullYear());
-                            setMonth(`${y}-${String(m).padStart(2, "0")}`);
+                            if (m === "all") {
+                                setMonth("all");
+                            } else {
+                                const y = (month !== "all" && month.split("-")[0]) || String(new Date().getFullYear());
+                                setMonth(`${y}-${String(m).padStart(2, "0")}`);
+                            }
                         }}
                     >
                         <SelectTrigger className="w-28 sm:w-36 h-8 sm:h-9 text-xs sm:text-sm">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="all">All Months</SelectItem>
                             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                                 <SelectItem key={m} value={String(m)}>
                                     {new Date(2000, m - 1).toLocaleString("default", { month: "short" })}
@@ -1082,24 +1087,26 @@ const LeavesManagementDialog = () => {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Select
-                        value={month.split("-")[0] || String(new Date().getFullYear())}
-                        onValueChange={(y) => {
-                            const m = month.split("-")[1] || "01";
-                            setMonth(`${y}-${m}`);
-                        }}
-                    >
-                        <SelectTrigger className="w-20 sm:w-24 h-8 sm:h-9 text-xs sm:text-sm">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {Array.from({ length: 15 }, (_, i) => 2020 + i).map((y) => (
-                                <SelectItem key={y} value={String(y)}>
-                                    {y}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    {month !== "all" && (
+                        <Select
+                            value={month.split("-")[0] || String(new Date().getFullYear())}
+                            onValueChange={(y) => {
+                                const m = month.split("-")[1] || "01";
+                                setMonth(`${y}-${m}`);
+                            }}
+                        >
+                            <SelectTrigger className="w-20 sm:w-24 h-8 sm:h-9 text-xs sm:text-sm">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Array.from({ length: 15 }, (_, i) => 2020 + i).map((y) => (
+                                    <SelectItem key={y} value={String(y)}>
+                                        {y}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    )}
                 </div>
                 <div className="flex items-center gap-1.5 sm:gap-2">
                     <Label className="text-xs sm:text-sm">Role:</Label>

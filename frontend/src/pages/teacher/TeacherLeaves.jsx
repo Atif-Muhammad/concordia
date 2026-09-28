@@ -350,9 +350,9 @@ export default function TeacherLeaves() {
       });
       setSelectedRange(undefined);
       setFormData({ type: 'CASUAL', reason: '' });
-      queryClient.invalidateQueries(['teacherLeaves']);
-      queryClient.invalidateQueries(['teacherLeaveBalance']);
-      queryClient.invalidateQueries(['leaveSheet']);
+      queryClient.invalidateQueries({ queryKey: ['teacherLeaves'] });
+      queryClient.invalidateQueries({ queryKey: ['teacherLeaveBalance'] });
+      queryClient.invalidateQueries({ queryKey: ['leaveSheet'] });
     },
     onError: (error) => {
       toast({
@@ -372,9 +372,9 @@ export default function TeacherLeaves() {
         description: 'Your leave application was successfully cancelled.',
       });
       setConfirmCancelId(null);
-      queryClient.invalidateQueries(['teacherLeaves']);
-      queryClient.invalidateQueries(['teacherLeaveBalance']);
-      queryClient.invalidateQueries(['leaveSheet']);
+      queryClient.invalidateQueries({ queryKey: ['teacherLeaves'] });
+      queryClient.invalidateQueries({ queryKey: ['teacherLeaveBalance'] });
+      queryClient.invalidateQueries({ queryKey: ['leaveSheet'] });
     },
     onError: (error) => {
       toast({

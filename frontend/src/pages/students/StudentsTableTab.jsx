@@ -415,7 +415,7 @@ export const StudentsTableTab = ({
               </div>
             </div>
             <Command shouldFilter={false}>
-              <CommandInput placeholder="Search by name or roll no..." onValueChange={(v) => handleStudentSearch(v)} />
+              <CommandInput placeholder="Search by name, roll no, or father name..." onValueChange={(v) => handleStudentSearch(v)} />
             </Command>
           </CardContent>
         </Card>
@@ -437,7 +437,8 @@ export const StudentsTableTab = ({
                 <TableRow>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Student</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden sm:table-cell">Roll No</TableHead>
-                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Admission Date</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">Father Name</TableHead>
+                  <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden lg:table-cell">Admission Date</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Program / Class</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm">Status</TableHead>
                   {status !== "GRADUATED" && <TableHead className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell text-right">Actions</TableHead>}
@@ -446,7 +447,7 @@ export const StudentsTableTab = ({
               <TableBody>
                 {studentsData?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={status !== "GRADUATED" ? 6 : 5} className="py-8 text-center">
+                    <TableCell colSpan={status !== "GRADUATED" ? 7 : 6} className="py-8 text-center">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-muted-foreground text-xs sm:text-sm">
                           {status === "ACTIVE"
@@ -465,6 +466,7 @@ export const StudentsTableTab = ({
                   studentsData.map((student) => {
                     const studentId = student.id || student._id;
                     const academicPath = getStudentAcademicPath(student);
+                    const fatherName = student.fatherOrguardian || student.fatherName || "—";
                     return (
                       <TableRow
                         key={studentId}
@@ -486,6 +488,9 @@ export const StudentsTableTab = ({
                                   </span>
                                 )}
                               </div>
+                              <p className="text-[10px] text-muted-foreground md:hidden truncate font-normal">
+                                {fatherName}
+                              </p>
                               <p className="text-[10px] text-muted-foreground sm:hidden truncate font-mono">
                                 {student.rollNumber}
                               </p>
@@ -500,7 +505,10 @@ export const StudentsTableTab = ({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell">
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden md:table-cell text-muted-foreground font-medium">
+                          {fatherName}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm hidden lg:table-cell">
                           {(student.admissionDate || student.createdAt) ? format(new Date(student.admissionDate || student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
                         <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">

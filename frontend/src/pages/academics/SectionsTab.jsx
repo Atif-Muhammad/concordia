@@ -122,12 +122,16 @@ export default function SectionsTab() {
 
   // Only allow sections for classes where allowSections is not false
   const sectionAllowedClasses = classes.filter((c) => c.allowSections !== false);
+  const selectableClasses = classes.filter(
+    (c) => c.allowSections !== false || resolveId(c) === sectionForm.classId
+  );
 
   const sectionMutation = useMutation({
     mutationFn: ({ id, data }) =>
       id ? updateSection(id, data) : createSection(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sections"] });
+      queryClient.invalidateQueries({ queryKey: ["sectionNames"] });
       toast({ title: `Section ${editing ? "updated" : "created"} successfully` });
       setDialogOpen(false);
       setEditing(null);
@@ -146,6 +150,7 @@ export default function SectionsTab() {
     mutationFn: deleteSection,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sections"] });
+      queryClient.invalidateQueries({ queryKey: ["sectionNames"] });
       toast({ title: "Section deleted successfully" });
       setDeleteDialog(false);
       setDeleteTargetId(null);
@@ -167,24 +172,28 @@ export default function SectionsTab() {
 
   const openEdit = (item) => {
     setEditing(item);
-    const parts = (item.name || "").split(" ");
-    const shift = parts[parts.length - 1];
+    const parts = (item.name || "").trim().split(/\s+/);
+    const shiftRaw = parts[parts.length - 1] || "";
     const possibleLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
     const possibleShifts = ["Morning", "Evening"];
+    const normLetter = (parts[0] || "").toUpperCase();
+    const matchedShift = possibleShifts.find(
+      (ps) => ps.toLowerCase() === shiftRaw.toLowerCase()
+    );
     const isStandard =
-      possibleLetters.includes(parts[0]) &&
-      possibleShifts.includes(shift) &&
+      possibleLetters.includes(normLetter) &&
+      Boolean(matchedShift) &&
       parts.length === 2;
 
     const cId = resolveId(item.classId);
 
     setSectionForm({
-      sectionLetter: isStandard ? parts[0] : "Custom",
-      shift: possibleShifts.includes(shift) ? shift : "Morning",
+      sectionLetter: isStandard ? normLetter : "Custom",
+      shift: matchedShift || "Morning",
       classId: cId,
-      capacity: item.capacity?.toString() || "",
+      capacity: item.capacity != null ? item.capacity.toString() : "",
       room: item.room || "",
-      customName: isStandard ? "" : item.name,
+      customName: isStandard ? "" : (item.name || ""),
     });
     setDialogOpen(true);
   };
@@ -295,7 +304,16 @@ export default function SectionsTab() {
           </div>
 
           <div className="mb-4">
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <Dialog
+              open={dialogOpen}
+              onOpenChange={(open) => {
+                setDialogOpen(open);
+                if (!open) {
+                  setEditing(null);
+                  setSectionForm(initialForm);
+                }
+              }}
+            >
               {canCreate && (
                 <DialogTrigger asChild>
                   <Button onClick={openAdd}>
@@ -323,7 +341,7 @@ export default function SectionsTab() {
                         <SelectValue placeholder="Select class" />
                       </SelectTrigger>
                       <SelectContent>
-                        {sectionAllowedClasses.map((c) => {
+                        {selectableClasses.map((c) => {
                           const prog = getProgramForClass(c);
                           const cId = resolveId(c);
                           const label = prog?.name ? `${c.name} (${prog.name})` : c.name;
@@ -444,6 +462,7 @@ export default function SectionsTab() {
                       disabled={
                         !sectionForm.classId ||
                         !sectionForm.sectionLetter ||
+                        (sectionForm.sectionLetter === "Custom" && !sectionForm.customName?.trim()) ||
                         !sectionForm.shift ||
                         sectionMutation.isPending
                       }
@@ -559,7 +578,15 @@ export default function SectionsTab() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+      <AlertDialog
+        open={deleteDialog}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) {
+            setDeleteDialog(open);
+            if (!open) setDeleteTargetId(null);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
@@ -568,12 +595,16 @@ export default function SectionsTab() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDelete}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={deleteMutation.isPending}
               className="bg-destructive hover:bg-destructive/90"
             >
-              Delete
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

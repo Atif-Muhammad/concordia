@@ -183,13 +183,15 @@ class AuthService {
     const user = await User.findById(userId).select('-password');
     if (!user) return null;
 
-    if (user.isStaff || user.role === 'STAFF' || user.role === 'TEACHER' || user.role === 'Teacher' || user.role === 'Staff') {
+    const searchOr = [
+      ...(user.refId && mongoose.Types.ObjectId.isValid(user.refId) ? [{ _id: user.refId }] : []),
+      ...(user.email ? [{ email: user.email }] : [])
+    ];
+
+    if (searchOr.length > 0) {
       const staff = await Staff.findOne({
-        $or: [
-          { email: user.email },
-          ...(user.refId ? [{ _id: user.refId }] : [])
-        ]
-      }).select('staffId designation empDepartment photo_url isTeaching isNonTeaching isSupportingStaff status departmentId');
+        $or: searchOr
+      }).select('name staffId designation empDepartment photo_url isTeaching isNonTeaching isSupportingStaff status departmentId permissions');
 
       if (staff) {
         const userObj = user.toObject();
@@ -204,6 +206,22 @@ class AuthService {
         if (!userObj.refId) {
           userObj.refId = staff._id;
         }
+
+        const staffPerms = staff.toObject ? staff.toObject().permissions : staff.permissions;
+        if (staffPerms && (staffPerms.actions || staffPerms.crud || staffPerms.modules?.length)) {
+          userObj.permissions = {
+            ...(userObj.permissions || {}),
+            ...staffPerms,
+          };
+        }
+
+        if (userObj.permissions?.subModules instanceof Map) {
+          userObj.permissions.subModules = Object.fromEntries(userObj.permissions.subModules);
+        }
+        if (userObj.permissions?.actions instanceof Map) {
+          userObj.permissions.actions = Object.fromEntries(userObj.permissions.actions);
+        }
+
         return userObj;
       }
     }

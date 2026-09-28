@@ -4726,9 +4726,18 @@ export const rejectFinanceExpense = async ({ id, rejectionReason }) => {
 };
 
 // Closing
-export const getFinanceClosingDashboard = async () => {
+export const getFinanceClosingDashboard = async (params = {}) => {
   try {
-    const response = await axios.get(`${base_url}/finance/closing/dashboard`, {
+    const searchParams = new URLSearchParams();
+    if (params?.date) searchParams.append('date', params.date);
+    if (params?.dateFrom) searchParams.append('dateFrom', params.dateFrom);
+    if (params?.dateTo) searchParams.append('dateTo', params.dateTo);
+
+    const url = searchParams.toString()
+      ? `${base_url}/finance/closing/dashboard?${searchParams.toString()}`
+      : `${base_url}/finance/closing/dashboard`;
+
+    const response = await axios.get(url, {
       withCredentials: true,
     });
     return response.data;
@@ -4741,6 +4750,7 @@ export const getFinanceClosingDashboard = async () => {
 export const getFinanceClosings = async (filters = {}) => {
   try {
     const params = new URLSearchParams();
+    if (filters.date) params.append('date', filters.date);
     if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
     if (filters.dateTo) params.append('dateTo', filters.dateTo);
     if (filters.type) params.append('type', filters.type);

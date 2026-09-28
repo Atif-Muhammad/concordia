@@ -92,7 +92,7 @@ class FinanceController {
   // Closings & Holdings Checkpoint
   async getClosingDashboard(req, res, next) {
     try {
-      const dashboard = await financeService.getClosingDashboard();
+      const dashboard = await financeService.getClosingDashboard(req.query);
       res.json(dashboard);
     } catch (err) {
       next(err);

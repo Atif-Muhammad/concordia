@@ -753,44 +753,100 @@ class FeeService {
       console.error('Error reverting wallet transactions on challan delete:', wErr);
     }
 
-    // 1. Restore provenance: any previous challans marked SUPERSEDED / SETTLED via arrears in this challan
+    // 1. Bi-directional Arrears Reversion & Provenance
+    // 1A. Any previous challans or unbilled installments marked SUPERSEDED / SETTLED via arrears in this challan
     if (Array.isArray(challan.arrearAllocations) && challan.arrearAllocations.length > 0) {
       for (const alloc of challan.arrearAllocations) {
-        if (!alloc.sourceChallanId) continue;
-        const source = await FeeChallan.findById(alloc.sourceChallanId);
-        if (source) {
-          source.supersededBy = null;
-          source.settledViaArrearsAmount = Math.max(0, (source.settledViaArrearsAmount || 0) - (alloc.amountSettled || 0));
-          if (source.settledByChallanId?.toString() === challan._id.toString()) {
-            source.settledByChallanId = null;
-            source.settledByChallanNo = '';
-          }
-          // Restore status based ONLY on direct payments received on that source challan
-          const directPaid = Number(source.paidAmount || 0);
-          const sourceTarget = (source.netPayable != null && !isNaN(Number(source.netPayable)) && Number(source.netPayable) > 0)
-            ? Number(source.netPayable)
-            : (Number(source.totalAmount) || Number(source.amount) || Number(source.basePayable) || 0);
-          if (directPaid >= sourceTarget && sourceTarget > 0) {
-            source.status = 'PAID';
-          } else if (directPaid > 0) {
-            source.status = 'PARTIAL';
-          } else if (source.dueDate && new Date(source.dueDate) < new Date()) {
-            source.status = 'OVERDUE';
-          } else {
-            source.status = 'PENDING';
-          }
-          await source.save();
+        if (alloc.sourceChallanId) {
+          const source = await FeeChallan.findById(alloc.sourceChallanId);
+          if (source) {
+            source.supersededBy = null;
+            source.settledViaArrearsAmount = Math.max(0, (source.settledViaArrearsAmount || 0) - (alloc.amountSettled || 0));
+            if (source.settledByChallanId?.toString() === challan._id.toString()) {
+              source.settledByChallanId = null;
+              source.settledByChallanNo = '';
+            }
+            // Restore status based ONLY on direct payments received on that source challan
+            const directPaid = Number(source.paidAmount || 0);
+            const sourceTarget = (source.netPayable != null && !isNaN(Number(source.netPayable)) && Number(source.netPayable) > 0)
+              ? Number(source.netPayable)
+              : (Number(source.totalAmount) || Number(source.amount) || Number(source.basePayable) || 0);
+            if (directPaid >= sourceTarget && sourceTarget > 0) {
+              source.status = 'PAID';
+            } else if (directPaid > 0) {
+              source.status = 'PARTIAL';
+            } else if (source.dueDate && new Date(source.dueDate) < new Date()) {
+              source.status = 'OVERDUE';
+            } else {
+              source.status = 'PENDING';
+            }
+            await source.save();
 
-          // Sync matching installment on Student
-          if (source.studentId) {
-            const student = await Student.findById(source.studentId);
+            // Sync matching installment on Student
+            if (source.studentId) {
+              const student = await Student.findById(source.studentId);
+              if (student && Array.isArray(student.installments)) {
+                const inst = student.installments.find(i =>
+                  (source.installmentId && i._id?.toString() === source.installmentId.toString()) ||
+                  (source.installmentNumber && i.installmentNumber === source.installmentNumber) ||
+                  (source.month && i.month && source.month.trim().toLowerCase() === i.month.trim().toLowerCase())
+                );
+                if (inst) {
+                  inst.status = source.status;
+                  await student.save();
+                }
+              }
+            }
+          }
+        } else if (challan.studentId && (alloc.sourceInstallmentNumber || alloc.sourceMonth)) {
+          // Unbilled installment carried as arrears - restore it from SUPERSEDED
+          const student = await Student.findById(challan.studentId);
+          if (student && Array.isArray(student.installments)) {
+            const inst = student.installments.find(i =>
+              (alloc.sourceInstallmentNumber && i.installmentNumber === alloc.sourceInstallmentNumber) ||
+              (alloc.sourceMonth && i.month && i.month.trim().toLowerCase() === alloc.sourceMonth.trim().toLowerCase())
+            );
+            if (inst && inst.status === 'SUPERSEDED') {
+              inst.status = (inst.dueDate && new Date(inst.dueDate) < new Date()) ? 'OVERDUE' : 'PENDING';
+              await student.save();
+            }
+          }
+        }
+      }
+    }
+
+    // 1B. Restore any challans in challan.supersedes list
+    if (Array.isArray(challan.supersedes) && challan.supersedes.length > 0) {
+      for (const prevId of challan.supersedes) {
+        if (!prevId) continue;
+        const prevChallan = await FeeChallan.findById(prevId);
+        if (prevChallan && prevChallan.supersededBy?.toString() === challan._id.toString()) {
+          prevChallan.supersededBy = null;
+          const directPaid = Number(prevChallan.paidAmount || 0);
+          const target = (prevChallan.netPayable != null && !isNaN(Number(prevChallan.netPayable)) && Number(prevChallan.netPayable) > 0)
+            ? Number(prevChallan.netPayable)
+            : (Number(prevChallan.totalAmount) || Number(prevChallan.amount) || 0);
+          if (directPaid >= target && target > 0) {
+            prevChallan.status = 'PAID';
+          } else if (directPaid > 0) {
+            prevChallan.status = 'PARTIAL';
+          } else if (prevChallan.dueDate && new Date(prevChallan.dueDate) < new Date()) {
+            prevChallan.status = 'OVERDUE';
+          } else {
+            prevChallan.status = 'PENDING';
+          }
+          await prevChallan.save();
+
+          if (prevChallan.studentId) {
+            const student = await Student.findById(prevChallan.studentId);
             if (student && Array.isArray(student.installments)) {
               const inst = student.installments.find(i =>
-                (source.installmentId && i._id?.toString() === source.installmentId.toString()) ||
-                (source.installmentNumber && i.installmentNumber === source.installmentNumber)
+                (prevChallan.installmentId && i._id?.toString() === prevChallan.installmentId.toString()) ||
+                (prevChallan.installmentNumber && i.installmentNumber === prevChallan.installmentNumber) ||
+                (prevChallan.month && i.month && prevChallan.month.trim().toLowerCase() === i.month.trim().toLowerCase())
               );
               if (inst) {
-                inst.status = source.status;
+                inst.status = prevChallan.status;
                 await student.save();
               }
             }
@@ -799,32 +855,136 @@ class FeeService {
       }
     }
 
-    // 2. Restore Advance Credit if this challan consumed any advance credit
+    // 1C. Reverse any parent challans that carried THIS deleted challan as arrears
+    const parentChallans = await FeeChallan.find({
+      $or: [
+        { 'arrearAllocations.sourceChallanId': challan._id },
+        { supersedes: challan._id }
+      ]
+    });
+    for (const pc of parentChallans) {
+      const alloc = (pc.arrearAllocations || []).find(a => a.sourceChallanId?.toString() === challan._id.toString());
+      const carriedAmt = alloc ? Number(alloc.amountCarriedForward || 0) : 0;
+      if (Array.isArray(pc.arrearAllocations)) {
+        pc.arrearAllocations = pc.arrearAllocations.filter(a => a.sourceChallanId?.toString() !== challan._id.toString());
+      }
+      if (Array.isArray(pc.supersedes)) {
+        pc.supersedes = pc.supersedes.filter(sid => sid?.toString() !== challan._id.toString());
+      }
+      if (carriedAmt > 0) {
+        pc.arrearsAmount = Math.max(0, (Number(pc.arrearsAmount) || 0) - carriedAmt);
+        pc.grossAmount = Math.max(0, (Number(pc.grossAmount) || 0) - carriedAmt);
+        const adv = Number(pc.advanceApplied || 0);
+        const disc = Number(pc.discountAmount ?? pc.discount ?? 0);
+        pc.netPayable = Math.max(0, pc.grossAmount - disc - adv);
+        pc.totalAmount = pc.netPayable;
+      }
+      await pc.save();
+    }
+
+    // 2. Clean up & restore StudentCreditLedger
+    // 2A. Remove any credit ledgers GENERATED BY this deleted challan
+    const createdLedgers = await StudentCreditLedger.find({
+      $or: [
+        { sourceChallanId: challan._id },
+        ...(challan.challanNo ? [{ sourceChallanNo: challan.challanNo }] : [])
+      ]
+    });
+    for (const cl of createdLedgers) {
+      if (Array.isArray(cl.allocations) && cl.allocations.length > 0) {
+        for (const alloc of cl.allocations) {
+          if (alloc.targetChallanId && alloc.amountApplied > 0) {
+            const targetChallan = await FeeChallan.findById(alloc.targetChallanId);
+            if (targetChallan) {
+              targetChallan.advanceApplied = Math.max(0, (Number(targetChallan.advanceApplied) || 0) - alloc.amountApplied);
+              if (Array.isArray(targetChallan.advanceAllocations)) {
+                targetChallan.advanceAllocations = targetChallan.advanceAllocations.filter(
+                  a => a.sourceChallanId?.toString() !== challan._id.toString() && a.sourceChallanNo !== challan.challanNo
+                );
+              }
+              const base = Number(targetChallan.basePayable ?? targetChallan.amount ?? 0);
+              const heads = Number(targetChallan.headsAmount || 0);
+              const arr = Number(targetChallan.arrearsAmount || 0);
+              const late = Number(targetChallan.lateFeeAmount ?? targetChallan.fineAmount ?? 0);
+              const disc = Number(targetChallan.discountAmount ?? targetChallan.discount ?? 0);
+              targetChallan.grossAmount = base + heads + arr + late;
+              targetChallan.netPayable = Math.max(0, targetChallan.grossAmount - disc - (targetChallan.advanceApplied || 0));
+              targetChallan.totalAmount = targetChallan.netPayable;
+              const effPaid = (Number(targetChallan.paidAmount) || 0) + (Number(targetChallan.advanceApplied) || 0);
+              if (effPaid >= targetChallan.netPayable && targetChallan.netPayable > 0) {
+                targetChallan.status = 'PAID';
+              } else if (effPaid > 0) {
+                targetChallan.status = 'PARTIAL';
+              } else if (targetChallan.dueDate && new Date(targetChallan.dueDate) < new Date()) {
+                targetChallan.status = 'OVERDUE';
+              } else {
+                targetChallan.status = 'PENDING';
+              }
+              await targetChallan.save();
+            }
+          }
+        }
+      }
+    }
+    await StudentCreditLedger.deleteMany({
+      $or: [
+        { sourceChallanId: challan._id },
+        ...(challan.challanNo ? [{ sourceChallanNo: challan.challanNo }] : [])
+      ]
+    });
+
+    // 2B. Restore Advance Credit CONSUMED by this deleted challan
     if (challan.advanceApplied > 0) {
-      const ledgers = await StudentCreditLedger.find({
-        studentId: challan.studentId,
-        'allocations.targetChallanId': challan._id
+      const consumedLedgers = await StudentCreditLedger.find({
+        $or: [
+          { 'allocations.targetChallanId': challan._id },
+          ...(challan.challanNo ? [{ 'allocations.targetChallanNo': challan.challanNo }] : [])
+        ]
       });
 
-      for (const ledger of ledgers) {
-        const allocEntry = ledger.allocations.find(a => a.targetChallanId?.toString() === challan._id.toString());
+      for (const ledger of consumedLedgers) {
+        const allocEntry = (ledger.allocations || []).find(
+          a => a.targetChallanId?.toString() === challan._id.toString() || (challan.challanNo && a.targetChallanNo === challan.challanNo)
+        );
         if (allocEntry) {
-          ledger.remainingAmount += allocEntry.amountApplied;
-          ledger.status = 'AVAILABLE';
-          ledger.allocations = ledger.allocations.filter(a => a.targetChallanId?.toString() !== challan._id.toString());
+          ledger.remainingAmount = (Number(ledger.remainingAmount) || 0) + Number(allocEntry.amountApplied || 0);
+          ledger.allocations = ledger.allocations.filter(
+            a => a.targetChallanId?.toString() !== challan._id.toString() && (!challan.challanNo || a.targetChallanNo !== challan.challanNo)
+          );
+          if (ledger.sourceChallanId) {
+            const srcExists = await FeeChallan.exists({ _id: ledger.sourceChallanId });
+            if (!srcExists) {
+              await StudentCreditLedger.findByIdAndDelete(ledger._id);
+              continue;
+            }
+          }
+          ledger.status = ledger.remainingAmount > 0 ? 'AVAILABLE' : 'EXHAUSTED';
           await ledger.save();
         }
       }
     }
 
-    // 3. Reset challanGenerated, paidAmount, and status on Student installment for this deleted challan
+    // 2C. Prune all orphan credit ledgers for this student whose source challan no longer exists
+    if (challan.studentId) {
+      const studentLedgers = await StudentCreditLedger.find({ studentId: challan.studentId });
+      for (const sl of studentLedgers) {
+        if (sl.sourceChallanId) {
+          const srcExists = await FeeChallan.exists({ _id: sl.sourceChallanId });
+          if (!srcExists) {
+            await StudentCreditLedger.findByIdAndDelete(sl._id);
+          }
+        }
+      }
+    }
+
+    // 3. Reset challanGenerated, paidAmount, pendingAmount, and status on Student installment for this deleted challan
     if (challan.studentId) {
       const student = await Student.findById(challan.studentId);
       if (student && Array.isArray(student.installments)) {
         const matchingInsts = student.installments.filter(i =>
           (challan.installmentId && i._id?.toString() === challan.installmentId.toString()) ||
           (challan.installmentNumber && i.installmentNumber === challan.installmentNumber) ||
-          (challan.month && i.month && challan.month.trim().toLowerCase() === (challan.month || '').trim().toLowerCase())
+          (challan.month && i.month && challan.month.trim().toLowerCase() === i.month.trim().toLowerCase())
         );
 
         for (const inst of matchingInsts) {
@@ -834,24 +994,25 @@ class FeeService {
             studentId: challan.studentId,
             status: { $nin: ['VOID'] },
             $or: [
-              { installmentId: inst._id },
-              { installmentNumber: inst.installmentNumber, session: student.session },
-              { month: inst.month, session: student.session }
+              ...(inst._id ? [{ installmentId: inst._id }] : []),
+              ...(inst.installmentNumber ? [{ installmentNumber: inst.installmentNumber, session: student.session }] : []),
+              ...(inst.month ? [{ month: inst.month, session: student.session }] : [])
             ]
           });
 
           if (otherChallans.length === 0) {
-            // Full reset so challan can be generated again
+            // Full clean reset so challan can have a fresh start for this month
             inst.challanGenerated = false;
             inst.paidAmount = 0;
-            inst.pendingAmount = inst.amount;
+            inst.pendingAmount = Number(inst.amount ?? inst.basePayable ?? 0);
             inst.status = (inst.dueDate && new Date(inst.dueDate) < new Date()) ? 'OVERDUE' : 'PENDING';
           } else {
             const otherPaid = otherChallans.reduce((sum, oc) => sum + (Number(oc.paidAmount) || 0), 0);
+            const targetAmount = Number(inst.amount ?? inst.basePayable ?? 0);
             inst.challanGenerated = true;
             inst.paidAmount = otherPaid;
-            inst.pendingAmount = Math.max(0, (inst.amount || 0) - otherPaid);
-            if (otherPaid >= inst.amount) {
+            inst.pendingAmount = Math.max(0, targetAmount - otherPaid);
+            if (otherPaid >= targetAmount && targetAmount > 0) {
               inst.status = 'PAID';
             } else if (otherPaid > 0) {
               inst.status = 'PARTIAL';
@@ -987,9 +1148,37 @@ class FeeService {
                   }
                 }
               }
+            } else if (!alloc.sourceChallanId && challan.studentId && settle > 0) {
+              // Unbilled installment carried as arrears
+              const student = await Student.findById(challan.studentId);
+              if (student && Array.isArray(student.installments)) {
+                const inst = student.installments.find(i =>
+                  (alloc.sourceInstallmentNumber && i.installmentNumber === alloc.sourceInstallmentNumber) ||
+                  (alloc.sourceMonth && i.month && i.month.trim().toLowerCase() === alloc.sourceMonth.trim().toLowerCase())
+                );
+                if (inst) {
+                  inst.paidAmount = (Number(inst.paidAmount) || 0) + settle;
+                  inst.pendingAmount = Math.max(0, (Number(inst.amount) || 0) - inst.paidAmount);
+                  if (inst.paidAmount >= inst.amount) {
+                    inst.status = 'PAID';
+                  } else if (inst.paidAmount > 0) {
+                    inst.status = 'PARTIAL';
+                  }
+                  await student.save();
+                }
+              }
             }
           }
         }
+      }
+
+      // 1B. Unallocated Arrears fallback
+      const totalArrearsDue = Math.max(0, Number(challan.arrearsAmount || 0));
+      const unallocatedArrears = Math.max(0, totalArrearsDue - allocatedToArrears);
+      if (unallocatedArrears > 0 && remPay > 0) {
+        const arrChunk = Math.min(unallocatedArrears, remPay);
+        allocatedToArrears += arrChunk;
+        remPay -= arrChunk;
       }
 
       // 2. Current Late Fees
@@ -1400,6 +1589,9 @@ class FeeService {
     } catch (wErr) {
       console.error('Error reverting wallet transactions on extra challan delete:', wErr);
     }
+
+    // Clean up any receipts created for this extra challan
+    await FeePaymentReceipt.deleteMany({ challanId: id });
 
     return ExtraChallan.findByIdAndDelete(id);
   }
@@ -1896,6 +2088,25 @@ class FeeService {
       }).lean()
     ]);
 
+    // Self-healing: Filter out and prune orphan credit ledgers whose sourceChallan was deleted
+    const activeChallanIds = new Set(challans.map(c => c._id.toString()));
+    const validCreditLedgers = [];
+    const orphanLedgerIds = [];
+
+    for (const cl of creditLedgers) {
+      if (cl.sourceChallanId && !activeChallanIds.has(cl.sourceChallanId.toString())) {
+        orphanLedgerIds.push(cl._id);
+      } else {
+        validCreditLedgers.push(cl);
+      }
+    }
+
+    if (orphanLedgerIds.length > 0) {
+      StudentCreditLedger.deleteMany({ _id: { $in: orphanLedgerIds } }).catch(err => {
+        console.error('Error pruning orphan credit ledgers in getInstallmentPlans:', err);
+      });
+    }
+
     // Calculate absentee fine preview for previous month
     const absenteeCountMap = new Map();
     let absenteeRate = 50;
@@ -1938,7 +2149,7 @@ class FeeService {
 
     return students.map(s => {
       const studentChallans = challans.filter(c => c.studentId?.toString() === s._id.toString());
-      const studentCredits = creditLedgers.filter(cl => cl.studentId?.toString() === s._id.toString());
+      const studentCredits = validCreditLedgers.filter(cl => cl.studentId?.toString() === s._id.toString());
       const availableAdvanceCredit = studentCredits.reduce((sum, cl) => sum + (Number(cl.remainingAmount) || 0), 0);
 
       const studentClassObj = s.classId ? {
@@ -2171,11 +2382,23 @@ class FeeService {
         }
 
         // 2. Advance Payments Auto-Application from StudentCreditLedger
-        const creditRecords = await StudentCreditLedger.find({
+        const rawCreditRecords = await StudentCreditLedger.find({
           studentId: student._id,
           status: 'AVAILABLE',
           remainingAmount: { $gt: 0 }
         }).sort({ createdAt: 1 });
+
+        const creditRecords = [];
+        for (const cr of rawCreditRecords) {
+          if (cr.sourceChallanId) {
+            const srcExists = await FeeChallan.exists({ _id: cr.sourceChallanId });
+            if (!srcExists) {
+              await StudentCreditLedger.findByIdAndDelete(cr._id);
+              continue;
+            }
+          }
+          creditRecords.push(cr);
+        }
 
         const totalAvailableCredit = creditRecords.reduce((sum, r) => sum + (Number(r.remainingAmount) || 0), 0);
 

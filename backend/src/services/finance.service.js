@@ -356,57 +356,239 @@ class FinanceService {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   /**
-   * Calculate live holdings and changes since the last closing
+   * Format transaction metadata into clear human-readable origin/destination details
    */
-  async getClosingDashboard() {
+  formatWalletTxDetail(tx, currentWalletId, isOutflow = false) {
+    const isTransfer = tx.transactionType === 'CONTRA_TRANSFER' || tx.category === 'TRANSFER';
+    const sourceName = tx.sourceWallet?.name || tx.sourceWalletName || '';
+    const destName = tx.destinationWallet?.name || tx.destinationWalletName || '';
+
+    let from = '';
+    let to = '';
+
+    if (isTransfer) {
+      from = sourceName ? `Transfer from ${sourceName}` : 'Transferred from Wallet';
+      to = destName ? `Transfer to ${destName}` : 'Transferred to Wallet';
+    } else if (tx.transactionType === 'FEE' || tx.category === 'FEE') {
+      const studentInfo = [
+        tx.studentName ? tx.studentName : 'Student',
+        tx.rollNumber ? `(Roll: ${tx.rollNumber})` : '',
+        tx.challanNumber ? `[Challan #${tx.challanNumber}]` : '',
+        tx.month ? `for ${tx.month}` : '',
+      ].filter(Boolean).join(' ');
+      from = `Fee Collection: ${studentInfo}`;
+      to = destName ? `Treasury (${destName})` : 'Treasury';
+    } else if (tx.transactionType === 'HOSTEL_FEE' || tx.category === 'HOSTEL_FEE') {
+      const studentInfo = [
+        tx.studentName ? tx.studentName : 'Hostel Resident',
+        tx.rollNumber ? `(Roll: ${tx.rollNumber})` : '',
+        tx.challanNumber ? `[Challan #${tx.challanNumber}]` : '',
+      ].filter(Boolean).join(' ');
+      from = `Hostel Fee: ${studentInfo}`;
+      to = destName ? `Treasury (${destName})` : 'Treasury';
+    } else if (tx.transactionType === 'PAYROLL' || tx.category === 'PAYROLL') {
+      from = sourceName ? `Treasury (${sourceName})` : 'Treasury';
+      to = `Staff Payroll: ${tx.payrollMonth || 'Salaries'} (${tx.staffCount || (tx.staffDetails?.length || 0)} Staff)`;
+    } else if (tx.category?.includes('INVENTORY') || tx.transactionType?.includes('INVENTORY')) {
+      from = sourceName ? `Treasury (${sourceName})` : 'Treasury';
+      to = tx.description ? `Inventory: ${tx.description}` : 'Inventory Expense';
+    } else if (tx.category?.includes('HOSTEL_EXPENSE')) {
+      from = sourceName ? `Treasury (${sourceName})` : 'Treasury';
+      to = tx.description ? `Hostel Expense: ${tx.description}` : 'Hostel Expense';
+    } else if (tx.category === 'EXPENSE' || tx.transactionType === 'EXPENSE') {
+      from = sourceName ? `Treasury (${sourceName})` : 'Treasury';
+      to = tx.description || tx.sourceCategory || 'Operational Expense';
+    } else if (tx.transactionType === 'DEPOSIT' || tx.category === 'DEPOSIT') {
+      from = tx.source || tx.description || 'Cash / Bank Deposit';
+      to = destName ? `Treasury (${destName})` : 'Treasury';
+    } else if (tx.transactionType === 'OPENING_BALANCE') {
+      from = 'Initial Opening Balance';
+      to = destName ? `Treasury (${destName})` : 'Treasury';
+    } else if (tx.isReversal || tx.transactionType?.includes('REVERSAL') || tx.category?.includes('REVERSAL')) {
+      from = isOutflow ? (sourceName ? `Reversal from ${sourceName}` : 'Reversal Adjustment') : (tx.source || 'Reversal Refund');
+      to = isOutflow ? (tx.description || 'Reversal Adjustment') : (destName ? `Treasury (${destName})` : 'Treasury');
+    } else {
+      from = tx.source || tx.description || (sourceName ? `Wallet: ${sourceName}` : 'External Source');
+      to = tx.description || (destName ? `Wallet: ${destName}` : 'External Destination');
+    }
+
+    return {
+      id: tx._id?.toString() || tx.id,
+      date: tx.date || (tx.createdAt ? new Date(tx.createdAt).toISOString().split('T')[0] : ''),
+      createdAt: tx.createdAt,
+      transactionType: tx.transactionType || 'OTHER',
+      category: tx.category || 'OTHER',
+      amount: Number(tx.amount || 0),
+      description: tx.description || '',
+      referenceNo: tx.referenceNo || '',
+      from,
+      to,
+      studentName: tx.studentName || '',
+      rollNumber: tx.rollNumber || '',
+      challanNumber: tx.challanNumber || '',
+      payrollMonth: tx.payrollMonth || '',
+      staffCount: tx.staffCount || (tx.staffDetails?.length || 0),
+      staffDetails: Array.isArray(tx.staffDetails) ? tx.staffDetails : [],
+      sourceWalletName: sourceName,
+      destinationWalletName: destName,
+      performedByName: tx.performedByName || 'System',
+    };
+  }
+
+  /**
+   * Calculate live holdings or exact date / period holdings and changes
+   */
+  async getClosingDashboard({ date, dateFrom, dateTo } = {}) {
+    const targetDate = date || (dateFrom && dateFrom === dateTo ? dateFrom : null);
+    const effectiveDateFrom = date || dateFrom;
+    const effectiveDateTo = date || dateTo;
+    const isFiltered = Boolean(targetDate || effectiveDateFrom || effectiveDateTo);
+
     const lastClosing = await FinanceClosing.findOne().sort({ createdAt: -1 });
     const lastClosingTime = lastClosing ? (lastClosing.closingDateTime || lastClosing.createdAt) : null;
 
     const wallets = await Wallet.find({ status: 'ACTIVE' }).sort({ name: 1 });
 
-    const walletsCalculated = [];
-    let totalCurrentHolding = 0;
+    // Check if an exact formal closing record exists for the selected date
+    let exactClosing = null;
+    if (targetDate) {
+      exactClosing = await FinanceClosing.findOne({ date: targetDate })
+        .sort({ closingDateTime: -1, createdAt: -1 })
+        .populate('closedBy', 'name role email');
+    }
+
+    // Build transaction date filter
+    let periodTxFilter = {};
+    if (isFiltered) {
+      const or = [];
+      const strCond = {};
+      if (effectiveDateFrom) strCond.$gte = String(effectiveDateFrom);
+      if (effectiveDateTo) strCond.$lte = String(effectiveDateTo);
+      or.push({ date: strCond });
+
+      const dateCond = {};
+      if (effectiveDateFrom) dateCond.$gte = new Date(`${effectiveDateFrom}T00:00:00.000Z`);
+      if (effectiveDateTo) dateCond.$lte = new Date(`${effectiveDateTo}T23:59:59.999Z`);
+      or.push({ date: { $in: [null, ''] }, createdAt: dateCond });
+
+      periodTxFilter = { $or: or };
+    } else {
+      periodTxFilter = lastClosingTime ? { createdAt: { $gt: lastClosingTime } } : {};
+    }
+
+    // Transactions strictly after effectiveDateTo (to calculate historical wallet balance as of that date)
+    let afterDateToFilter = null;
+    if (effectiveDateTo) {
+      afterDateToFilter = {
+        $or: [
+          { date: { $gt: String(effectiveDateTo) } },
+          { date: { $in: [null, ''] }, createdAt: { $gt: new Date(`${effectiveDateTo}T23:59:59.999Z`) } },
+        ],
+      };
+    }
+
+    const inflowCategories = {};
+    const outflowCategories = {};
     let totalInflows = 0;
     let totalOutflows = 0;
+    let totalCurrentHolding = 0;
     let totalLastClosingHolding = 0;
+    const walletsCalculated = [];
+
+    // Check if exact closing has a valid walletsSnapshot
+    const hasValidSnapshot = exactClosing && Array.isArray(exactClosing.walletsSnapshot) && exactClosing.walletsSnapshot.length > 0;
 
     for (const wallet of wallets) {
-      const currentBalance = Number(wallet.currentBalance || 0);
-      totalCurrentHolding += currentBalance;
+      const liveBalance = Number(wallet.currentBalance || 0);
 
-      // Inflows and outflows since last closing
-      const timeFilter = lastClosingTime ? { createdAt: { $gt: lastClosingTime } } : {};
-
+      // Inflows and outflows in the period
       const inTx = await WalletTransaction.find({
-        ...timeFilter,
+        ...periodTxFilter,
         destinationWallet: wallet._id,
-      });
-      const walletInflow = inTx.reduce((s, tx) => s + Number(tx.amount || 0), 0);
+      })
+        .populate('sourceWallet', 'name type bankName accountNumber')
+        .populate('destinationWallet', 'name type bankName accountNumber')
+        .sort({ createdAt: -1 });
+
+      const walletInflow = inTx.reduce((s, tx) => {
+        const amt = Number(tx.amount || 0);
+        const cat = tx.category || tx.transactionType || 'OTHER';
+        inflowCategories[cat] = (inflowCategories[cat] || 0) + amt;
+        return s + amt;
+      }, 0);
 
       const outTx = await WalletTransaction.find({
-        ...timeFilter,
+        ...periodTxFilter,
         sourceWallet: wallet._id,
-      });
-      const walletOutflow = outTx.reduce((s, tx) => s + Number(tx.amount || 0), 0);
+      })
+        .populate('sourceWallet', 'name type bankName accountNumber')
+        .populate('destinationWallet', 'name type bankName accountNumber')
+        .sort({ createdAt: -1 });
+
+      const walletOutflow = outTx.reduce((s, tx) => {
+        const amt = Number(tx.amount || 0);
+        const cat = tx.category || tx.transactionType || 'OTHER';
+        outflowCategories[cat] = (outflowCategories[cat] || 0) + amt;
+        return s + amt;
+      }, 0);
 
       totalInflows += walletInflow;
       totalOutflows += walletOutflow;
 
-      // Balance at last closing
-      let balanceAtLastClosing = 0;
-      if (lastClosing && Array.isArray(lastClosing.walletsSnapshot)) {
+      let balanceAtPeriodEnd = liveBalance;
+      let snapObj = null;
+      if (hasValidSnapshot) {
+        snapObj = exactClosing.walletsSnapshot.find(
+          s => s.walletId && s.walletId.toString() === wallet._id.toString()
+        );
+        if (snapObj) {
+          balanceAtPeriodEnd = Number(snapObj.balanceAtClosing || 0);
+        }
+      } else if (afterDateToFilter) {
+        const afterInTx = await WalletTransaction.find({
+          ...afterDateToFilter,
+          destinationWallet: wallet._id,
+        });
+        const afterInflow = afterInTx.reduce((s, tx) => s + Number(tx.amount || 0), 0);
+
+        const afterOutTx = await WalletTransaction.find({
+          ...afterDateToFilter,
+          sourceWallet: wallet._id,
+        });
+        const afterOutflow = afterOutTx.reduce((s, tx) => s + Number(tx.amount || 0), 0);
+
+        balanceAtPeriodEnd = liveBalance - afterInflow + afterOutflow;
+      }
+      totalCurrentHolding += balanceAtPeriodEnd;
+
+      let balanceBefore = 0;
+      if (hasValidSnapshot) {
+        if (snapObj) {
+          balanceBefore = Number(snapObj.balanceBefore || 0);
+        } else {
+          balanceBefore = balanceAtPeriodEnd - walletInflow + walletOutflow;
+        }
+      } else if (!isFiltered && lastClosing && Array.isArray(lastClosing.walletsSnapshot)) {
         const snap = lastClosing.walletsSnapshot.find(s => s.walletId && s.walletId.toString() === wallet._id.toString());
         if (snap) {
-          balanceAtLastClosing = Number(snap.balanceAtClosing || 0);
+          balanceBefore = Number(snap.balanceAtClosing || 0);
         } else {
-          balanceAtLastClosing = currentBalance - walletInflow + walletOutflow;
+          balanceBefore = balanceAtPeriodEnd - walletInflow + walletOutflow;
         }
       } else {
-        balanceAtLastClosing = currentBalance - walletInflow + walletOutflow;
+        balanceBefore = balanceAtPeriodEnd - walletInflow + walletOutflow;
       }
-      totalLastClosingHolding += balanceAtLastClosing;
+      totalLastClosingHolding += balanceBefore;
 
       const netChange = walletInflow - walletOutflow;
+
+      const formattedInflows = (snapObj && Array.isArray(snapObj.inflows) && snapObj.inflows.length > 0)
+        ? snapObj.inflows
+        : inTx.map(tx => this.formatWalletTxDetail(tx, wallet._id, false));
+
+      const formattedOutflows = (snapObj && Array.isArray(snapObj.outflows) && snapObj.outflows.length > 0)
+        ? snapObj.outflows
+        : outTx.map(tx => this.formatWalletTxDetail(tx, wallet._id, true));
 
       walletsCalculated.push({
         walletId: wallet._id,
@@ -416,58 +598,141 @@ class FinanceService {
         accountNumber: wallet.accountNumber || '',
         provider: wallet.provider || '',
         location: wallet.location || '',
-        balanceAtLastClosing,
+        balanceAtLastClosing: balanceBefore,
         inflowsSinceLastClosing: walletInflow,
         outflowsSinceLastClosing: walletOutflow,
         netChange,
-        currentBalance,
+        currentBalance: balanceAtPeriodEnd,
+        inflows: formattedInflows,
+        outflows: formattedOutflows,
       });
     }
 
-    const totalNetChange = totalInflows - totalOutflows;
+    // Override summary totals if exact closing explicitly defines them
+    const finalInflows = exactClosing && (exactClosing.totalInflows || exactClosing.totalIncome) ? Number(exactClosing.totalInflows || exactClosing.totalIncome) : totalInflows;
+    const finalOutflows = exactClosing && (exactClosing.totalOutflows || exactClosing.totalExpense) ? Number(exactClosing.totalOutflows || exactClosing.totalExpense) : totalOutflows;
+    const finalNetChange = exactClosing && exactClosing.netChange !== undefined ? Number(exactClosing.netChange) : (finalInflows - finalOutflows);
+    const finalHoldings = exactClosing && exactClosing.totalHolding ? Number(exactClosing.totalHolding) : totalCurrentHolding;
 
     return {
-      lastClosing: lastClosing ? {
+      isDateFiltered: isFiltered,
+      isExactCheckpoint: Boolean(exactClosing),
+      selectedDate: targetDate || null,
+      filter: {
+        date: targetDate || null,
+        dateFrom: effectiveDateFrom || null,
+        dateTo: effectiveDateTo || null,
+      },
+      lastClosing: exactClosing ? {
+        id: exactClosing._id,
+        date: exactClosing.date,
+        closingDateTime: exactClosing.closingDateTime || exactClosing.createdAt,
+        totalHolding: finalHoldings,
+        totalInflows: finalInflows,
+        totalOutflows: finalOutflows,
+        netChange: finalNetChange,
+        closedByName: exactClosing.closedByName || exactClosing.closedBy?.name || 'Admin',
+        remarks: exactClosing.remarks || '',
+      } : (lastClosing ? {
         id: lastClosing._id,
         date: lastClosing.date,
         closingDateTime: lastClosing.closingDateTime || lastClosing.createdAt,
         totalHolding: lastClosing.totalHolding,
+        totalInflows: lastClosing.totalInflows,
+        totalOutflows: lastClosing.totalOutflows,
         netChange: lastClosing.netChange,
         closedByName: lastClosing.closedByName || 'Admin',
         remarks: lastClosing.remarks || '',
-      } : null,
+      } : null),
       wallets: walletsCalculated,
       summary: {
-        totalCurrentHolding,
-        totalInflows,
-        totalOutflows,
-        totalNetChange,
-        totalLastClosingHolding,
+        totalCurrentHolding: finalHoldings,
+        totalInflows: finalInflows,
+        totalOutflows: finalOutflows,
+        totalNetChange: finalNetChange,
+        totalLastClosingHolding: finalHoldings - finalNetChange,
         activeWalletsCount: wallets.length,
-      }
+      },
+      categoryBreakdown: {
+        inflows: Object.entries(inflowCategories).map(([category, amount]) => ({ category, amount })),
+        outflows: Object.entries(outflowCategories).map(([category, amount]) => ({ category, amount })),
+      },
     };
   }
 
-  async getClosings({ dateFrom, dateTo }) {
+  async getClosings({ date, dateFrom, dateTo } = {}) {
     const query = {};
-    if (dateFrom && dateTo) {
+    if (date) {
+      query.date = date;
+    } else if (dateFrom && dateTo) {
       query.date = { $gte: dateFrom, $lte: dateTo };
     } else if (dateFrom) {
       query.date = { $gte: dateFrom };
     } else if (dateTo) {
       query.date = { $lte: dateTo };
     }
-    return FinanceClosing.find(query)
+    const closings = await FinanceClosing.find(query)
       .sort({ date: -1, createdAt: -1 })
       .populate('closedBy', 'name role email');
+
+    // Backwards compatibility: ensure walletsSnapshot has populated inflows and outflows
+    for (const closing of closings) {
+      if (Array.isArray(closing.walletsSnapshot)) {
+        const needsPop = closing.walletsSnapshot.some(
+          w => (!w.inflows || w.inflows.length === 0) && (w.inflowsSinceLastClosing > 0 || w.outflowsSinceLastClosing > 0)
+        );
+        if (needsPop) {
+          const endTime = closing.closingDateTime || closing.createdAt;
+          const startTime = closing.previousClosingDate || null;
+          const timeFilter = startTime
+            ? { createdAt: { $gt: startTime, $lte: endTime } }
+            : { createdAt: { $lte: endTime } };
+
+          for (const w of closing.walletsSnapshot) {
+            if ((!w.inflows || w.inflows.length === 0) && w.inflowsSinceLastClosing > 0) {
+              const inTxs = await WalletTransaction.find({
+                ...timeFilter,
+                destinationWallet: w.walletId,
+              })
+                .populate('sourceWallet', 'name type bankName accountNumber')
+                .populate('destinationWallet', 'name type bankName accountNumber')
+                .sort({ createdAt: -1 });
+              w.inflows = inTxs.map(tx => this.formatWalletTxDetail(tx, w.walletId, false));
+            }
+            if ((!w.outflows || w.outflows.length === 0) && w.outflowsSinceLastClosing > 0) {
+              const outTxs = await WalletTransaction.find({
+                ...timeFilter,
+                sourceWallet: w.walletId,
+              })
+                .populate('sourceWallet', 'name type bankName accountNumber')
+                .populate('destinationWallet', 'name type bankName accountNumber')
+                .sort({ createdAt: -1 });
+              w.outflows = outTxs.map(tx => this.formatWalletTxDetail(tx, w.walletId, true));
+            }
+          }
+        }
+      }
+    }
+
+    return closings;
   }
 
   async createClosing(data, userId) {
+    const closingDate = data.date || new Date().toISOString().split('T')[0];
+
+    // Disallow closing for the same date twice
+    const existingClosing = await FinanceClosing.findOne({ date: closingDate });
+    if (existingClosing) {
+      const err = new Error(`A closing checkpoint already exists for ${closingDate}. Duplicate closing for the same date is not allowed.`);
+      err.status = 400;
+      throw err;
+    }
+
     const dashboard = await this.getClosingDashboard();
     const user = userId ? await User.findById(userId).select('name role') : null;
 
     const closingData = {
-      date: data.date || new Date().toISOString().split('T')[0],
+      date: closingDate,
       closingDateTime: new Date(),
       type: 'HOLDINGS_CHECKPOINT',
       previousClosingDate: dashboard.lastClosing ? dashboard.lastClosing.closingDateTime : null,
@@ -487,6 +752,8 @@ class FinanceService {
         outflowsSinceLastClosing: w.outflowsSinceLastClosing,
         netChange: w.netChange,
         balanceAtClosing: w.currentBalance,
+        inflows: w.inflows || [],
+        outflows: w.outflows || [],
       })),
       closedBy: userId || null,
       closedByName: user ? `${user.name} (${user.role})` : 'System Admin',

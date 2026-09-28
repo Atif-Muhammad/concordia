@@ -360,8 +360,11 @@ export const ChallansTab = ({
     mutationFn: bulkGenerateChallans,
     onSuccess: (data) => {
       setIsGenerating(false);
-      queryClient.invalidateQueries(['feeChallans']);
-      queryClient.invalidateQueries(['extraChallans']);
+      queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['installmentPlans'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
+      queryClient.invalidateQueries({ queryKey: ['installmentSummary'] });
 
       const results = Array.isArray(data) ? data : (data?.results || []);
       const createdCount = results.filter(r => r.status === 'CREATED').length;
@@ -454,8 +457,10 @@ export const ChallansTab = ({
   const updateChallanMutation = useMutation({
     mutationFn: ({ id, data }) => updateFeeChallan(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['feeChallans']);
-      queryClient.invalidateQueries(['extraChallans']);
+      queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['installmentPlans'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
       toast({ title: "Challan updated successfully" });
       setChallanOpen(false);
       setEditingChallan(null);
@@ -467,17 +472,17 @@ export const ChallansTab = ({
   const deleteChallanMutation = useMutation({
     mutationFn: deleteFeeChallan,
     onSuccess: () => {
-      queryClient.invalidateQueries(['feeChallans']);
-      queryClient.invalidateQueries(['extraChallans']);
-      queryClient.invalidateQueries(['studentFeeHistory']);
-      queryClient.invalidateQueries(['installmentSummary']);
-      queryClient.invalidateQueries(['newFeeReportSummary']);
-      queryClient.invalidateQueries(['feeCollectionSummary']);
-      queryClient.invalidateQueries(['wallets']);
-      queryClient.invalidateQueries(['walletHistory']);
-      queryClient.invalidateQueries(['walletTuitionLogs']);
-      queryClient.invalidateQueries(['installmentPlans']);
-      queryClient.invalidateQueries(['students']);
+      queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['installmentSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['newFeeReportSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['feeCollectionSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['walletTuitionLogs'] });
+      queryClient.invalidateQueries({ queryKey: ['installmentPlans'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
       toast({ title: "Challan deleted successfully" });
       setDeleteDialogOpen(false);
     },
@@ -2476,8 +2481,13 @@ export const ChallansTab = ({
         feeHeads={feeHeads}
         lateFeeRatePerDay={lateFeeRatePerDay}
         onPaymentSuccess={() => {
-          queryClient.invalidateQueries(['feeChallans']);
-          queryClient.invalidateQueries(['installmentSummary']);
+          queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+          queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+          queryClient.invalidateQueries({ queryKey: ['installmentSummary'] });
+          queryClient.invalidateQueries({ queryKey: ['installmentPlans'] });
+          queryClient.invalidateQueries({ queryKey: ['students'] });
+          queryClient.invalidateQueries({ queryKey: ['wallets'] });
+          queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
         }}
       />
 

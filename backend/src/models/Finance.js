@@ -73,6 +73,8 @@ const FinanceClosingSchema = new mongoose.Schema({
     outflowsSinceLastClosing: { type: Number, default: 0 },
     netChange: { type: Number, default: 0 },
     balanceAtClosing: { type: Number, default: 0 },
+    inflows: [{ type: mongoose.Schema.Types.Mixed }],
+    outflows: [{ type: mongoose.Schema.Types.Mixed }],
   }],
   closedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   closedByName: { type: String, default: 'System' },

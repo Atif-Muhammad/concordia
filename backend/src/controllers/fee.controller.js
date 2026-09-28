@@ -119,7 +119,7 @@ class FeeController {
 
   async deleteChallan(req, res, next) {
     try {
-      const id = req.query.id || req.params.id;
+      const id = req.query.id || req.params.id || req.body?.id;
       const userId = req.user?.id || req.user?._id;
       await feeService.deleteChallan(id, userId);
       res.json({ message: 'Challan deleted' });
@@ -173,7 +173,7 @@ class FeeController {
 
   async deleteExtraChallan(req, res, next) {
     try {
-      const id = req.query.id || req.params.id;
+      const id = req.query.id || req.params.id || req.body?.id;
       const userId = req.user?.id || req.user?._id;
       await feeService.deleteExtraChallan(id, userId);
       res.json({ message: 'Extra challan deleted' });

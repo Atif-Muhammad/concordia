@@ -40,6 +40,8 @@ import {
   Trash2,
   RotateCcw,
   IdCard,
+  Printer,
+  FileText,
 } from "lucide-react";
 import { getStudents, getPassedOutStudents } from "@/services/api";
 import usePermissions from "@/hooks/usePermissions";
@@ -63,6 +65,8 @@ export const StudentsTableTab = ({
   onDeleteStudent,
   onRejoinStudent,
   onIdCard,
+  onPrintProfile,
+  onOpenDocumentReport,
   onPromote,
   onAddStudent,
 }) => {
@@ -267,6 +271,27 @@ export const StudentsTableTab = ({
             <SlidersHorizontal className="w-4 h-4" />
             {showFilters ? "Hide Filters" : "Filters"}
           </Button>
+          {onOpenDocumentReport && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                onOpenDocumentReport(studentsData, {
+                  filterProgram,
+                  filterClass,
+                  filterSection,
+                  filterSessionId,
+                  status,
+                  searchQuery,
+                })
+              }
+              className="gap-2 border-slate-300 text-slate-700 hover:text-slate-900"
+              title="Student Document Submission Report"
+            >
+              <FileText className="w-4 h-4 text-orange-600" />
+              Document Report
+            </Button>
+          )}
           {status === "ACTIVE" && canUpdate && onPromote && (
             <Button size="sm" onClick={onPromote} variant="outline" className="gap-2">
               <TrendingUp className="w-4 h-4" /> Promote
@@ -583,6 +608,22 @@ export const StudentsTableTab = ({
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>Generate ID Card</TooltipContent>
+                                </Tooltip>
+                              )}
+
+                              {onPrintProfile && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 w-7 p-0 text-slate-700 hover:text-slate-900"
+                                      onClick={() => onPrintProfile(student)}
+                                    >
+                                      <Printer className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Print Profile Form</TooltipContent>
                                 </Tooltip>
                               )}
                             </div>

@@ -10,4 +10,14 @@ export { StudentIdCardDialog } from "./StudentIdCardDialog";
 export { StudentChallanDetailsDialog } from "./StudentChallanDetailsDialog";
 export { StudentPaymentHistoryDialog } from "./StudentPaymentHistoryDialog";
 export { BoardingRegistrationHistoryPanel } from "./BoardingRegistrationHistoryPanel";
+export {
+  StudentProfilePrintDialog,
+  generateStudentProfilePrintHtml,
+  resolveStudentProfileData,
+} from "./StudentProfilePrintTemplate";
+export {
+  StudentDocumentReportDialog,
+  generateStudentDocumentReportPrintHtml,
+  resolveStudentDocumentData,
+} from "./StudentDocumentReportTemplate";
 export * from "./studentFinancialUtils";

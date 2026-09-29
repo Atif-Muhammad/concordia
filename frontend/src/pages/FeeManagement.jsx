@@ -153,6 +153,8 @@ const FeeManagement = () => {
               academicSessions={academicSessions}
               programs={programs}
               classes={classes}
+              sections={sections}
+              lateFeeRatePerDay={lateFeeRatePerDay}
             />
           </TabsContent>
 

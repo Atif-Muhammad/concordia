@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   getAcademicSessions,
@@ -7,8 +7,21 @@ import {
   getNewRevenueOverTime,
   getNewClassStats,
   getNewFeeReportsAnalytics,
+  getNewFeeSettings,
+  getFeeChallans,
+  getPrograms,
+  getClasses,
+  getSections,
 } from "@/services/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,19 +50,444 @@ import {
   Bar,
 } from "recharts";
 import { ModernTooltip } from "@/components/ui/modern-charts";
-import { SlidersHorizontal, X } from "lucide-react";
+import {
+  SlidersHorizontal,
+  X,
+  Printer,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  FileSpreadsheet,
+  AlertCircle,
+  RotateCcw,
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
+import {
+  normalizeChallan,
+  getChallanGrossTotal,
+  calculateLateFee,
+} from "./feeFinancialUtils";
 
-export const FeeReportsTab = () => {
+const extractId = (val) => {
+  if (!val) return "";
+  if (typeof val === "object") return (val._id || val.id || "").toString();
+  return val.toString();
+};
+
+const getName = (val) => {
+  if (!val) return "";
+  if (typeof val === "object") {
+    return val.name || val.programName || val.className || val.sectionName || val.title || "";
+  }
+  return String(val);
+};
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+export const FeeReportsTab = ({
+  academicSessions: propAcademicSessions = [],
+  programs: propPrograms = [],
+  classes: propClasses = [],
+  sections: propSections = [],
+  lateFeeRatePerDay: propLateFeeRatePerDay,
+}) => {
+  const { toast } = useToast();
+
+  // Pending Fee Report Filters
+  const [selectedSession, setSelectedSession] = useState("all");
+  const [selectedProgram, setSelectedProgram] = useState(""); // empty string: waits for user selection before fetching!
+  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedSection, setSelectedSection] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedStudentIds, setExpandedStudentIds] = useState(new Set());
+  const [hasAutoExpandedFirst, setHasAutoExpandedFirst] = useState(false);
+
+  // Fee settings query for rate calculation fallback
+  const { data: newFeeSettings } = useQuery({
+    queryKey: ['newFeeSettings'],
+    queryFn: getNewFeeSettings,
+    enabled: propLateFeeRatePerDay === undefined,
+  });
+  const effectiveLateFeeRate = propLateFeeRatePerDay != null
+    ? Number(propLateFeeRatePerDay)
+    : Number(newFeeSettings?.lateFeeRatePerDay || 0);
+
+  // Fallback Queries if props not passed
+  const { data: qAcademicSessions = [] } = useQuery({
+    queryKey: ['academic-sessions'],
+    queryFn: getAcademicSessions,
+    enabled: propAcademicSessions.length === 0,
+  });
+
+  const { data: qPrograms = [] } = useQuery({
+    queryKey: ['programs'],
+    queryFn: getPrograms,
+    enabled: propPrograms.length === 0,
+  });
+
+  const { data: qClasses = [] } = useQuery({
+    queryKey: ['classes'],
+    queryFn: getClasses,
+    enabled: propClasses.length === 0,
+  });
+
+  const { data: qSections = [] } = useQuery({
+    queryKey: ['sections'],
+    queryFn: getSections,
+    enabled: propSections.length === 0,
+  });
+
+  const sessionList = propAcademicSessions.length > 0
+    ? propAcademicSessions
+    : (Array.isArray(qAcademicSessions) ? qAcademicSessions : qAcademicSessions?.data || []);
+  const programsList = propPrograms.length > 0 ? propPrograms : (Array.isArray(qPrograms) ? qPrograms : []);
+  const classesList = propClasses.length > 0 ? propClasses : (Array.isArray(qClasses) ? qClasses : []);
+  const sectionsList = propSections.length > 0 ? propSections : (Array.isArray(qSections) ? qSections : []);
+
+  // Filtered classes based on selectedProgram
+  const availableClasses = useMemo(() => {
+    if (!selectedProgram || selectedProgram === "all") return classesList;
+    return classesList.filter(c => extractId(c.programId || c.program) === selectedProgram);
+  }, [classesList, selectedProgram]);
+
+  // Section applicability
+  const selectedClassObj = useMemo(() => {
+    if (!selectedClass || selectedClass === "all") return null;
+    return classesList.find(c => extractId(c) === selectedClass);
+  }, [classesList, selectedClass]);
+
+  const isSectionApplicable = Boolean(selectedClassObj && selectedClassObj.allowSections !== false);
+  const availableSections = useMemo(() => {
+    if (!isSectionApplicable) return [];
+    return sectionsList.filter(s => extractId(s.classId || s.class) === selectedClass);
+  }, [sectionsList, selectedClass, isSectionApplicable]);
+
+  // Main Challans Query: ONLY enabled when a program selection is made!
+  const {
+    data: challansResponse,
+    isLoading: isChallansLoading,
+  } = useQuery({
+    queryKey: ['feeReportsChallans', selectedSession, selectedProgram, selectedClass, selectedSection, selectedMonth],
+    queryFn: () => getFeeChallans({
+      sessionId: selectedSession !== 'all' ? selectedSession : undefined,
+      programId: selectedProgram !== 'all' ? selectedProgram : undefined,
+      classId: selectedClass !== 'all' ? selectedClass : undefined,
+      sectionId: selectedSection !== 'all' ? selectedSection : undefined,
+      month: selectedMonth !== 'all' ? selectedMonth : undefined,
+      status: 'PENDING,PARTIAL,OVERDUE',
+      limit: 1000,
+    }),
+    enabled: Boolean(selectedProgram),
+  });
+
+  // Derived student fee summaries
+  const studentReports = useMemo(() => {
+    if (!challansResponse) return [];
+    const challanItems = Array.isArray(challansResponse)
+      ? challansResponse
+      : (Array.isArray(challansResponse?.data) ? challansResponse.data : []);
+
+    const studentsMap = new Map();
+
+    for (const raw of challanItems) {
+      const c = normalizeChallan(raw);
+      if (!c) continue;
+      if (['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) continue;
+
+      // Exact late fee fine, arrears, advance and gross totals matching ChallansTab
+      const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
+      const existingFine = Number(c.snapshotLateFee ?? c.lateFeeAmount ?? c.lateFeeFine ?? c.fineAmount ?? 0);
+      const effectiveRate = Number(
+        c.installment?.lateFeeRatePerDay ??
+        c.lateFeeRatePerDay ??
+        effectiveLateFeeRate ??
+        0
+      );
+      const autoFine = (!isSettledOrVoid && c.dueDate && effectiveRate > 0)
+        ? calculateLateFee(c.dueDate, effectiveRate)
+        : 0;
+      const effectiveFine = existingFine > 0 ? existingFine : autoFine;
+
+      // Gross total includes baseAmount + headsAmount + arrearsAmount + extraFine + absentiesFine + lateFeeFine - discount
+      const grossTotal = getChallanGrossTotal(c);
+      const fineIncluded = existingFine > 0 && Number(c.lateFeeAmount || c.snapshotLateFee || 0) > 0;
+      const totalAmount = fineIncluded ? grossTotal : (grossTotal + effectiveFine);
+
+      const advanceApplied = Number(c.advanceApplied || c.advanceAmount || 0);
+      const directPaid = Number(c.directPaidAmount ?? c.paidAmount ?? 0);
+      const settledArrears = Number(c.settledViaArrearsAmount ?? c.settledAmount ?? 0);
+      const isSettled = c.status === 'SETTLED';
+
+      const totalPaid = directPaid + advanceApplied + (isSettled ? settledArrears : 0);
+      const pendingAmount = isSettled ? 0 : Math.max(0, totalAmount - advanceApplied - directPaid);
+
+      // Challan data: pending challans only
+      if (pendingAmount <= 0) continue;
+
+      const sId = extractId(c.studentId || c.student) || c.rollNumber || c.studentName;
+      if (!sId) continue;
+
+      if (!studentsMap.has(sId)) {
+        const progName = getName(c.studentProgram || c.student?.programId);
+        const clsName = getName(c.studentClass || c.student?.classId);
+        const secName = getName(c.studentSection || c.student?.sectionId);
+        const pcs = [progName, clsName, secName].filter(Boolean).join(' / ') || '-';
+
+        studentsMap.set(sId, {
+          id: sId,
+          studentName: c.studentName || 'Unknown Student',
+          fatherName: c.fatherName || '-',
+          rollNumber: c.rollNumber || '-',
+          programClassSection: pcs,
+          pendingChallans: [],
+          totalPaid: 0,
+          totalPending: 0,
+          totalAmount: 0,
+        });
+      }
+
+      const entry = studentsMap.get(sId);
+      entry.pendingChallans.push({
+        id: c.id || c._id || c.challanNo,
+        challanNo: c.challanNo || c.challanNumber || '-',
+        month: c.month || '-',
+        installmentNumber: c.installmentNumber || '-',
+        totalAmount,
+        paidAmount: totalPaid,
+        pendingAmount,
+        status: c.status || 'PENDING',
+      });
+      entry.totalPaid += totalPaid;
+      entry.totalPending += pendingAmount;
+      entry.totalAmount += totalAmount;
+    }
+
+    let list = Array.from(studentsMap.values());
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(s =>
+        s.studentName.toLowerCase().includes(q) ||
+        s.rollNumber.toLowerCase().includes(q) ||
+        s.fatherName.toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [challansResponse, searchQuery, effectiveLateFeeRate]);
+
+  // Auto-expand first student when records first load
+  React.useEffect(() => {
+    if (!hasAutoExpandedFirst && studentReports.length > 0) {
+      setExpandedStudentIds(new Set([studentReports[0].id]));
+      setHasAutoExpandedFirst(true);
+    }
+  }, [studentReports, hasAutoExpandedFirst]);
+
+  const toggleStudent = (id) => {
+    setExpandedStudentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Print / Save as PDF handler
+  const handlePrint = async () => {
+    if (!studentReports || studentReports.length === 0) {
+      toast({
+        title: "No Data to Print",
+        description: "There are no pending fee records to print for the selected filters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const sessionObj = sessionList.find(s => extractId(s) === selectedSession);
+    const progObj = programsList.find(p => extractId(p) === selectedProgram);
+    const classObj = classesList.find(c => extractId(c) === selectedClass);
+    const secObj = sectionsList.find(s => extractId(s) === selectedSection);
+
+    const sessionName = sessionObj?.name || sessionObj?.sessionName || (selectedSession === 'all' ? 'All Sessions' : 'Selected Session');
+    const programName = progObj?.name || progObj?.programName || (selectedProgram === 'all' ? 'All Programs' : 'Selected Program');
+    const className = classObj?.name || classObj?.className || (selectedClass === 'all' ? 'All Classes' : 'Selected Class');
+    const sectionName = secObj?.name || secObj?.sectionName || (selectedSection === 'all' ? 'All Sections' : '-');
+    const monthName = selectedMonth === 'all' ? 'All Months' : selectedMonth;
+
+    const overallTotalPending = studentReports.reduce((s, r) => s + r.totalPending, 0);
+    const overallTotalPaid = studentReports.reduce((s, r) => s + r.totalPaid, 0);
+    const overallTotalAmount = studentReports.reduce((s, r) => s + r.totalAmount, 0);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Student Fee Dues & Pending Challans Report</title>
+          <style>
+            @media print {
+              @page { size: A4 landscape; margin: 10mm; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .no-break { page-break-inside: avoid; }
+            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #fff; margin: 0; padding: 15px; font-size: 12px; }
+            .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+            .institute { font-size: 18px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
+            .report-title { font-size: 13px; font-weight: 600; color: #475569; margin-top: 2px; }
+            .meta-box { font-size: 11px; color: #64748b; line-height: 1.4; text-align: right; }
+            .filters-bar { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; }
+            .filter-item strong { color: #334155; }
+            .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+            .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; }
+            .summary-card.rose { background: #fff1f2; border: 1px solid #fecdd3; }
+            .summary-card.emerald { background: #f0fdf4; border: 1px solid #bbf7d0; }
+            .card-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 2px; }
+            .card-value { font-size: 14px; font-weight: 700; color: #0f172a; }
+            .card-value.rose { color: #e11d48; }
+            .card-value.emerald { color: #16a34a; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+            th { background: #f8fafc; color: #334155; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 8px; text-align: left; border-bottom: 2px solid #cbd5e1; }
+            td { padding: 6px 8px; font-size: 11px; border-bottom: 1px solid #e2e8f0; }
+            .student-row { background: #ffffff; font-weight: 600; }
+            .student-row td { border-top: 1px solid #cbd5e1; }
+            .text-right { text-align: right; }
+            .badge-pending { color: #e11d48; font-weight: 700; background: #ffe4e6; padding: 2px 8px; border-radius: 9999px; display: inline-block; font-size: 10px; }
+            .badge-status { padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+            .status-pending { background: #ffe4e6; color: #be123c; }
+            .status-partial { background: #fef3c7; color: #b45309; }
+            .subtable-wrapper { padding: 6px 10px 12px 24px; background: #fafafa; border-bottom: 1px solid #e2e8f0; }
+            .subtable { width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
+            .subtable th { background: #f1f5f9; color: #475569; font-size: 9px; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; }
+            .subtable td { padding: 4px 6px; font-size: 10px; border-bottom: 1px solid #f1f5f9; }
+            .challan-title { font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="institute">Concordia College</div>
+              <div class="report-title">Student Fee Dues & Pending Challans Report</div>
+            </div>
+            <div class="meta-box">
+              <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+              <div><strong>Total Students with Dues:</strong> ${studentReports.length}</div>
+            </div>
+          </div>
+
+          <div class="filters-bar">
+            <div class="filter-item"><strong>Session:</strong> ${sessionName}</div>
+            <div class="filter-item"><strong>Program:</strong> ${programName}</div>
+            <div class="filter-item"><strong>Class:</strong> ${className}</div>
+            <div class="filter-item"><strong>Section:</strong> ${sectionName}</div>
+            <div class="filter-item"><strong>Month:</strong> ${monthName}</div>
+          </div>
+
+          <div class="summary-cards">
+            <div class="summary-card">
+              <div class="card-label">Students with Dues</div>
+              <div class="card-value">${studentReports.length}</div>
+            </div>
+            <div class="summary-card">
+              <div class="card-label">Total Fee Dues</div>
+              <div class="card-value">PKR ${overallTotalAmount.toLocaleString()}</div>
+            </div>
+            <div class="summary-card emerald">
+              <div class="card-label">Total Paid</div>
+              <div class="card-value emerald">PKR ${overallTotalPaid.toLocaleString()}</div>
+            </div>
+            <div class="summary-card rose">
+              <div class="card-label">Total Pending</div>
+              <div class="card-value rose">PKR ${overallTotalPending.toLocaleString()}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 30px;">#</th>
+                <th>Student</th>
+                <th>Father Name</th>
+                <th>Roll No.</th>
+                <th>Program / Class / Section</th>
+                <th class="text-right">Total Paid</th>
+                <th class="text-right">Total Pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${studentReports.map((s, idx) => `
+                <tr class="student-row no-break">
+                  <td>${idx + 1}</td>
+                  <td>${s.studentName}</td>
+                  <td>${s.fatherName}</td>
+                  <td>${s.rollNumber}</td>
+                  <td>${s.programClassSection}</td>
+                  <td class="text-right">PKR ${s.totalPaid.toLocaleString()}</td>
+                  <td class="text-right"><span class="badge-pending">PKR ${s.totalPending.toLocaleString()}</span></td>
+                </tr>
+                <tr class="no-break">
+                  <td colspan="7" style="padding: 0;">
+                    <div class="subtable-wrapper">
+                      <table class="subtable">
+                        <thead>
+                          <tr>
+                            <th>Challan No.</th>
+                            <th>Month</th>
+                            <th>Installment #</th>
+                            <th class="text-right">Total Amount</th>
+                            <th class="text-right">Paid</th>
+                            <th class="text-right">Pending</th>
+                            <th style="text-align: center;">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${s.pendingChallans.map(c => `
+                            <tr>
+                              <td>#${c.challanNo}</td>
+                              <td>${c.month}</td>
+                              <td>${c.installmentNumber}</td>
+                              <td class="text-right">PKR ${c.totalAmount.toLocaleString()}</td>
+                              <td class="text-right">PKR ${c.paidAmount.toLocaleString()}</td>
+                              <td class="text-right" style="color: #e11d48; font-weight: 600;">PKR ${c.pendingAmount.toLocaleString()}</td>
+                              <td style="text-align: center;">
+                                <span class="badge-status ${c.status === 'PARTIAL' ? 'status-partial' : 'status-pending'}">
+                                  ${c.status}
+                                </span>
+                              </td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    await openManagedPrintWindow({
+      html,
+      title: "Fee Report - Pending Challans",
+      toast,
+    });
+  };
+
+  // Existing Chart Queries & State
   const [reportFilter, setReportFilter] = useState('month');
   const [reportSessionFilter, setReportSessionFilter] = useState('all');
   const [reportTypeFilter, setReportTypeFilter] = useState('all');
   const [reportDateFrom, setReportDateFrom] = useState('');
   const [reportDateTo, setReportDateTo] = useState('');
-
-  const { data: academicSessions = [] } = useQuery({
-    queryKey: ['academic-sessions'],
-    queryFn: getAcademicSessions,
-  });
 
   const { data: revenueData = [] } = useQuery({
     queryKey: ['revenueOverTime', reportFilter],
@@ -84,12 +522,6 @@ export const FeeReportsTab = () => {
     retry: 0,
   });
 
-  const sessionList = Array.isArray(academicSessions)
-    ? academicSessions
-    : Array.isArray(academicSessions?.data)
-    ? academicSessions.data
-    : [];
-
   const getClassChartLabel = (row = {}) => {
     const parts = [row.programName, row.className || row.name].filter(Boolean);
     return parts.length ? parts.join(" / ") : row.name || row.className || "-";
@@ -117,264 +549,592 @@ export const FeeReportsTab = () => {
   }));
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-end flex-wrap gap-2">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className={`h-8 gap-1.5 text-xs ${
-                reportSessionFilter !== "all" || reportFilter !== "month" || reportTypeFilter !== "all" || reportDateFrom || reportDateTo
-                  ? "border-primary text-primary"
-                  : ""
-              }`}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              Filters
-              {(reportSessionFilter !== "all" || reportFilter !== "month" || reportTypeFilter !== "all" || reportDateFrom || reportDateTo) && (
-                <span className="ml-0.5 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
-                  {[reportSessionFilter !== "all" ? 1 : 0, reportFilter !== "month" ? 1 : 0, reportTypeFilter !== "all" ? 1 : 0, (reportDateFrom || reportDateTo) ? 1 : 0].reduce((a, b) => a + b, 0)}
-                </span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[260px] p-4 max-h-[80vh] overflow-y-auto" align="end" side="bottom" sideOffset={4}>
-            <div className="space-y-4">
-              <p className="text-sm font-semibold">Report Filters</p>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Date Range</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-[10px] text-muted-foreground">From</Label>
-                    <Input type="date" value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} className="h-8 text-xs" />
-                  </div>
-                  <div>
-                    <Label className="text-[10px] text-muted-foreground">To</Label>
-                    <Input type="date" value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} className="h-8 text-xs" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Session</Label>
-                <Select value={reportSessionFilter} onValueChange={setReportSessionFilter}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder="All Sessions" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sessions</SelectItem>
-                    {sessionList.map(s => {
-                      const val = (s.id || s._id || '').toString();
-                      return (
-                        <SelectItem key={val || Math.random()} value={val}>{s.name || s.sessionName}</SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Period</Label>
-                <Select value={reportFilter} onValueChange={setReportFilter}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="daily">Daily (Last 30 Days)</SelectItem>
-                    <SelectItem value="weekly">Weekly (Last 12 Weeks)</SelectItem>
-                    <SelectItem value="month">Monthly (Last 12 Months)</SelectItem>
-                    <SelectItem value="year">Yearly (Last 5 Years)</SelectItem>
-                    <SelectItem value="overall">Overall</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Fee Type</Label>
-                <div className="space-y-1">
-                  {[
-                    { value: "all", label: "All (Installment + Extra)" },
-                    { value: "installment", label: "Installment Fee Only" },
-                    { value: "extra", label: "Extra Challans Only" },
-                  ].map(({ value, label }) => (
-                    <label key={value} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm">
-                      <input
-                        type="radio"
-                        name="reportType"
-                        className="h-3.5 w-3.5 accent-primary"
-                        checked={reportTypeFilter === value}
-                        onChange={() => setReportTypeFilter(value)}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
+    <div className="space-y-6">
+      {/* ── Pending Challan Dues & Student Fee Report ── */}
+      <Card className="border border-border/70 shadow-sm">
+        <CardHeader className="pb-3 flex flex-row items-start justify-between flex-wrap gap-4">
+          <div>
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-primary" />
+              Student Pending Fee Reports
+            </CardTitle>
+            <CardDescription>
+              View student fee summaries and click any row to reveal itemized pending challans
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            {studentReports.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePrint}
+                className="gap-1.5 h-9 text-xs font-medium"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Print / Save as PDF
+              </Button>
+            )}
+            {(selectedProgram || selectedSession !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedMonth !== "all" || searchQuery) && (
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full h-8 text-muted-foreground text-xs"
-                onClick={() => { setReportSessionFilter("all"); setReportFilter("month"); setReportTypeFilter("all"); setReportDateFrom(""); setReportDateTo(""); }}
+                onClick={() => {
+                  setSelectedProgram("");
+                  setSelectedClass("all");
+                  setSelectedSection("all");
+                  setSelectedSession("all");
+                  setSelectedMonth("all");
+                  setSearchQuery("");
+                  setExpandedStudentIds(new Set());
+                }}
+                className="h-9 px-2.5 text-xs text-muted-foreground gap-1"
               >
-                <X className="w-3 h-3 mr-1" /> Reset filters
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
               </Button>
+            )}
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {/* Filters Bar Matching Requested Structure */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end bg-muted/20 p-3 rounded-lg border border-border/50">
+            {/* Academic Session */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Academic Session
+              </Label>
+              <Select value={selectedSession} onValueChange={setSelectedSession}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All Sessions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sessions</SelectItem>
+                  {sessionList.map(s => {
+                    const val = extractId(s);
+                    return (
+                      <SelectItem key={val || Math.random()} value={val}>
+                        {s.name || s.sessionName || "Session"}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
-          </PopoverContent>
-        </Popover>
 
-        {reportSessionFilter !== "all" && (
-          <span className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
-            {sessionList.find(s => (s.id || s._id)?.toString() === reportSessionFilter)?.name || "Session"}
-            <button onClick={() => setReportSessionFilter("all")}><X className="w-3 h-3" /></button>
-          </span>
-        )}
-        {reportFilter !== "month" && (
-          <span className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
-            {reportFilter.charAt(0).toUpperCase() + reportFilter.slice(1)}
-            <button onClick={() => setReportFilter("month")}><X className="w-3 h-3" /></button>
-          </span>
-        )}
-        {reportTypeFilter !== "all" && (
-          <span className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
-            {reportTypeFilter === "installment" ? "Installment Fee" : "Extra Challans"}
-            <button onClick={() => setReportTypeFilter("all")}><X className="w-3 h-3" /></button>
-          </span>
-        )}
-        {(reportDateFrom || reportDateTo) && (
-          <span className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
-            {reportDateFrom && reportDateTo ? `${reportDateFrom} → ${reportDateTo}` : reportDateFrom ? `From ${reportDateFrom}` : `To ${reportDateTo}`}
-            <button onClick={() => { setReportDateFrom(""); setReportDateTo(""); }}><X className="w-3 h-3" /></button>
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {/* Revenue Over Time */}
-        <Card className="col-span-1">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Revenue Over Time</CardTitle>
-            <p className="text-xs text-muted-foreground">Last 24 months — installment fee vs extra challans</p>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={timelineData}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
-                >
-                  <defs>
-                    <linearGradient id="colorInst" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorExtra" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 10 }}
-                    angle={-45}
-                    textAnchor="end"
-                    interval={0}
-                    tickFormatter={(v) => {
-                      if (!v || typeof v !== 'string' || !v.includes('-')) return v || '';
-                      const [yr, mo] = v.split('-');
-                      const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo, 10) - 1];
-                      return monthShort ? `${monthShort} ${yr.slice(2)}` : v;
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
-                    width={45}
-                  />
-                  <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
-                  <Legend
-                    verticalAlign="top"
-                    height={28}
-                    formatter={(v) => v === 'installment' ? 'Installment Fee' : v === 'extra' ? 'Extra Challans' : 'Total'}
-                    wrapperStyle={{ fontSize: 11 }}
-                  />
-                  {(timelineData[0]?.installment !== undefined) ? (
-                    <>
-                      <Area type="monotone" dataKey="installment" name="installment" stroke="#6366f1" strokeWidth={2} fill="url(#colorInst)" dot={false} activeDot={{ r: 4 }} />
-                      <Area type="monotone" dataKey="extra" name="extra" stroke="#f59e0b" strokeWidth={2} fill="url(#colorExtra)" dot={false} activeDot={{ r: 4 }} />
-                    </>
-                  ) : (
-                    <Area type="monotone" dataKey="value" name="Revenue" stroke="#6366f1" strokeWidth={2} fill="url(#colorInst)" dot={false} activeDot={{ r: 4 }} />
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
+            {/* Program */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Program <span className="text-primary font-bold">*</span>
+              </Label>
+              <Select
+                value={selectedProgram}
+                onValueChange={(val) => {
+                  setSelectedProgram(val);
+                  setSelectedClass("all");
+                  setSelectedSection("all");
+                }}
+              >
+                <SelectTrigger className={`h-9 text-xs ${!selectedProgram ? "border-amber-400/80 bg-amber-50/30 dark:bg-amber-950/20" : ""}`}>
+                  <SelectValue placeholder="Select Program..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Programs</SelectItem>
+                  {programsList.map(p => {
+                    const val = extractId(p);
+                    return (
+                      <SelectItem key={val} value={val}>
+                        {p.name || p.programName || p.title}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Collection vs Outstanding Per Class */}
-        <Card className="col-span-1">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Collection vs Outstanding (Per Class)</CardTitle>
-            <p className="text-xs text-muted-foreground">Collected amount vs pending outstanding per class</p>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              if (!chartData || chartData.length === 0) {
-                return (
-                  <div className="flex items-center justify-center h-[320px] text-muted-foreground text-sm">
-                    No class data available
-                  </div>
-                );
-              }
-              const barH = Math.max(28, Math.min(40, 320 / chartData.length));
-              const chartH = Math.max(320, chartData.length * (barH + 12) + 60);
-              return (
-                <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
-                  <div style={{ height: chartH }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        layout="vertical"
-                        data={chartData}
-                        margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-                        barCategoryGap="20%"
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
-                        <XAxis
-                          type="number"
-                          tick={{ fontSize: 10 }}
-                          tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
-                        />
-                        <YAxis
-                          dataKey="name"
-                          type="category"
-                          width={120}
-                          tick={{ fontSize: 11 }}
-                          interval={0}
-                        />
-                        <RechartsTooltip
-                          formatter={(value, name) => [`PKR ${Number(value).toLocaleString()}`, name === 'collected' ? 'Collected' : 'Outstanding']}
-                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-                        />
-                        <Legend
-                          verticalAlign="top"
-                          height={28}
-                          wrapperStyle={{ fontSize: 11 }}
-                        />
-                        <Bar dataKey="collected" name="Collected" fill="#4ade80" radius={[0, 4, 4, 0]} barSize={barH * 0.45} />
-                        <Bar dataKey="outstanding" name="Outstanding" fill="#fb923c" radius={[0, 4, 4, 0]} barSize={barH * 0.45} />
-                      </BarChart>
-                    </ResponsiveContainer>
+            {/* Class */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Class
+              </Label>
+              <Select
+                value={selectedClass}
+                onValueChange={(val) => {
+                  setSelectedClass(val);
+                  setSelectedSection("all");
+                }}
+                disabled={!selectedProgram}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All Classes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classes</SelectItem>
+                  {availableClasses.map(c => {
+                    const val = extractId(c);
+                    return (
+                      <SelectItem key={val} value={val}>
+                        {c.name || c.className}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Section (if applicable) */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Section {isSectionApplicable ? "" : "(N/A)"}
+              </Label>
+              <Select
+                value={selectedSection}
+                onValueChange={setSelectedSection}
+                disabled={!isSectionApplicable || availableSections.length === 0}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder={isSectionApplicable ? "All Sections" : "N/A"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sections</SelectItem>
+                  {availableSections.map(s => {
+                    const val = extractId(s);
+                    return (
+                      <SelectItem key={val} value={val}>
+                        {s.name || s.sectionName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Month */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Month
+              </Label>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth} disabled={!selectedProgram}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {MONTH_NAMES.map(m => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Search */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Search
+              </Label>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Name or roll no..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 pl-8 text-xs"
+                  disabled={!selectedProgram}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Content Body */}
+          {!selectedProgram ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed rounded-lg bg-muted/10 my-4 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <FileSpreadsheet className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm text-foreground">Select a Program to View Reports</h3>
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                  Choose a program from the filter dropdown above (or select <strong>"All Programs"</strong>) to load student fee dues and pending challans.
+                </p>
+              </div>
+            </div>
+          ) : isChallansLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground space-y-2">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs">Loading pending fee records...</p>
+            </div>
+          ) : studentReports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-10 text-center border border-dashed rounded-lg bg-muted/10 my-4 space-y-2">
+              <AlertCircle className="w-8 h-8 text-muted-foreground" />
+              <h3 className="font-semibold text-sm">No Pending Challans Found</h3>
+              <p className="text-xs text-muted-foreground">
+                No students with pending fee dues match the selected filters.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="overflow-x-auto">
+                <Table className="w-full text-xs">
+                  <TableHeader>
+                    <TableRow className="bg-muted/50 hover:bg-muted/50 border-b">
+                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground w-12">#</TableHead>
+                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Student</TableHead>
+                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Father Name</TableHead>
+                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Roll No.</TableHead>
+                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Program / Class / Section</TableHead>
+                      <TableHead className="py-2.5 px-4 text-xs font-semibold text-muted-foreground text-right">Total Paid</TableHead>
+                      <TableHead className="py-2.5 px-4 text-xs font-semibold text-muted-foreground text-right">Total Pending</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {studentReports.map((student, idx) => {
+                      const isExpanded = expandedStudentIds.has(student.id);
+                      return (
+                        <React.Fragment key={student.id}>
+                          <TableRow
+                            onClick={() => toggleStudent(student.id)}
+                            className={`cursor-pointer transition-colors hover:bg-muted/40 ${
+                              isExpanded ? "bg-muted/20" : ""
+                            }`}
+                          >
+                            <TableCell className="py-3 px-3">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-3.5 h-3.5 text-primary" />
+                                ) : (
+                                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                                )}
+                                <span>{idx + 1}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="py-3 px-3 font-semibold text-foreground">
+                              {student.studentName}
+                            </TableCell>
+                            <TableCell className="py-3 px-3 text-muted-foreground">
+                              {student.fatherName}
+                            </TableCell>
+                            <TableCell className="py-3 px-3 font-mono text-xs text-foreground">
+                              {student.rollNumber}
+                            </TableCell>
+                            <TableCell className="py-3 px-3 text-muted-foreground">
+                              {student.programClassSection}
+                            </TableCell>
+                            <TableCell className="py-3 px-4 text-right font-medium text-foreground">
+                              PKR {student.totalPaid.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="py-3 px-4 text-right">
+                              <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                                PKR {student.totalPending.toLocaleString()}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+
+                          {/* Expanded Challans Row (Flat, matching app theme, no floating box or shadow) */}
+                          {isExpanded && (
+                            <TableRow className="bg-muted/15 hover:bg-muted/15 border-b border-border/60">
+                              <TableCell colSpan={7} className="p-0">
+                                <div className="py-2.5 px-4 pl-10 border-t border-dashed border-border/60">
+                                  <div className="overflow-x-auto">
+                                    <Table className="w-full text-xs">
+                                      <TableHeader>
+                                        <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/40">
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Challan No.</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Month</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Installment #</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Total Amount</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Paid</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Pending</TableHead>
+                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-center">Status</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {student.pendingChallans.map((c) => (
+                                          <TableRow key={c.id || c.challanNo} className="hover:bg-muted/25 border-b border-border/30">
+                                            <TableCell className="py-2 px-3 font-mono font-medium text-foreground">
+                                              #{c.challanNo}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-muted-foreground">
+                                              {c.month}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-muted-foreground">
+                                              {c.installmentNumber}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-right font-medium text-foreground">
+                                              PKR {c.totalAmount.toLocaleString()}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-right text-muted-foreground">
+                                              PKR {c.paidAmount.toLocaleString()}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-right text-rose-600 font-semibold">
+                                              PKR {c.pendingAmount.toLocaleString()}
+                                            </TableCell>
+                                            <TableCell className="py-2 px-3 text-center">
+                                              <span
+                                                className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                                                  c.status === "PARTIAL"
+                                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                                                    : "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                                                }`}
+                                              >
+                                                {c.status}
+                                              </span>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Fee Analytics & Charts ── */}
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-base font-semibold text-foreground">Revenue & Collection Analytics</h2>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-8 gap-1.5 text-xs ${
+                  reportSessionFilter !== "all" || reportFilter !== "month" || reportTypeFilter !== "all" || reportDateFrom || reportDateTo
+                    ? "border-primary text-primary"
+                    : ""
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Chart Filters
+                {(reportSessionFilter !== "all" || reportFilter !== "month" || reportTypeFilter !== "all" || reportDateFrom || reportDateTo) && (
+                  <span className="ml-0.5 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
+                    {[reportSessionFilter !== "all" ? 1 : 0, reportFilter !== "month" ? 1 : 0, reportTypeFilter !== "all" ? 1 : 0, (reportDateFrom || reportDateTo) ? 1 : 0].reduce((a, b) => a + b, 0)}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[260px] p-4 max-h-[80vh] overflow-y-auto" align="end" side="bottom" sideOffset={4}>
+              <div className="space-y-4">
+                <p className="text-sm font-semibold">Chart Filters</p>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Date Range</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">From</Label>
+                      <Input type="date" value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} className="h-8 text-xs" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">To</Label>
+                      <Input type="date" value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} className="h-8 text-xs" />
+                    </div>
                   </div>
                 </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Session</Label>
+                  <Select value={reportSessionFilter} onValueChange={setReportSessionFilter}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="All Sessions" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sessions</SelectItem>
+                      {sessionList.map(s => {
+                        const val = extractId(s);
+                        return (
+                          <SelectItem key={val || Math.random()} value={val}>{s.name || s.sessionName}</SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Period</Label>
+                  <Select value={reportFilter} onValueChange={setReportFilter}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily (Last 30 Days)</SelectItem>
+                      <SelectItem value="weekly">Weekly (Last 12 Weeks)</SelectItem>
+                      <SelectItem value="month">Monthly (Last 12 Months)</SelectItem>
+                      <SelectItem value="year">Yearly (Last 5 Years)</SelectItem>
+                      <SelectItem value="overall">Overall</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Fee Type</Label>
+                  <div className="space-y-1">
+                    {[
+                      { value: "all", label: "All (Installment + Extra)" },
+                      { value: "installment", label: "Installment Fee Only" },
+                      { value: "extra", label: "Extra Challans Only" },
+                    ].map(({ value, label }) => (
+                      <label key={value} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm">
+                        <input
+                          type="radio"
+                          name="reportType"
+                          className="h-3.5 w-3.5 accent-primary"
+                          checked={reportTypeFilter === value}
+                          onChange={() => setReportTypeFilter(value)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-8 text-muted-foreground text-xs"
+                  onClick={() => { setReportSessionFilter("all"); setReportFilter("month"); setReportTypeFilter("all"); setReportDateFrom(""); setReportDateTo(""); }}
+                >
+                  <X className="w-3 h-3 mr-1" /> Reset filters
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Revenue Over Time */}
+          <Card className="col-span-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Revenue Over Time</CardTitle>
+              <p className="text-xs text-muted-foreground">Last 24 months — installment fee vs extra challans</p>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={timelineData}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorInst" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="colorExtra" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10 }}
+                      angle={-45}
+                      textAnchor="end"
+                      interval={0}
+                      tickFormatter={(v) => {
+                        if (!v || typeof v !== 'string' || !v.includes('-')) return v || '';
+                        const [yr, mo] = v.split('-');
+                        const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo, 10) - 1];
+                        return monthShort ? `${monthShort} ${yr.slice(2)}` : v;
+                      }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
+                      width={45}
+                    />
+                    <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={28}
+                      formatter={(v) => v === 'installment' ? 'Installment Fee' : v === 'extra' ? 'Extra Challans' : 'Total'}
+                      wrapperStyle={{ fontSize: 11 }}
+                    />
+                    {(timelineData[0]?.installment !== undefined) ? (
+                      <>
+                        <Area type="monotone" dataKey="installment" name="installment" stroke="#6366f1" strokeWidth={2} fill="url(#colorInst)" dot={false} activeDot={{ r: 4 }} />
+                        <Area type="monotone" dataKey="extra" name="extra" stroke="#f59e0b" strokeWidth={2} fill="url(#colorExtra)" dot={false} activeDot={{ r: 4 }} />
+                      </>
+                    ) : (
+                      <Area type="monotone" dataKey="value" name="Revenue" stroke="#6366f1" strokeWidth={2} fill="url(#colorInst)" dot={false} activeDot={{ r: 4 }} />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Collection vs Outstanding Per Class */}
+          <Card className="col-span-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Collection vs Outstanding (Per Class)</CardTitle>
+              <p className="text-xs text-muted-foreground">Collected amount vs pending outstanding per class</p>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                if (!chartData || chartData.length === 0) {
+                  return (
+                    <div className="flex items-center justify-center h-[320px] text-muted-foreground text-sm">
+                      No class data available
+                    </div>
+                  );
+                }
+                const barH = Math.max(28, Math.min(40, 320 / chartData.length));
+                const chartH = Math.max(320, chartData.length * (barH + 12) + 60);
+                return (
+                  <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+                    <div style={{ height: chartH }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          layout="vertical"
+                          data={chartData}
+                          margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                          barCategoryGap="20%"
+                        >
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
+                          <XAxis
+                            type="number"
+                            tick={{ fontSize: 10 }}
+                            tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
+                          />
+                          <YAxis
+                            dataKey="name"
+                            type="category"
+                            width={120}
+                            tick={{ fontSize: 11 }}
+                            interval={0}
+                          />
+                          <RechartsTooltip
+                            formatter={(value, name) => [`PKR ${Number(value).toLocaleString()}`, name === 'collected' ? 'Collected' : 'Outstanding']}
+                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                            cursor={{ fill: 'rgba(0,0,0,0.04)' }}
+                          />
+                          <Legend
+                            verticalAlign="top"
+                            height={28}
+                            wrapperStyle={{ fontSize: 11 }}
+                          />
+                          <Bar dataKey="collected" name="Collected" fill="#4ade80" radius={[0, 4, 4, 0]} barSize={barH * 0.45} />
+                          <Bar dataKey="outstanding" name="Outstanding" fill="#fb923c" radius={[0, 4, 4, 0]} barSize={barH * 0.45} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

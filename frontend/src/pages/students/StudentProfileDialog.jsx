@@ -73,6 +73,7 @@ import {
   getSelectedHeadsTotal,
 } from "./studentFinancialUtils";
 import { BoardingRegistrationHistoryPanel } from "./BoardingRegistrationHistoryPanel";
+import { StudentProfilePrintDialog } from "./StudentProfilePrintTemplate";
 
 export const StudentProfileDialog = ({
   open,
@@ -93,6 +94,7 @@ export const StudentProfileDialog = ({
   const [attendanceMonthFilter, setAttendanceMonthFilter] = useState("all");
   const [selectedResultsScope, setSelectedResultsScope] = useState("all");
   const [resultsExamTypeFilter, setResultsExamTypeFilter] = useState("all");
+  const [profilePrintOpen, setProfilePrintOpen] = useState(false);
 
   const studentId = (viewStudent?.id || viewStudent?._id || "").toString();
 
@@ -100,7 +102,7 @@ export const StudentProfileDialog = ({
   const { data: studentFeesRaw = [] } = useQuery({
     queryKey: ["studentFees", studentId, "INSTALLMENT"],
     queryFn: () => getStudentFeeHistory(studentId, "INSTALLMENT"),
-    enabled: !!studentId && activeProfileTab === "fees",
+    enabled: !!studentId,
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -1495,19 +1497,29 @@ export const StudentProfileDialog = ({
               Complete student information and statistics
             </DialogDescription>
           </div>
-          {onEditStudent && (
+          <div className="flex items-center gap-2 mr-6">
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5 mr-6"
-              onClick={() => {
-                onOpenChange(false);
-                onEditStudent(studentDetails || viewStudent);
-              }}
+              className="gap-1.5 text-slate-800 border-slate-300 hover:bg-slate-50"
+              onClick={() => setProfilePrintOpen(true)}
             >
-              <Edit className="w-4 h-4" /> Edit Student
+              <Printer className="w-4 h-4" /> Print / Save PDF
             </Button>
-          )}
+            {onEditStudent && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => {
+                  onOpenChange(false);
+                  onEditStudent(studentDetails || viewStudent);
+                }}
+              >
+                <Edit className="w-4 h-4" /> Edit Student
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
         <Tabs
@@ -3106,6 +3118,19 @@ export const StudentProfileDialog = ({
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Student Profile Form Print / PDF Preview Dialog */}
+        <StudentProfilePrintDialog
+          open={profilePrintOpen}
+          onOpenChange={setProfilePrintOpen}
+          student={studentDetails || viewStudent}
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+          academicSessions={academicSessions}
+          feeChallans={studentFees}
+          isNewlyCreated={false}
+        />
       </DialogContent>
     </Dialog>
   );

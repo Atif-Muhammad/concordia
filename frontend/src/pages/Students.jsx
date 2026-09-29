@@ -39,6 +39,8 @@ import {
   StudentFormDialog,
   StudentPromotionDialog,
   StudentIdCardDialog,
+  StudentProfilePrintDialog,
+  StudentDocumentReportDialog,
   getStudentAcademicPath,
 } from "./students/index.js";
 
@@ -92,6 +94,14 @@ const Students = () => {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
+
+  const [profilePrintOpen, setProfilePrintOpen] = useState(false);
+  const [profilePrintStudent, setProfilePrintStudent] = useState(null);
+  const [isNewlyCreatedProfile, setIsNewlyCreatedProfile] = useState(false);
+
+  const [docReportOpen, setDocReportOpen] = useState(false);
+  const [docReportStudents, setDocReportStudents] = useState([]);
+  const [docReportFilters, setDocReportFilters] = useState({});
 
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promotionDialogConfig, setPromotionDialogConfig] = useState({
@@ -168,11 +178,28 @@ const Students = () => {
   // Mutations
   const createMut = useMutation({
     mutationFn: createStudent,
-    onSuccess: () => {
+    onSuccess: async (createdData) => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       toast({ title: "Student added successfully" });
       setFormOpen(false);
       setEditingStudent(null);
+
+      let studentForPrint = createdData;
+      const newId = createdData?._id || createdData?.id;
+      if (newId) {
+        try {
+          const fresh = await getStudentById(newId);
+          if (fresh) {
+            studentForPrint = fresh;
+          }
+        } catch (err) {
+          console.warn("Could not fetch fresh student for print preview:", err);
+        }
+      }
+
+      setProfilePrintStudent(studentForPrint);
+      setIsNewlyCreatedProfile(true);
+      setProfilePrintOpen(true);
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -465,6 +492,16 @@ const Students = () => {
             setIdCardStudent(student);
             setIdCardOpen(true);
           }}
+          onPrintProfile={(student) => {
+            setProfilePrintStudent(student);
+            setIsNewlyCreatedProfile(false);
+            setProfilePrintOpen(true);
+          }}
+          onOpenDocumentReport={(students, filters) => {
+            setDocReportStudents(students || []);
+            setDocReportFilters(filters || {});
+            setDocReportOpen(true);
+          }}
           onPromote={canUpdate ? () => {
             setPromotionDialogConfig({
               initialAction: "promote_manual",
@@ -512,6 +549,31 @@ const Students = () => {
           classesData={classesData}
           sectionsData={sectionsData}
           academicSessions={academicSessions}
+        />
+
+        {/* Student Profile Form Print / PDF Preview Dialog */}
+        <StudentProfilePrintDialog
+          open={profilePrintOpen}
+          onOpenChange={setProfilePrintOpen}
+          student={profilePrintStudent}
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+          academicSessions={academicSessions}
+          isNewlyCreated={isNewlyCreatedProfile}
+        />
+
+        {/* Student Document Report Dialog */}
+        <StudentDocumentReportDialog
+          open={docReportOpen}
+          onOpenChange={setDocReportOpen}
+          students={docReportStudents}
+          activeFilters={docReportFilters}
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+          academicSessions={academicSessions}
+          status={selectedStatus}
         />
 
         {/* Student Promotion / Demotion / Rejoin Dialog */}

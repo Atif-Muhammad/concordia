@@ -85,6 +85,7 @@ const Students = () => {
   // Dialog States
   const [formOpen, setFormOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [editingLoading, setEditingLoading] = useState(false);
 
   const [viewOpen, setViewOpen] = useState(false);
   const [viewStudent, setViewStudent] = useState(null);
@@ -313,142 +314,148 @@ const Students = () => {
   });
 
   const openEdit = async (student) => {
-    let studentToUse = student;
     const studentId = student.id || student._id;
-
-    if (studentId) {
-      try {
-        const fullData = await getStudentById(studentId);
-        if (fullData) {
-          studentToUse = fullData;
-        }
-      } catch (err) {
-        console.warn("Could not fetch fresh student details for edit, using existing record:", err);
-      }
-    }
-
-    let docs = studentToUse.documents || {};
-    if (typeof docs === "string") {
-      try {
-        docs = JSON.parse(docs);
-      } catch {
-        docs = {};
-      }
-    }
-
-    const studentClassId = extractId(studentToUse.classId);
-    const studentProgramId = extractId(studentToUse.programId);
-    const studentSectionId = extractId(studentToUse.sectionId);
-    const studentSessionId = extractId(studentToUse.sessionId);
-
-    let rawInstallments =
-      studentToUse.installments ||
-      studentToUse.feeInstallments ||
-      student.installments ||
-      student.feeInstallments ||
-      [];
-
-    if ((!rawInstallments || rawInstallments.length === 0) && studentId) {
-      try {
-        const feeChallans = await getStudentFeeHistory(studentId, "INSTALLMENT");
-        if (Array.isArray(feeChallans) && feeChallans.length > 0) {
-          rawInstallments = feeChallans.map((c, idx) => ({
-            installmentNumber: c.installmentNumber || idx + 1,
-            amount: Number(c.amount) || Number(c.basePayable) || 0,
-            basePayable: Number(c.basePayable) || Number(c.amount) || 0,
-            dueDate: c.dueDate,
-            month: c.month,
-            session: typeof c.session === "object" ? c.session?.name : c.session,
-            sessionId: extractId(c.sessionId) || studentSessionId,
-            classId: extractId(c.classId || studentClassId),
-            programId: extractId(c.programId || studentProgramId),
-            status: c.status,
-            paidAmount: Number(c.paidAmount || 0),
-          }));
-        }
-      } catch (err) {
-        console.warn("Could not fetch challan history fallback for edit:", err);
-      }
-    }
-
-    const filteredInstallments = rawInstallments.filter((inst) => {
-      const instClassId = extractId(inst.classId);
-      return !instClassId || !studentClassId || instClassId === studentClassId;
-    });
-
-    const sourceInstallments =
-      filteredInstallments.length > 0 ? filteredInstallments : rawInstallments;
-
-    const installments = sourceInstallments.map((inst, idx) => {
-      let dueDateStr = "";
-      let monthName = "";
-      if (inst.dueDate) {
-        const d = new Date(inst.dueDate);
-        if (!isNaN(d.getTime())) {
-          dueDateStr = d.toISOString().split("T")[0];
-          monthName = d.toLocaleString("default", { month: "long" });
-        }
-      }
-      let sessionName = "";
-      if (inst.session && typeof inst.session === "object" && inst.session.name) {
-        sessionName = inst.session.name;
-      } else if (inst.sessionId) {
-        const instSessId = extractId(inst.sessionId);
-        const found = Array.isArray(academicSessions)
-          ? academicSessions.find((s) => extractId(s) === instSessId)
-          : null;
-        sessionName = found?.name || "";
-      } else if (typeof inst.session === "string") {
-        sessionName = inst.session;
-      }
-      return {
-        ...inst,
-        installmentNumber: inst.installmentNumber || idx + 1,
-        amount: Number(inst.amount) || Number(inst.basePayable) || 0,
-        basePayable: Number(inst.basePayable) || Number(inst.amount) || 0,
-        totalAmount: Number(inst.totalAmount) || Number(inst.amount) || Number(inst.basePayable) || 0,
-        dueDate: dueDateStr,
-        month: inst.month || monthName,
-        session: sessionName,
-        sessionId: extractId(inst.sessionId) || studentSessionId || null,
-        classId: extractId(inst.classId) || studentClassId || null,
-        programId: extractId(inst.programId) || studentProgramId || null,
-      };
-    });
-
-    const computedTuitionFee =
-      studentToUse.tuitionFee != null && studentToUse.tuitionFee !== "" && studentToUse.tuitionFee !== 0
-        ? studentToUse.tuitionFee.toString()
-        : installments.reduce((sum, i) => sum + (Number(i.amount) || 0), 0).toString();
-
-    setEditingStudent({
-      ...studentToUse,
-      id: studentId,
-      _id: studentId,
-      programId: studentProgramId,
-      classId: studentClassId,
-      sectionId: studentSectionId,
-      sessionId: studentSessionId,
-      rollNumber: (studentToUse.rollNumber ?? "").toString(),
-      dob:
-        studentToUse.dob && !isNaN(new Date(studentToUse.dob).getTime())
-          ? new Date(studentToUse.dob).toISOString().split("T")[0]
-          : "",
-      admissionDate:
-        studentToUse.admissionDate && !isNaN(new Date(studentToUse.admissionDate).getTime())
-          ? new Date(studentToUse.admissionDate).toISOString().split("T")[0]
-          : "",
-      religion: studentToUse.religion || "",
-      tuitionFee: computedTuitionFee,
-      numberOfInstallments:
-        installments.length > 0
-          ? installments.length.toString()
-          : (studentToUse.numberOfInstallments?.toString() || "1"),
-      documents: docs,
-      installments,
-      feeInstallments: installments,
-    });
+    setEditingStudent(null);
+    setEditingLoading(true);
     setFormOpen(true);
+
+    let studentToUse = student;
+    try {
+      if (studentId) {
+        try {
+          const fullData = await getStudentById(studentId);
+          if (fullData) {
+            studentToUse = fullData;
+          }
+        } catch (err) {
+          console.warn("Could not fetch fresh student details for edit, using existing record:", err);
+        }
+      }
+
+      let docs = studentToUse.documents || {};
+      if (typeof docs === "string") {
+        try {
+          docs = JSON.parse(docs);
+        } catch {
+          docs = {};
+        }
+      }
+
+      const studentClassId = extractId(studentToUse.classId);
+      const studentProgramId = extractId(studentToUse.programId);
+      const studentSectionId = extractId(studentToUse.sectionId);
+      const studentSessionId = extractId(studentToUse.sessionId);
+
+      let rawInstallments =
+        studentToUse.installments ||
+        studentToUse.feeInstallments ||
+        student.installments ||
+        student.feeInstallments ||
+        [];
+
+      if ((!rawInstallments || rawInstallments.length === 0) && studentId) {
+        try {
+          const feeChallans = await getStudentFeeHistory(studentId, "INSTALLMENT");
+          if (Array.isArray(feeChallans) && feeChallans.length > 0) {
+            rawInstallments = feeChallans.map((c, idx) => ({
+              installmentNumber: c.installmentNumber || idx + 1,
+              amount: Number(c.amount) || Number(c.basePayable) || 0,
+              basePayable: Number(c.basePayable) || Number(c.amount) || 0,
+              dueDate: c.dueDate,
+              month: c.month,
+              session: typeof c.session === "object" ? c.session?.name : c.session,
+              sessionId: extractId(c.sessionId) || studentSessionId,
+              classId: extractId(c.classId || studentClassId),
+              programId: extractId(c.programId || studentProgramId),
+              status: c.status,
+              paidAmount: Number(c.paidAmount || 0),
+            }));
+          }
+        } catch (err) {
+          console.warn("Could not fetch challan history fallback for edit:", err);
+        }
+      }
+
+      const filteredInstallments = rawInstallments.filter((inst) => {
+        const instClassId = extractId(inst.classId);
+        return !instClassId || !studentClassId || instClassId === studentClassId;
+      });
+
+      const sourceInstallments =
+        filteredInstallments.length > 0 ? filteredInstallments : rawInstallments;
+
+      const installments = sourceInstallments.map((inst, idx) => {
+        let dueDateStr = "";
+        let monthName = "";
+        if (inst.dueDate) {
+          const d = new Date(inst.dueDate);
+          if (!isNaN(d.getTime())) {
+            dueDateStr = d.toISOString().split("T")[0];
+            monthName = d.toLocaleString("default", { month: "long" });
+          }
+        }
+        let sessionName = "";
+        if (inst.session && typeof inst.session === "object" && inst.session.name) {
+          sessionName = inst.session.name;
+        } else if (inst.sessionId) {
+          const instSessId = extractId(inst.sessionId);
+          const found = Array.isArray(academicSessions)
+            ? academicSessions.find((s) => extractId(s) === instSessId)
+            : null;
+          sessionName = found?.name || "";
+        } else if (typeof inst.session === "string") {
+          sessionName = inst.session;
+        }
+        return {
+          ...inst,
+          installmentNumber: inst.installmentNumber || idx + 1,
+          amount: Number(inst.amount) || Number(inst.basePayable) || 0,
+          basePayable: Number(inst.basePayable) || Number(inst.amount) || 0,
+          totalAmount: Number(inst.totalAmount) || Number(inst.amount) || Number(inst.basePayable) || 0,
+          dueDate: dueDateStr,
+          month: inst.month || monthName,
+          session: sessionName,
+          sessionId: extractId(inst.sessionId) || studentSessionId || null,
+          classId: extractId(inst.classId) || studentClassId || null,
+          programId: extractId(inst.programId) || studentProgramId || null,
+        };
+      });
+
+      const computedTuitionFee =
+        studentToUse.tuitionFee != null && studentToUse.tuitionFee !== "" && studentToUse.tuitionFee !== 0
+          ? studentToUse.tuitionFee.toString()
+          : installments.reduce((sum, i) => sum + (Number(i.amount) || 0), 0).toString();
+
+      setEditingStudent({
+        ...studentToUse,
+        id: studentId,
+        _id: studentId,
+        programId: studentProgramId,
+        classId: studentClassId,
+        sectionId: studentSectionId,
+        sessionId: studentSessionId,
+        rollNumber: (studentToUse.rollNumber ?? "").toString(),
+        dob:
+          studentToUse.dob && !isNaN(new Date(studentToUse.dob).getTime())
+            ? new Date(studentToUse.dob).toISOString().split("T")[0]
+            : "",
+        admissionDate:
+          studentToUse.admissionDate && !isNaN(new Date(studentToUse.admissionDate).getTime())
+            ? new Date(studentToUse.admissionDate).toISOString().split("T")[0]
+            : "",
+        religion: studentToUse.religion || "",
+        tuitionFee: computedTuitionFee,
+        numberOfInstallments:
+          installments.length > 0
+            ? installments.length.toString()
+            : (studentToUse.numberOfInstallments?.toString() || "1"),
+        documents: docs,
+        installments,
+        feeInstallments: installments,
+      });
+    } finally {
+      setEditingLoading(false);
+    }
   };
 
   return (
@@ -513,6 +520,7 @@ const Students = () => {
           } : undefined}
           onAddStudent={canCreate ? () => {
             setEditingStudent(null);
+            setEditingLoading(false);
             setFormOpen(true);
           } : undefined}
         />
@@ -520,14 +528,25 @@ const Students = () => {
         {/* Student Form Dialog */}
         <StudentFormDialog
           open={formOpen}
-          onOpenChange={setFormOpen}
+          onOpenChange={(val) => {
+            setFormOpen(val);
+            if (!val) {
+              setEditingLoading(false);
+              setEditingStudent(null);
+            }
+          }}
           editingStudent={editingStudent}
+          isLoading={editingLoading}
           programData={programData}
           classesData={classesData}
           sectionsData={sectionsData}
           academicSessions={academicSessions}
           rollNumberMap={rollNumberMap}
-          onCancel={() => setFormOpen(false)}
+          onCancel={() => {
+            setFormOpen(false);
+            setEditingLoading(false);
+            setEditingStudent(null);
+          }}
           onSubmit={(data) => {
             const studentId = editingStudent?.id || editingStudent?._id;
             if (studentId) {

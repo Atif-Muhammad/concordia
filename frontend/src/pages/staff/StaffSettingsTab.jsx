@@ -83,7 +83,7 @@ export default function StaffSettingsTab() {
                                 onChange={(e) =>
                                     setStaffIdSettingsForm((prev) => ({ ...prev, teachingPrefix: e.target.value }))
                                 }
-                                placeholder="PSH-TCR-"
+                                placeholder=""
                                 disabled={!canUpdate}
                             />
                         </div>
@@ -94,7 +94,7 @@ export default function StaffSettingsTab() {
                                 onChange={(e) =>
                                     setStaffIdSettingsForm((prev) => ({ ...prev, nonTeachingPrefix: e.target.value }))
                                 }
-                                placeholder="PSH-NT-"
+                                placeholder=""
                                 disabled={!canUpdate}
                             />
                         </div>
@@ -105,7 +105,7 @@ export default function StaffSettingsTab() {
                                 onChange={(e) =>
                                     setStaffIdSettingsForm((prev) => ({ ...prev, dualPrefix: e.target.value }))
                                 }
-                                placeholder="PSH-DUAL-"
+                                placeholder=""
                                 disabled={!canUpdate}
                             />
                         </div>
@@ -116,7 +116,7 @@ export default function StaffSettingsTab() {
                                 onChange={(e) =>
                                     setStaffIdSettingsForm((prev) => ({ ...prev, supportingPrefix: e.target.value }))
                                 }
-                                placeholder="SS-"
+                                placeholder=""
                                 disabled={!canUpdate}
                             />
                         </div>

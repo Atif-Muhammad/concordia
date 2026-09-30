@@ -197,7 +197,8 @@ export const StudentsTableTab = ({
           0,
           "",
           "",
-          cleanSessionId
+          cleanSessionId,
+          true
         );
       } else {
         return getPassedOutStudents(
@@ -209,7 +210,8 @@ export const StudentsTableTab = ({
           "",
           1,
           0,
-          cleanSessionId
+          cleanSessionId,
+          true
         );
       }
     },

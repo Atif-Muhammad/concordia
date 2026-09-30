@@ -111,7 +111,17 @@ class StudentService {
 
     const totalCount = await Student.countDocuments(query);
 
-    let studentQuery = Student.find(query)
+    let studentQuery = Student.find(query);
+
+    if (filters.summary === 'true' || filters.summary === true) {
+      studentQuery = studentQuery.select(
+        '_id fName lName rollNumber admissionFormNumber fatherOrguardian photo_url admissionDate createdAt programId classId sectionId sessionId status passedOut'
+      );
+    } else if (filters.fields) {
+      studentQuery = studentQuery.select(filters.fields);
+    }
+
+    studentQuery = studentQuery
       .populate('programId')
       .populate('classId')
       .populate('sectionId')

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -7,9 +8,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { FileText } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { getDefaultStudentIDCardTemplate } from "../../../config/apis";
+import { getDefaultStudentIDCardTemplate, getStudentById } from "../../../config/apis";
 import { resolveFileUrl } from "@/lib/utils";
+import { StudentIdCardSkeleton } from "@/skeletons/StudentIdCardSkeleton";
 
 export const StudentIdCardDialog = ({
   open,
@@ -17,9 +18,24 @@ export const StudentIdCardDialog = ({
   student,
   academicPath = "-",
 }) => {
-  const { toast } = useToast();
-  const [defaultIdCardTemplate, setDefaultIdCardTemplate] = useState("");
-  const [generatedIdCard, setGeneratedIdCard] = useState("");
+  const studentId = student?.id || student?._id;
+
+  const { data: templateData, isLoading: templateLoading } = useQuery({
+    queryKey: ["defaultIdCardTemplate"],
+    queryFn: getDefaultStudentIDCardTemplate,
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: fullStudentData, isLoading: studentLoading } = useQuery({
+    queryKey: ["studentIdCardDetails", studentId],
+    queryFn: () => getStudentById(studentId),
+    enabled: open && !!studentId,
+    staleTime: 60 * 1000,
+  });
+
+  const activeStudent = fullStudentData || student;
+  const isLoading = open && (templateLoading || (!!studentId && studentLoading && !fullStudentData));
 
   const generateIdCardHtml = (template, s) => {
     if (!template || !s) return "";
@@ -29,7 +45,7 @@ export const StudentIdCardDialog = ({
     const replacements = {
       "{{logoUrl}}": logoUrl,
       "{{studentPhoto}}": resolveFileUrl(s.photo_url) || "https://placehold.co/150",
-      "{{name}}": `${s.fName} ${s.lName || ""}`.trim(),
+      "{{name}}": `${s.fName || ""} ${s.lName || ""}`.trim(),
       "{{admissionNo}}": s.rollNumber || "",
       "{{classGroup}}": academicPath,
       "{{issueDate}}": new Date().toLocaleDateString(),
@@ -47,28 +63,11 @@ export const StudentIdCardDialog = ({
     return html;
   };
 
-  useEffect(() => {
-    if (open && student) {
-      const fetchTemplate = async () => {
-        try {
-          const template = await getDefaultStudentIDCardTemplate();
-          if (template && template.htmlContent) {
-            setDefaultIdCardTemplate(template.htmlContent);
-            setGeneratedIdCard(generateIdCardHtml(template.htmlContent, student));
-          } else {
-            toast({
-              title: "No default template found",
-              description: "Please set a default Student ID Card template in Configuration",
-              variant: "destructive",
-            });
-          }
-        } catch (error) {
-          console.error(error);
-        }
-      };
-      fetchTemplate();
-    }
-  }, [open, student]);
+  const templateHtml = templateData?.htmlContent || "";
+  const generatedIdCard = useMemo(() => {
+    if (!templateHtml || !activeStudent) return "";
+    return generateIdCardHtml(templateHtml, activeStudent);
+  }, [templateHtml, activeStudent, academicPath]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,7 +76,9 @@ export const StudentIdCardDialog = ({
           <DialogTitle>Student ID Card</DialogTitle>
         </DialogHeader>
 
-        {student && generatedIdCard ? (
+        {isLoading ? (
+          <StudentIdCardSkeleton />
+        ) : generatedIdCard ? (
           <div
             id="id-card-print"
             dangerouslySetInnerHTML={{ __html: generatedIdCard }}
@@ -85,14 +86,14 @@ export const StudentIdCardDialog = ({
           />
         ) : (
           <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
-            {defaultIdCardTemplate ? "Generating card..." : "No default ID card template found. Please set one in Configuration."}
+            No default ID card template found. Please set one in Configuration.
           </div>
         )}
 
         <div className="flex justify-end gap-2 border-t pt-4 text-black">
           <Button onClick={() => onOpenChange(false)} variant="outline">Close</Button>
           <Button
-            disabled={!generatedIdCard}
+            disabled={isLoading || !generatedIdCard}
             onClick={() => {
               const el = document.getElementById("id-card-print");
               if (el) {
@@ -100,7 +101,7 @@ export const StudentIdCardDialog = ({
                 win?.document.write(`
                   <html>
                     <head>
-                      <title>ID Card - ${student?.fName}</title>
+                      <title>ID Card - ${activeStudent?.fName || ""}</title>
                       <style>
                         body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
                         * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

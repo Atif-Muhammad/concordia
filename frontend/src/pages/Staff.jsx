@@ -36,7 +36,7 @@ export default function Staff() {
                     </TabsList>
 
                     <TabsContent value="directory" className="space-y-6">
-                        <StaffDirectoryTab />
+                    <StaffDirectoryTab />
                     </TabsContent>
 
                     <TabsContent value="settings" className="space-y-6">

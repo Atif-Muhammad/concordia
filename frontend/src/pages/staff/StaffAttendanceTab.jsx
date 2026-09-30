@@ -53,7 +53,9 @@ import {
     undoMarkHoliday,
     getHolidays,
     deleteStaffAttendanceByDate,
+    getStaffIdSettingsAPI,
 } from "../../../config/apis";
+import { formatStaffId } from "./StaffDirectoryTab.jsx";
 
 const ATTENDANCE_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -69,6 +71,11 @@ export default function StaffAttendanceTab() {
     const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
 
     const attendanceDateStr = attendanceDate ? format(attendanceDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
+
+    const { data: staffIdSettings } = useQuery({
+        queryKey: ["staffIdSettings"],
+        queryFn: getStaffIdSettingsAPI,
+    });
 
     const { data: attendanceData = [], isFetching: attendanceLoading, refetch: refetchAttendance } = useQuery({
         queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter],
@@ -449,7 +456,7 @@ export default function StaffAttendanceTab() {
                                             <TableCell className="py-2 px-3 text-sm">
                                                 <div>
                                                     <p className="font-medium">{staff.name || "Unknown"}</p>
-                                                    <p className="text-xs text-muted-foreground">{staff.staffId || ""}</p>
+                                                    <p className="text-xs text-muted-foreground font-mono">{formatStaffId(staff.staffId, staff, staffIdSettings) || staff.staffId || ""}</p>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="py-2 px-3 text-sm">

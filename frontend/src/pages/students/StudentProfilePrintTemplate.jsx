@@ -13,8 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Printer, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
-import { resolveFileUrl } from "@/lib/utils";
-import { getStudentFeeHistory } from "../../../config/apis";
+import { getStudentFeeHistory, getStudentById } from "../../../config/apis";
+import { StudentProfilePrintSkeleton } from "@/skeletons/StudentProfilePrintSkeleton";
 
 export const STANDARD_DOCUMENTS = [
   {
@@ -1049,8 +1049,18 @@ export const StudentProfilePrintDialog = ({
 
   const studentId = extractId(student?.id || student?._id);
 
+  // Fetch full student details with documents, academic records, and personal info
+  const { data: studentDetails, isLoading: detailsLoading } = useQuery({
+    queryKey: ["studentProfilePrintDetails", studentId],
+    queryFn: () => getStudentById(studentId),
+    enabled: open && !!studentId,
+    staleTime: 60000,
+  });
+
+  const activeStudent = studentDetails || student;
+
   // If challans not passed directly, fetch them when dialog opens
-  const { data: fetchedFeeChallans = [] } = useQuery({
+  const { data: fetchedFeeChallans = [], isLoading: challansLoading } = useQuery({
     queryKey: ["studentProfilePrintChallans", studentId],
     queryFn: () => getStudentFeeHistory(studentId, "INSTALLMENT"),
     enabled: open && !!studentId && !propFeeChallans,
@@ -1058,18 +1068,19 @@ export const StudentProfilePrintDialog = ({
   });
 
   const effectiveChallans = propFeeChallans || fetchedFeeChallans || [];
+  const isLoading = open && ((detailsLoading && !studentDetails) || (!propFeeChallans && challansLoading && fetchedFeeChallans.length === 0));
 
   const resolvedData = useMemo(() => {
-    if (!student) return null;
+    if (!activeStudent) return null;
     return resolveStudentProfileData({
-      student,
+      student: activeStudent,
       programData,
       classesData,
       sectionsData,
       academicSessions,
       feeChallans: effectiveChallans,
     });
-  }, [student, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
+  }, [activeStudent, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const logoUrl = `${origin}/logo.png`;
@@ -1085,23 +1096,23 @@ export const StudentProfilePrintDialog = ({
   }, [resolvedData, formattedPrintDate, logoUrl]);
 
   const fullPrintHtml = useMemo(() => {
-    if (!student) return "";
+    if (!activeStudent) return "";
     return generateStudentProfilePrintHtml({
-      student,
+      student: activeStudent,
       programData,
       classesData,
       sectionsData,
       academicSessions,
       feeChallans: effectiveChallans,
     });
-  }, [student, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
+  }, [activeStudent, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
 
   const handlePrint = async () => {
     if (!fullPrintHtml) return;
     setIsPrinting(true);
     try {
-      const studentName = `${student?.fName || "Student"}_${student?.lName || ""}`.trim();
-      const docTitle = `Student_Profile_${studentName}_${student?.rollNumber || ""}`.trim();
+      const studentName = `${activeStudent?.fName || "Student"}_${activeStudent?.lName || ""}`.trim();
+      const docTitle = `Student_Profile_${studentName}_${activeStudent?.rollNumber || ""}`.trim();
       const opened = await openManagedPrintWindow({
         html: fullPrintHtml,
         title: docTitle,
@@ -1135,9 +1146,9 @@ export const StudentProfilePrintDialog = ({
               <DialogTitle className="text-lg font-bold text-slate-900">
                 {isNewlyCreated ? "Student Created Successfully" : "Student Profile Form"}
               </DialogTitle>
-              {student?.rollNumber && (
+              {activeStudent?.rollNumber && (
                 <Badge variant="outline" className="font-mono text-xs font-semibold bg-slate-50">
-                  {student.rollNumber}
+                  {activeStudent.rollNumber}
                 </Badge>
               )}
             </div>
@@ -1152,7 +1163,7 @@ export const StudentProfilePrintDialog = ({
             <Button
               size="sm"
               onClick={handlePrint}
-              disabled={isPrinting || !fullPrintHtml}
+              disabled={isPrinting || isLoading || !fullPrintHtml}
               className="gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs"
             >
               {isPrinting ? (
@@ -1179,7 +1190,9 @@ export const StudentProfilePrintDialog = ({
         {/* Scrollable Preview Canvas with thin & visible scrollbar - native DOM, no iframe scroll trap */}
         <div className="min-h-0 flex-1 overflow-y-auto max-h-[calc(100dvh-85px)] h-[calc(100dvh-85px)] p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
           <style>{getStudentProfileFormStyles()}</style>
-          {bodyHtml ? (
+          {isLoading ? (
+            <StudentProfilePrintSkeleton />
+          ) : bodyHtml ? (
             <div
               className="student-profile-preview shadow-md border border-slate-300 mx-auto bg-white select-text"
               style={{ maxWidth: "820px" }}

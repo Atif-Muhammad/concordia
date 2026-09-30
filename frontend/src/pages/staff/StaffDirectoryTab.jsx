@@ -119,6 +119,33 @@ const EMP_DEPARTMENTS = [
 const STAFF_TYPES = ["PERMANENT", "CONTRACT"];
 const STAFF_STATUSES = ["ACTIVE", "TERMINATED", "RETIRED"];
 
+export const extractStaffIdNumber = (staffIdStr) => {
+    if (!staffIdStr) return "";
+    const str = String(staffIdStr).trim();
+    const match = str.match(/(\d+)$/);
+    return match ? match[1] : "";
+};
+
+export const getStaffPrefix = (settings, roles = {}) => {
+    const isSupporting = Boolean(roles.isSupportingStaff);
+    const isTeach = Boolean(roles.isTeaching);
+    const isNonTeach = Boolean(roles.isNonTeaching);
+
+    if (isSupporting) {
+        return settings?.supportingPrefix ?? "SS-";
+    }
+    if (isTeach && isNonTeach) {
+        return settings?.dualPrefix ?? "D-";
+    }
+    if (isTeach) {
+        return settings?.teachingPrefix ?? "T-";
+    }
+    if (isNonTeach) {
+        return settings?.nonTeachingPrefix ?? "NT-";
+    }
+    return settings?.teachingPrefix ?? "T-";
+};
+
 export const generateStaffIdFromJoinDate = (joinDateStr, existingId = "") => {
     let year = "";
     let month = "";
@@ -141,12 +168,20 @@ export const generateStaffIdFromJoinDate = (joinDateStr, existingId = "") => {
         month = String(now.getMonth() + 1).padStart(2, "0");
     }
     let rand2 = "";
-    if (existingId && /^\d{6}$/.test(existingId)) {
-        rand2 = existingId.slice(-2);
+    const numPart = extractStaffIdNumber(existingId);
+    if (numPart && numPart.length >= 2) {
+        rand2 = numPart.slice(-2);
     } else {
         rand2 = Math.floor(10 + Math.random() * 90).toString();
     }
     return `${year}${month}${rand2}`;
+};
+
+export const formatStaffId = (rawId, roles = {}, settings = {}) => {
+    const num = extractStaffIdNumber(rawId) || (roles?.joinDate ? generateStaffIdFromJoinDate(roles.joinDate) : "");
+    if (!num) return rawId || "";
+    const prefix = getStaffPrefix(settings, roles);
+    return `${prefix}${num}`;
 };
 
 const initialFormData = {
@@ -290,6 +325,11 @@ function StaffDetailView({ staffId, onBack, onEdit, onReviseSalary, onViewIdCard
     const { data: staff, isLoading } = useQuery({
         queryKey: ["staff", staffId],
         queryFn: () => getStaffById(staffId),
+    });
+
+    const { data: staffIdSettings } = useQuery({
+        queryKey: ["staffIdSettings"],
+        queryFn: getStaffIdSettingsAPI,
     });
 
     const { data: payrollHistory = [] } = useQuery({
@@ -525,7 +565,7 @@ function StaffDetailView({ staffId, onBack, onEdit, onReviseSalary, onViewIdCard
                                 </Badge>
                                 {staff.staffId && (
                                     <Badge variant="outline" className="font-mono text-xs font-semibold">
-                                        ID: {staff.staffId}
+                                        ID: {formatStaffId(staff.staffId, staff, staffIdSettings) || staff.staffId}
                                     </Badge>
                                 )}
                             </div>
@@ -1400,6 +1440,11 @@ export default function StaffDirectoryTab() {
         queryFn: getDepartmentNames,
     });
 
+    const { data: staffIdSettings } = useQuery({
+        queryKey: ["staffIdSettings"],
+        queryFn: getStaffIdSettingsAPI,
+    });
+
     const createMutation = useMutation({
         mutationFn: createStaffAPI,
         onSuccess: () => {
@@ -1459,18 +1504,29 @@ export default function StaffDirectoryTab() {
                 } else {
                     setFormData(prev => ({
                         ...prev,
-                        staffId: prev.staffId || generateStaffIdFromJoinDate(targetDate)
+                        staffId: formatStaffId(prev.staffId || generateStaffIdFromJoinDate(targetDate), prev, staffIdSettings)
                     }));
                 }
             } catch {
                 setFormData(prev => ({
                     ...prev,
-                    staffId: prev.staffId || generateStaffIdFromJoinDate(targetDate)
+                    staffId: formatStaffId(prev.staffId || generateStaffIdFromJoinDate(targetDate), prev, staffIdSettings)
                 }));
             }
         }, 150);
         return () => clearTimeout(timer);
-    }, [dialogOpen, editingStaff, formData.joinDate]);
+    }, [dialogOpen, editingStaff, formData.joinDate, formData.isTeaching, formData.isNonTeaching, formData.isSupportingStaff, staffIdSettings]);
+
+    useEffect(() => {
+        if (!editingStaff || !staffIdSettings) return;
+        setFormData(prev => {
+            const formatted = formatStaffId(prev.staffId, prev, staffIdSettings);
+            if (formatted && formatted !== prev.staffId) {
+                return { ...prev, staffId: formatted };
+            }
+            return prev;
+        });
+    }, [staffIdSettings, editingStaff]);
 
     const handleCloseDialog = () => {
         setDialogOpen(false);
@@ -1485,7 +1541,10 @@ export default function StaffDirectoryTab() {
     };
 
     const handleOpenCreate = () => {
-        setFormData(initialFormData);
+        setFormData({
+            ...initialFormData,
+            staffId: formatStaffId(generateStaffIdFromJoinDate(new Date().toISOString().split("T")[0]), initialFormData, staffIdSettings),
+        });
         setEditingStaff(null);
         setModuleSearchTerm("");
         setDialogOpen(true);
@@ -1623,7 +1682,7 @@ export default function StaffDirectoryTab() {
             );
 
             setFormData({
-                staffId: data.staffId || "",
+                staffId: formatStaffId(data.staffId, data, staffIdSettings) || data.staffId || "",
                 name: data.name || "",
                 fatherName: data.fatherName || "",
                 cnic: data.cnic || "",
@@ -2276,7 +2335,7 @@ export default function StaffDirectoryTab() {
                 return;
             }
             const isTeacher = staff.isTeaching && !staff.isNonTeaching;
-            const empId = staff.staffId || staff.employeeId || staff.employee_id || staff.id || "";
+            const empId = formatStaffId(staff.staffId || staff.employeeId || staff.employee_id || staff.id, staff, staffIdSettings) || staff.staffId || "";
             const html = template.htmlContent
                 .replace(/\{\{name\}\}/gi, staff.name || "")
                 .replace(/\{\{designation\}\}/gi, staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff"))
@@ -2491,7 +2550,7 @@ export default function StaffDirectoryTab() {
                                                 </Avatar>
                                                 <div className="min-w-0">
                                                     <p className="font-medium truncate">{staff.name}</p>
-                                                    <p className="text-[10px] sm:text-xs text-muted-foreground font-mono">{staff.staffId || "No ID"}</p>
+                                                    <p className="text-[10px] sm:text-xs text-muted-foreground font-mono">{formatStaffId(staff.staffId, staff, staffIdSettings) || staff.staffId || "No ID"}</p>
                                                     <div className="flex sm:hidden gap-1 mt-0.5">{getRoleBadges(staff)}</div>
                                                 </div>
                                             </div>
@@ -2654,12 +2713,12 @@ export default function StaffDirectoryTab() {
                     </DialogHeader>
 
                     <div>
-                        <Label>Staff ID <span className="text-xs text-muted-foreground ml-1">Auto Generated (YYMM + 2 digits)</span></Label>
+                        <Label>Staff ID <span className="text-xs text-muted-foreground ml-1">Auto Generated (Prefix + YYMM + 2 digits)</span></Label>
                         <Input
                             value={formData.staffId || ""}
                             readOnly
                             disabled
-                            placeholder="Auto-generated from join date: e.g. 260828"
+                            placeholder="Auto-generated from prefix & join date"
                             className="bg-muted/40 font-mono font-medium"
                         />
                     </div>
@@ -2860,7 +2919,7 @@ export default function StaffDirectoryTab() {
                                             setFormData(prev => ({
                                                 ...prev,
                                                 joinDate: newJoinDate,
-                                                staffId: editingStaff ? prev.staffId : generateStaffIdFromJoinDate(newJoinDate, prev.staffId)
+                                                staffId: editingStaff ? prev.staffId : formatStaffId(generateStaffIdFromJoinDate(newJoinDate, prev.staffId), prev, staffIdSettings)
                                             }));
                                             setErrors(prev => { const next = {...prev}; delete next.joinDate; return next; });
                                         }}
@@ -3042,11 +3101,17 @@ export default function StaffDirectoryTab() {
                                         disabled={formData.isSupportingStaff}
                                         checked={formData.isTeaching}
                                         onCheckedChange={(checked) => {
-                                            setFormData({
-                                                ...formData,
+                                            const nextRoles = {
                                                 isTeaching: checked,
-                                                ...(checked ? { isSupportingStaff: false } : {}),
-                                            });
+                                                isNonTeaching: formData.isNonTeaching,
+                                                isSupportingStaff: checked ? false : formData.isSupportingStaff,
+                                            };
+                                            const updatedStaffId = formatStaffId(formData.staffId, nextRoles, staffIdSettings);
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                ...nextRoles,
+                                                staffId: updatedStaffId || prev.staffId,
+                                            }));
                                             setErrors((prev) => {
                                                 const next = { ...prev };
                                                 delete next.roles;
@@ -3072,11 +3137,17 @@ export default function StaffDirectoryTab() {
                                         disabled={formData.isSupportingStaff}
                                         checked={formData.isNonTeaching}
                                         onCheckedChange={(checked) => {
-                                            setFormData({
-                                                ...formData,
+                                            const nextRoles = {
+                                                isTeaching: formData.isTeaching,
                                                 isNonTeaching: checked,
-                                                ...(checked ? { isSupportingStaff: false } : {}),
-                                            });
+                                                isSupportingStaff: checked ? false : formData.isSupportingStaff,
+                                            };
+                                            const updatedStaffId = formatStaffId(formData.staffId, nextRoles, staffIdSettings);
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                ...nextRoles,
+                                                staffId: updatedStaffId || prev.staffId,
+                                            }));
                                             setErrors((prev) => {
                                                 const next = { ...prev };
                                                 delete next.roles;
@@ -3106,11 +3177,17 @@ export default function StaffDirectoryTab() {
                                     <Switch
                                         checked={formData.isSupportingStaff}
                                         onCheckedChange={(checked) => {
-                                            setFormData({
-                                                ...formData,
+                                            const nextRoles = {
                                                 isSupportingStaff: checked,
-                                                ...(checked ? { isTeaching: false, isNonTeaching: false } : {}),
-                                            });
+                                                isTeaching: checked ? false : formData.isTeaching,
+                                                isNonTeaching: checked ? false : formData.isNonTeaching,
+                                            };
+                                            const updatedStaffId = formatStaffId(formData.staffId, nextRoles, staffIdSettings);
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                ...nextRoles,
+                                                staffId: updatedStaffId || prev.staffId,
+                                            }));
                                             setErrors((prev) => {
                                                 const next = { ...prev };
                                                 delete next.roles;

@@ -74,6 +74,7 @@ import {
 } from "./studentFinancialUtils";
 import { BoardingRegistrationHistoryPanel } from "./BoardingRegistrationHistoryPanel";
 import { StudentProfilePrintDialog } from "./StudentProfilePrintTemplate";
+import { StudentProfileSkeleton } from "@/skeletons/StudentProfileSkeleton";
 
 export const StudentProfileDialog = ({
   open,
@@ -187,7 +188,7 @@ export const StudentProfileDialog = ({
   const { data: studentDetails, isLoading: detailsLoading } = useQuery({
     queryKey: ["studentDetails", studentId],
     queryFn: () => getStudentById(studentId),
-    enabled: !!studentId,
+    enabled: open && !!studentId,
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -1480,8 +1481,10 @@ export const StudentProfileDialog = ({
 
   if (!viewStudent) return null;
 
+  const student = studentDetails || viewStudent;
+
   const academicPath = getStudentAcademicPath(
-    viewStudent,
+    student,
     programData,
     classesData,
     sectionsData
@@ -1503,6 +1506,7 @@ export const StudentProfileDialog = ({
               variant="outline"
               className="gap-1.5 text-slate-800 border-slate-300 hover:bg-slate-50"
               onClick={() => setProfilePrintOpen(true)}
+              disabled={detailsLoading && !studentDetails}
             >
               <Printer className="w-4 h-4" /> Print / Save PDF
             </Button>
@@ -1515,6 +1519,7 @@ export const StudentProfileDialog = ({
                   onOpenChange(false);
                   onEditStudent(studentDetails || viewStudent);
                 }}
+                disabled={detailsLoading && !studentDetails}
               >
                 <Edit className="w-4 h-4" /> Edit Student
               </Button>
@@ -1522,179 +1527,182 @@ export const StudentProfileDialog = ({
           </div>
         </DialogHeader>
 
-        <Tabs
-          value={activeProfileTab}
-          onValueChange={setActiveProfileTab}
-          className="w-full"
-        >
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="info">Info</TabsTrigger>
-            <TabsTrigger value="fees">Fees</TabsTrigger>
-            <TabsTrigger value="attendance">Attendance</TabsTrigger>
-            <TabsTrigger value="results">Results</TabsTrigger>
-            <TabsTrigger value="history">Status History</TabsTrigger>
-            <TabsTrigger value="boarding">Boarding</TabsTrigger>
-          </TabsList>
+        {detailsLoading && !studentDetails ? (
+          <StudentProfileSkeleton />
+        ) : (
+          <Tabs
+            value={activeProfileTab}
+            onValueChange={setActiveProfileTab}
+            className="w-full"
+          >
+            <TabsList className="grid w-full grid-cols-6">
+              <TabsTrigger value="info">Info</TabsTrigger>
+              <TabsTrigger value="fees">Fees</TabsTrigger>
+              <TabsTrigger value="attendance">Attendance</TabsTrigger>
+              <TabsTrigger value="results">Results</TabsTrigger>
+              <TabsTrigger value="history">Status History</TabsTrigger>
+              <TabsTrigger value="boarding">Boarding</TabsTrigger>
+            </TabsList>
 
-          {/* ── INFO TAB ── */}
-          <TabsContent value="info" className="space-y-4">
-            <div className="flex items-start gap-4 mb-6">
-              <Avatar className="w-24 h-24">
-                <AvatarImage src={resolveFileUrl(viewStudent.photo_url)} />
-                <AvatarFallback>{viewStudent.fName}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <h3 className="text-2xl font-bold mb-2">
-                  {viewStudent.fName} {viewStudent.lName}
-                </h3>
-                <div className="flex items-center gap-4">
-                  <p className="uppercase text-gray-500 tracking-wide text-sm">
-                    Father / Guardian:
-                  </p>
-                  <p className="font-medium text-sm">
-                    {viewStudent.fatherOrguardian}
-                  </p>
+            {/* ── INFO TAB ── */}
+            <TabsContent value="info" className="space-y-4">
+              <div className="flex items-start gap-4 mb-6">
+                <Avatar className="w-24 h-24">
+                  <AvatarImage src={resolveFileUrl(student.photo_url)} />
+                  <AvatarFallback>{student.fName}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <h3 className="text-2xl font-bold mb-2">
+                    {student.fName} {student.lName}
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <p className="uppercase text-gray-500 tracking-wide text-sm">
+                      Father / Guardian:
+                    </p>
+                    <p className="font-medium text-sm">
+                      {student.fatherOrguardian}
+                    </p>
+                  </div>
+                  <p className="text-muted-foreground">{student.rollNumber}</p>
+                  <p className="text-sm text-muted-foreground">{academicPath}</p>
                 </div>
-                <p className="text-muted-foreground">{viewStudent.rollNumber}</p>
-                <p className="text-sm text-muted-foreground">{academicPath}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="font-semibold">Admission Date:</span>{" "}
-                {viewStudent.admissionDate || viewStudent.createdAt
-                  ? format(
-                      new Date(viewStudent.admissionDate || viewStudent.createdAt),
-                      "dd MMMM yyyy"
-                    )
-                  : "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Program / Class / Section:</span>{" "}
-                {academicPath}
-              </div>
-              <div>
-                <span className="font-semibold">Session:</span>{" "}
-                {viewStudent.session || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Gender:</span>{" "}
-                {viewStudent.gender || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Religion:</span>{" "}
-                {viewStudent.religion || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">DOB:</span>{" "}
-                {viewStudent.dob
-                  ? new Date(viewStudent.dob).toLocaleDateString()
-                  : "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Parent Email:</span>{" "}
-                {viewStudent.parentOrGuardianEmail || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Parent Phone:</span>{" "}
-                {viewStudent.parentOrGuardianPhone || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Parent CNIC:</span>{" "}
-                {viewStudent.parentCNIC || "-"}
-              </div>
-              <div>
-                <span className="font-semibold">Student CNIC:</span>{" "}
-                {viewStudent.studentCnic || "-"}
-              </div>
-              <div className="col-span-2">
-                <span className="font-semibold">Address:</span>{" "}
-                {viewStudent.address || "-"}
               </div>
 
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-600" />
-                <span className="font-semibold">Total Tuition Fee:</span>
-                <span className="font-mono font-bold">
-                  Rs. {viewStudent.tuitionFee?.toLocaleString()}
-                </span>
-              </div>
-              <div>
-                <span className="font-semibold">Installments:</span>
-                <span className="ml-2">
-                  {viewStudent.numberOfInstallments}{" "}
-                  {viewStudent.numberOfInstallments === 1
-                    ? "Installment"
-                    : "Installments"}
-                </span>
-              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="font-semibold">Admission Date:</span>{" "}
+                  {student.admissionDate || student.createdAt
+                    ? format(
+                        new Date(student.admissionDate || student.createdAt),
+                        "dd MMMM yyyy"
+                      )
+                    : "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Program / Class / Section:</span>{" "}
+                  {academicPath}
+                </div>
+                <div>
+                  <span className="font-semibold">Session:</span>{" "}
+                  {student.session || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Gender:</span>{" "}
+                  {student.gender || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Religion:</span>{" "}
+                  {student.religion || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">DOB:</span>{" "}
+                  {student.dob
+                    ? new Date(student.dob).toLocaleDateString()
+                    : "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Parent Email:</span>{" "}
+                  {student.parentOrGuardianEmail || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Parent Phone:</span>{" "}
+                  {student.parentOrGuardianPhone || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Parent CNIC:</span>{" "}
+                  {student.parentCNIC || "-"}
+                </div>
+                <div>
+                  <span className="font-semibold">Student CNIC:</span>{" "}
+                  {student.studentCnic || "-"}
+                </div>
+                <div className="col-span-2">
+                  <span className="font-semibold">Address:</span>{" "}
+                  {student.address || "-"}
+                </div>
 
-              {viewStudent.admissionFormNumber && (
-                <div>
-                  <span className="font-semibold">Admission Form #:</span>{" "}
-                  {viewStudent.admissionFormNumber}
-                </div>
-              )}
-              {viewStudent.previousBoardName && (
-                <div>
-                  <span className="font-semibold">Previous Board:</span>{" "}
-                  {viewStudent.previousBoardName}
-                </div>
-              )}
-              {viewStudent.previousBoardRollNumber && (
-                <div>
-                  <span className="font-semibold">Board Roll #:</span>{" "}
-                  {viewStudent.previousBoardRollNumber}
-                </div>
-              )}
-              {(viewStudent.obtainedMarks || viewStudent.totalMarks) && (
-                <div>
-                  <span className="font-semibold">Previous Marks:</span>
-                  <span className="ml-2 font-mono">
-                    {viewStudent.obtainedMarks ?? "—"} /{" "}
-                    {viewStudent.totalMarks ?? "—"}
-                    {viewStudent.obtainedMarks && viewStudent.totalMarks
-                      ? ` (${Math.round(
-                          (viewStudent.obtainedMarks / viewStudent.totalMarks) * 100
-                        )}%)`
-                      : ""}
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-blue-600" />
+                  <span className="font-semibold">Total Tuition Fee:</span>
+                  <span className="font-mono font-bold">
+                    Rs. {student.tuitionFee?.toLocaleString()}
                   </span>
                 </div>
-              )}
-            </div>
+                <div>
+                  <span className="font-semibold">Installments:</span>
+                  <span className="ml-2">
+                    {student.numberOfInstallments}{" "}
+                    {student.numberOfInstallments === 1
+                      ? "Installment"
+                      : "Installments"}
+                  </span>
+                </div>
 
-            {/* Documents */}
-            <div className="mt-6">
-              <h4 className="text-lg font-semibold mb-3">Required Documents</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {[
-                  { key: "formB", label: "Form B / Domicile" },
-                  { key: "pictures", label: "4 Passport Size Pictures" },
-                  { key: "dmcMatric", label: "DMC Matric" },
-                  { key: "dmcIntermediate", label: "DMC Intermediate" },
-                  { key: "fatherCnic", label: "Father CNIC" },
-                  { key: "migration", label: "Migration" },
-                  { key: "affidavit", label: "Affidavit" },
-                  { key: "admissionForm", label: "Admission Form" },
-                ].map((doc) => {
-                  const isSubmitted = viewStudent.documents?.[doc.key] === true;
-                  return (
-                    <div
-                      key={doc.key}
-                      className={`rounded-lg border p-3 text-sm font-medium flex items-center justify-center transition-all ${
-                        isSubmitted
-                          ? "bg-green-600 text-white border-green-600"
-                          : "bg-red-50 text-red-700 border-red-300"
-                      }`}
-                    >
-                      {isSubmitted ? "Submitted" : "Missing"} {doc.label}
-                    </div>
-                  );
-                })}
+                {student.admissionFormNumber && (
+                  <div>
+                    <span className="font-semibold">Admission Form #:</span>{" "}
+                    {student.admissionFormNumber}
+                  </div>
+                )}
+                {student.previousBoardName && (
+                  <div>
+                    <span className="font-semibold">Previous Board:</span>{" "}
+                    {student.previousBoardName}
+                  </div>
+                )}
+                {student.previousBoardRollNumber && (
+                  <div>
+                    <span className="font-semibold">Board Roll #:</span>{" "}
+                    {student.previousBoardRollNumber}
+                  </div>
+                )}
+                {(student.obtainedMarks || student.totalMarks) && (
+                  <div>
+                    <span className="font-semibold">Previous Marks:</span>
+                    <span className="ml-2 font-mono">
+                      {student.obtainedMarks ?? "—"} /{" "}
+                      {student.totalMarks ?? "—"}
+                      {student.obtainedMarks && student.totalMarks
+                        ? ` (${Math.round(
+                            (student.obtainedMarks / student.totalMarks) * 100
+                          )}%)`
+                        : ""}
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
-          </TabsContent>
+
+              {/* Documents */}
+              <div className="mt-6">
+                <h4 className="text-lg font-semibold mb-3">Required Documents</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {[
+                    { key: "formB", label: "Form B / Domicile" },
+                    { key: "pictures", label: "4 Passport Size Pictures" },
+                    { key: "dmcMatric", label: "DMC Matric" },
+                    { key: "dmcIntermediate", label: "DMC Intermediate" },
+                    { key: "fatherCnic", label: "Father CNIC" },
+                    { key: "migration", label: "Migration" },
+                    { key: "affidavit", label: "Affidavit" },
+                    { key: "admissionForm", label: "Admission Form" },
+                  ].map((doc) => {
+                    const isSubmitted = student.documents?.[doc.key] === true;
+                    return (
+                      <div
+                        key={doc.key}
+                        className={`rounded-lg border p-3 text-sm font-medium flex items-center justify-center transition-all ${
+                          isSubmitted
+                            ? "bg-green-600 text-white border-green-600"
+                            : "bg-red-50 text-red-700 border-red-300"
+                        }`}
+                      >
+                        {isSubmitted ? "Submitted" : "Missing"} {doc.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </TabsContent>
 
           {/* ── FEES TAB (INSTALLMENT PLAN) ── */}
           <TabsContent
@@ -3118,6 +3126,7 @@ export const StudentProfileDialog = ({
             )}
           </TabsContent>
         </Tabs>
+      )}
 
         {/* Student Profile Form Print / PDF Preview Dialog */}
         <StudentProfilePrintDialog

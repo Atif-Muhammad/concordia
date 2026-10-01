@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
+import { format } from "date-fns";
 import {
   getAcademicSessions,
   getRevenueOverTime,
@@ -312,6 +314,23 @@ export const FeeReportsTab = ({
       return;
     }
 
+    // 1. Fetch brand logo as Data URL for standalone printing
+    let logoDataUrl = "/logo.png";
+    try {
+      const res = await fetch("/logo.png");
+      if (res.ok) {
+        const blob = await res.blob();
+        logoDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => resolve(`${window.location.origin}/logo.png`);
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch {
+      logoDataUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/logo.png";
+    }
+
     const sessionObj = sessionList.find(s => extractId(s) === selectedSession);
     const progObj = programsList.find(p => extractId(p) === selectedProgram);
     const classObj = classesList.find(c => extractId(c) === selectedClass);
@@ -322,6 +341,7 @@ export const FeeReportsTab = ({
     const className = classObj?.name || classObj?.className || (selectedClass === 'all' ? 'All Classes' : 'Selected Class');
     const sectionName = secObj?.name || secObj?.sectionName || (selectedSection === 'all' ? 'All Sections' : '-');
     const monthName = selectedMonth === 'all' ? 'All Months' : selectedMonth;
+    const exportDate = format(new Date(), "dd MMMM yyyy, hh:mm a");
 
     const overallTotalPending = studentReports.reduce((s, r) => s + r.totalPending, 0);
     const overallTotalPaid = studentReports.reduce((s, r) => s + r.totalPaid, 0);
@@ -331,146 +351,343 @@ export const FeeReportsTab = ({
       <!DOCTYPE html>
       <html>
         <head>
+          <meta charset="UTF-8" />
           <title>Student Fee Dues & Pending Challans Report</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600;700&family=Great+Vibes&display=swap" rel="stylesheet">
           <style>
             @media print {
-              @page { size: A4 landscape; margin: 10mm; }
-              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              @page { size: A4 landscape; margin: 8mm 10mm; }
+              body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
               .no-break { page-break-inside: avoid; }
             }
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #fff; margin: 0; padding: 15px; font-size: 12px; }
-            .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-end; }
-            .institute { font-size: 18px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
-            .report-title { font-size: 13px; font-weight: 600; color: #475569; margin-top: 2px; }
-            .meta-box { font-size: 11px; color: #64748b; line-height: 1.4; text-align: right; }
-            .filters-bar { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; }
-            .filter-item strong { color: #334155; }
-            .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
-            .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; }
-            .summary-card.rose { background: #fff1f2; border: 1px solid #fecdd3; }
-            .summary-card.emerald { background: #f0fdf4; border: 1px solid #bbf7d0; }
-            .card-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 2px; }
-            .card-value { font-size: 14px; font-weight: 700; color: #0f172a; }
-            .card-value.rose { color: #e11d48; }
-            .card-value.emerald { color: #16a34a; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-            th { background: #f8fafc; color: #334155; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 8px; text-align: left; border-bottom: 2px solid #cbd5e1; }
-            td { padding: 6px 8px; font-size: 11px; border-bottom: 1px solid #e2e8f0; }
-            .student-row { background: #ffffff; font-weight: 600; }
-            .student-row td { border-top: 1px solid #cbd5e1; }
+            * { box-sizing: border-box; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #1e293b;
+              background: #ffffff;
+              margin: 0;
+              padding: 10px;
+              font-size: 10.5px;
+              line-height: 1.35;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .report-container {
+              width: 100%;
+              margin: 0 auto;
+              background: #ffffff;
+              border: 1.5px solid #0f172a;
+              border-top: 3px solid #0f172a;
+              padding: 12px 14px;
+            }
+            .form-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 8px;
+              margin-bottom: 6px;
+              gap: 12px;
+            }
+            .header-logo-area {
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              flex: 1;
+            }
+            .brand-logo {
+              height: 52px;
+              width: auto;
+              max-width: 120px;
+              object-fit: contain;
+              display: block;
+            }
+            .header-title-block h1 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+              letter-spacing: 0.5px;
+              text-transform: uppercase;
+              color: #0f172a;
+            }
+            .header-title-block .tagline {
+              font-size: 9.5px;
+              font-weight: 600;
+              text-transform: uppercase;
+              color: #475569;
+              letter-spacing: 0.5px;
+              margin-top: 2px;
+            }
+            .meta-box {
+              font-size: 10px;
+              color: #64748b;
+              line-height: 1.4;
+              text-align: right;
+            }
+            .meta-box strong {
+              color: #0f172a;
+            }
+            /* CENTERED CALLIGRAPHY TITLE FOR REPORT NAME */
+            .center-calligraphy-title {
+              text-align: center;
+              font-family: 'Alex Brush', 'Great Vibes', 'Dancing Script', 'Brush Script MT', 'Lucida Calligraphy', 'Segoe Script', cursive, serif;
+              font-size: 26px;
+              font-weight: 500;
+              color: #0f172a;
+              margin: 4px 0 8px 0;
+              padding: 2px 0 6px 0;
+              border-bottom: 1px dashed #cbd5e1;
+              letter-spacing: 0.5px;
+            }
+            .filters-bar {
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-radius: 4px;
+              padding: 5px 12px;
+              margin-bottom: 10px;
+              display: flex;
+              flex-wrap: wrap;
+              gap: 14px;
+              font-size: 10px;
+            }
+            .filter-item strong {
+              color: #334155;
+            }
+            .filter-item span {
+              color: #0f172a;
+              font-weight: 600;
+            }
+            .table-summary-bar {
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-bottom: none;
+              border-radius: 4px 4px 0 0;
+              padding: 6px 12px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              flex-wrap: wrap;
+              gap: 12px;
+              font-size: 10.5px;
+              color: #334155;
+            }
+            .table-summary-bar .summary-item strong {
+              color: #0f172a;
+              font-weight: 700;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+            }
+            thead th {
+              background: #f1f5f9;
+              color: #0f172a;
+              font-size: 9.5px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+              padding: 7px 8px;
+              text-align: left;
+              border: 1px solid #cbd5e1;
+            }
+            td {
+              padding: 6px 8px;
+              font-size: 10.5px;
+              border: 1px solid #e2e8f0;
+            }
+            .student-row {
+              background: #ffffff;
+              font-weight: 600;
+            }
+            .student-row:nth-child(4n+1) {
+              background-color: #fafafa;
+            }
             .text-right { text-align: right; }
-            .badge-pending { color: #e11d48; font-weight: 700; background: #ffe4e6; padding: 2px 8px; border-radius: 9999px; display: inline-block; font-size: 10px; }
-            .badge-status { padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
-            .status-pending { background: #ffe4e6; color: #be123c; }
-            .status-partial { background: #fef3c7; color: #b45309; }
-            .subtable-wrapper { padding: 6px 10px 12px 24px; background: #fafafa; border-bottom: 1px solid #e2e8f0; }
-            .subtable { width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
-            .subtable th { background: #f1f5f9; color: #475569; font-size: 9px; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; }
-            .subtable td { padding: 4px 6px; font-size: 10px; border-bottom: 1px solid #f1f5f9; }
-            .challan-title { font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+            .badge-pending {
+              color: #991b1b;
+              font-weight: 700;
+              background: #fef2f2;
+              border: 1px solid #fecaca;
+              padding: 2px 7px;
+              border-radius: 4px;
+              display: inline-block;
+              font-size: 10px;
+            }
+            .badge-status {
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 9px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .status-pending { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+            .status-partial { background: #fefce8; color: #854d0e; border: 1px solid #fef08a; }
+            .subtable-wrapper {
+              padding: 6px 10px 10px 24px;
+              background: #fafafa;
+              border: 1px solid #e2e8f0;
+              border-top: none;
+            }
+            .subtable {
+              width: 100%;
+              border: 1px solid #cbd5e1;
+              border-radius: 3px;
+            }
+            .subtable th {
+              background: #f1f5f9;
+              color: #334155;
+              font-size: 9px;
+              font-weight: 700;
+              padding: 4px 6px;
+              border: 1px solid #cbd5e1;
+            }
+            .subtable td {
+              padding: 4px 6px;
+              font-size: 9.5px;
+              border: 1px solid #e2e8f0;
+              background: #ffffff;
+            }
+            tfoot tr.grand-total-row {
+              background: #f1f5f9;
+              border-top: 2px solid #0f172a;
+              border-bottom: 2px solid #0f172a;
+              font-weight: 700;
+            }
+            tfoot td {
+              padding: 7px 8px;
+              font-size: 10.5px;
+              border: 1px solid #cbd5e1;
+              color: #0f172a;
+            }
+            .footer-sign {
+              display: flex;
+              justify-content: space-between;
+              margin-top: 25px;
+              padding-top: 15px;
+              border-top: 1.5px solid #0f172a;
+              font-size: 10px;
+              color: #475569;
+            }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div>
-              <div class="institute">Concordia College</div>
-              <div class="report-title">Student Fee Dues & Pending Challans Report</div>
+          <div class="report-container">
+            <!-- BRAND HEADER -->
+            <div class="form-header">
+              <div class="header-logo-area">
+                <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
+                <div class="header-title-block">
+                  <h1>Concordia College Peshawar</h1>
+                  <div class="tagline">A Project of Beaconhouse</div>
+                </div>
+              </div>
+              <div class="meta-box">
+                <div><strong>Generated:</strong> ${exportDate}</div>
+                <div><strong>Total Students with Dues:</strong> ${studentReports.length}</div>
+              </div>
             </div>
-            <div class="meta-box">
-              <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
-              <div><strong>Total Students with Dues:</strong> ${studentReports.length}</div>
-            </div>
-          </div>
 
-          <div class="filters-bar">
-            <div class="filter-item"><strong>Session:</strong> ${sessionName}</div>
-            <div class="filter-item"><strong>Program:</strong> ${programName}</div>
-            <div class="filter-item"><strong>Class:</strong> ${className}</div>
-            <div class="filter-item"><strong>Section:</strong> ${sectionName}</div>
-            <div class="filter-item"><strong>Month:</strong> ${monthName}</div>
-          </div>
+            <!-- CENTERED CALLIGRAPHY REPORT TITLE -->
+            <div class="center-calligraphy-title">
+              Student Fee Dues &amp; Pending Challans Report
+            </div>
 
-          <div class="summary-cards">
-            <div class="summary-card">
-              <div class="card-label">Students with Dues</div>
-              <div class="card-value">${studentReports.length}</div>
+            <div class="filters-bar">
+              <div class="filter-item"><strong>Session:</strong> <span>${sessionName}</span></div>
+              <div class="filter-item"><strong>Program:</strong> <span>${programName}</span></div>
+              <div class="filter-item"><strong>Class:</strong> <span>${className}</span></div>
+              <div class="filter-item"><strong>Section:</strong> <span>${sectionName}</span></div>
+              <div class="filter-item"><strong>Month:</strong> <span>${monthName}</span></div>
             </div>
-            <div class="summary-card">
-              <div class="card-label">Total Fee Dues</div>
-              <div class="card-value">PKR ${overallTotalAmount.toLocaleString()}</div>
-            </div>
-            <div class="summary-card emerald">
-              <div class="card-label">Total Paid</div>
-              <div class="card-value emerald">PKR ${overallTotalPaid.toLocaleString()}</div>
-            </div>
-            <div class="summary-card rose">
-              <div class="card-label">Total Pending</div>
-              <div class="card-value rose">PKR ${overallTotalPending.toLocaleString()}</div>
-            </div>
-          </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 30px;">#</th>
-                <th>Student</th>
-                <th>Father Name</th>
-                <th>Roll No.</th>
-                <th>Program / Class / Section</th>
-                <th class="text-right">Total Paid</th>
-                <th class="text-right">Total Pending</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${studentReports.map((s, idx) => `
-                <tr class="student-row no-break">
-                  <td>${idx + 1}</td>
-                  <td>${s.studentName}</td>
-                  <td>${s.fatherName}</td>
-                  <td>${s.rollNumber}</td>
-                  <td>${s.programClassSection}</td>
-                  <td class="text-right">PKR ${s.totalPaid.toLocaleString()}</td>
-                  <td class="text-right"><span class="badge-pending">PKR ${s.totalPending.toLocaleString()}</span></td>
+            <!-- TOP TABLE SUMMARY ROW (INTEGRATED METRICS BAR) -->
+            <div class="table-summary-bar">
+              <div class="summary-item">Students with Dues: <strong>${studentReports.length}</strong></div>
+              <div class="summary-item">Total Billed: <strong>PKR ${overallTotalAmount.toLocaleString()}</strong></div>
+              <div class="summary-item">Total Paid: <strong>PKR ${overallTotalPaid.toLocaleString()}</strong></div>
+              <div class="summary-item">Total Pending: <strong>PKR ${overallTotalPending.toLocaleString()}</strong></div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 30px;">#</th>
+                  <th>Student</th>
+                  <th>Father Name</th>
+                  <th>Roll No.</th>
+                  <th>Program / Class / Section</th>
+                  <th class="text-right">Total Paid</th>
+                  <th class="text-right">Total Pending</th>
                 </tr>
-                <tr class="no-break">
-                  <td colspan="7" style="padding: 0;">
-                    <div class="subtable-wrapper">
-                      <table class="subtable">
-                        <thead>
-                          <tr>
-                            <th>Challan No.</th>
-                            <th>Month</th>
-                            <th>Installment #</th>
-                            <th class="text-right">Total Amount</th>
-                            <th class="text-right">Paid</th>
-                            <th class="text-right">Pending</th>
-                            <th style="text-align: center;">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${s.pendingChallans.map(c => `
+              </thead>
+              <tbody>
+                ${studentReports.map((s, idx) => `
+                  <tr class="student-row no-break">
+                    <td>${idx + 1}</td>
+                    <td>${s.studentName}</td>
+                    <td>${s.fatherName}</td>
+                    <td>${s.rollNumber}</td>
+                    <td>${s.programClassSection}</td>
+                    <td class="text-right">PKR ${s.totalPaid.toLocaleString()}</td>
+                    <td class="text-right"><span class="badge-pending">PKR ${s.totalPending.toLocaleString()}</span></td>
+                  </tr>
+                  <tr class="no-break">
+                    <td colspan="7" style="padding: 0;">
+                      <div class="subtable-wrapper">
+                        <table class="subtable">
+                          <thead>
                             <tr>
-                              <td>#${c.challanNo}</td>
-                              <td>${c.month}</td>
-                              <td>${c.installmentNumber}</td>
-                              <td class="text-right">PKR ${c.totalAmount.toLocaleString()}</td>
-                              <td class="text-right">PKR ${c.paidAmount.toLocaleString()}</td>
-                              <td class="text-right" style="color: #e11d48; font-weight: 600;">PKR ${c.pendingAmount.toLocaleString()}</td>
-                              <td style="text-align: center;">
-                                <span class="badge-status ${c.status === 'PARTIAL' ? 'status-partial' : 'status-pending'}">
-                                  ${c.status}
-                                </span>
-                              </td>
+                              <th>Challan No.</th>
+                              <th>Month</th>
+                              <th>Installment #</th>
+                              <th class="text-right">Total Amount</th>
+                              <th class="text-right">Paid</th>
+                              <th class="text-right">Pending</th>
+                              <th style="text-align: center;">Status</th>
                             </tr>
-                          `).join('')}
-                        </tbody>
-                      </table>
-                    </div>
-                  </td>
+                          </thead>
+                          <tbody>
+                            ${s.pendingChallans.map(c => `
+                              <tr>
+                                <td>#${c.challanNo}</td>
+                                <td>${c.month}</td>
+                                <td>${c.installmentNumber}</td>
+                                <td class="text-right">PKR ${c.totalAmount.toLocaleString()}</td>
+                                <td class="text-right">PKR ${c.paidAmount.toLocaleString()}</td>
+                                <td class="text-right" style="color: #991b1b; font-weight: 600;">PKR ${c.pendingAmount.toLocaleString()}</td>
+                                <td style="text-align: center;">
+                                  <span class="badge-status ${c.status === 'PARTIAL' ? 'status-partial' : 'status-pending'}">
+                                    ${c.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            `).join('')}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr class="grand-total-row no-break">
+                  <td colspan="5" style="text-align: right; font-weight: 700;">TOTAL (${studentReports.length} Students):</td>
+                  <td class="text-right" style="font-weight: 700;">PKR ${overallTotalPaid.toLocaleString()}</td>
+                  <td class="text-right" style="font-weight: 700; color: #991b1b;">PKR ${overallTotalPending.toLocaleString()}</td>
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
+              </tfoot>
+            </table>
+
+            <div class="footer-sign no-break">
+              <div><strong>Prepared By:</strong> _____________________</div>
+              <div><strong>Checked By:</strong> _____________________</div>
+              <div><strong>Accounts Officer:</strong> _____________________</div>
+              <div><strong>Principal / Director:</strong> _____________________</div>
+            </div>
+          </div>
         </body>
       </html>
     `;
@@ -480,6 +697,135 @@ export const FeeReportsTab = ({
       title: "Fee Report - Pending Challans",
       toast,
     });
+  };
+
+  const handleExportExcel = () => {
+    if (!studentReports || studentReports.length === 0) {
+      toast({
+        title: "No Data to Export",
+        description: "There are no pending fee records to export for the selected filters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // 1. Summary Sheet: One row per student
+      const summaryRows = studentReports.map((s, idx) => ({
+        "S.No": idx + 1,
+        "Student Name": s.studentName,
+        "Father Name": s.fatherName,
+        "Roll Number": s.rollNumber,
+        "Program / Class / Section": s.programClassSection,
+        "Pending Challans": s.pendingChallans.length,
+        "Total Billed (PKR)": s.totalAmount,
+        "Total Paid (PKR)": s.totalPaid,
+        "Total Pending (PKR)": s.totalPending,
+      }));
+
+      const overallTotalAmount = studentReports.reduce((sum, r) => sum + r.totalAmount, 0);
+      const overallTotalPaid = studentReports.reduce((sum, r) => sum + r.totalPaid, 0);
+      const overallTotalPending = studentReports.reduce((sum, r) => sum + r.totalPending, 0);
+      const totalChallansCount = studentReports.reduce((sum, r) => sum + r.pendingChallans.length, 0);
+
+      summaryRows.push({
+        "S.No": "TOTAL",
+        "Student Name": `${studentReports.length} Students`,
+        "Father Name": "",
+        "Roll Number": "",
+        "Program / Class / Section": "",
+        "Pending Challans": totalChallansCount,
+        "Total Billed (PKR)": overallTotalAmount,
+        "Total Paid (PKR)": overallTotalPaid,
+        "Total Pending (PKR)": overallTotalPending,
+      });
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      wsSummary["!cols"] = [
+        { wch: 8 },
+        { wch: 24 },
+        { wch: 22 },
+        { wch: 16 },
+        { wch: 30 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 18 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Student Summary");
+
+      // 2. Itemized Sheet: One row per pending challan
+      const itemizedRows = [];
+      let itemIdx = 1;
+      for (const s of studentReports) {
+        for (const c of s.pendingChallans) {
+          itemizedRows.push({
+            "S.No": itemIdx++,
+            "Student Name": s.studentName,
+            "Father Name": s.fatherName,
+            "Roll Number": s.rollNumber,
+            "Program / Class / Section": s.programClassSection,
+            "Challan No": c.challanNo,
+            "Month": c.month,
+            "Installment #": c.installmentNumber,
+            "Total Amount (PKR)": c.totalAmount,
+            "Paid Amount (PKR)": c.paidAmount,
+            "Pending Amount (PKR)": c.pendingAmount,
+            "Status": c.status,
+          });
+        }
+      }
+
+      if (itemizedRows.length > 0) {
+        itemizedRows.push({
+          "S.No": "TOTAL",
+          "Student Name": `${studentReports.length} Students`,
+          "Father Name": "",
+          "Roll Number": "",
+          "Program / Class / Section": "",
+          "Challan No": `${totalChallansCount} Challans`,
+          "Month": "",
+          "Installment #": "",
+          "Total Amount (PKR)": overallTotalAmount,
+          "Paid Amount (PKR)": overallTotalPaid,
+          "Pending Amount (PKR)": overallTotalPending,
+          "Status": "",
+        });
+
+        const wsItemized = XLSX.utils.json_to_sheet(itemizedRows);
+        wsItemized["!cols"] = [
+          { wch: 8 },
+          { wch: 24 },
+          { wch: 22 },
+          { wch: 16 },
+          { wch: 30 },
+          { wch: 16 },
+          { wch: 14 },
+          { wch: 14 },
+          { wch: 18 },
+          { wch: 18 },
+          { wch: 18 },
+          { wch: 14 },
+        ];
+        XLSX.utils.book_append_sheet(wb, wsItemized, "Pending Challans");
+      }
+
+      const dateStr = format(new Date(), "yyyy-MM-dd");
+      XLSX.writeFile(wb, `Fee_Pending_Report_${dateStr}.xlsx`);
+      toast({
+        title: "Export Successful",
+        description: `Exported ${studentReports.length} student records to Excel.`,
+      });
+    } catch (err) {
+      console.error("Excel export error:", err);
+      toast({
+        title: "Export Failed",
+        description: err.message || "Failed to generate Excel file.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Existing Chart Queries & State
@@ -564,15 +910,26 @@ export const FeeReportsTab = ({
           </div>
           <div className="flex items-center gap-2">
             {studentReports.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePrint}
-                className="gap-1.5 h-9 text-xs font-medium"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print / Save as PDF
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportExcel}
+                  className="gap-1.5 h-9 text-xs font-medium text-emerald-700 hover:text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  Export to Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrint}
+                  className="gap-1.5 h-9 text-xs font-medium"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print / Save as PDF
+                </Button>
+              </>
             )}
             {(selectedProgram || selectedSession !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedMonth !== "all" || searchQuery) && (
               <Button

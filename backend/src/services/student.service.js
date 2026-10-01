@@ -93,6 +93,10 @@ class StudentService {
       andConditions.push({ programId: filters.programId });
     }
 
+    if (filters.gender && filters.gender !== 'all') {
+      andConditions.push({ gender: { $regex: new RegExp(`^${filters.gender}$`, 'i') } });
+    }
+
     const search = (filters.search || filters.searchQuery || '').trim();
     if (search) {
       const re = new RegExp(search, 'i');

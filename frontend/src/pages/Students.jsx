@@ -41,6 +41,7 @@ import {
   StudentIdCardDialog,
   StudentProfilePrintDialog,
   StudentDocumentReportDialog,
+  StudentDataExportDialog,
   getStudentAcademicPath,
 } from "./students/index.js";
 
@@ -103,6 +104,9 @@ const Students = () => {
   const [docReportOpen, setDocReportOpen] = useState(false);
   const [docReportStudents, setDocReportStudents] = useState([]);
   const [docReportFilters, setDocReportFilters] = useState({});
+
+  const [dataExportOpen, setDataExportOpen] = useState(false);
+  const [dataExportFilters, setDataExportFilters] = useState({});
 
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promotionDialogConfig, setPromotionDialogConfig] = useState({
@@ -509,6 +513,10 @@ const Students = () => {
             setDocReportFilters(filters || {});
             setDocReportOpen(true);
           }}
+          onOpenStudentDataExport={(students, filters) => {
+            setDataExportFilters(filters || {});
+            setDataExportOpen(true);
+          }}
           onPromote={canUpdate ? () => {
             setPromotionDialogConfig({
               initialAction: "promote_manual",
@@ -588,6 +596,18 @@ const Students = () => {
           onOpenChange={setDocReportOpen}
           students={docReportStudents}
           activeFilters={docReportFilters}
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+          academicSessions={academicSessions}
+          status={selectedStatus}
+        />
+
+        {/* Student Data Export Dialog (Excel & PDF/Print with Fee Installments) */}
+        <StudentDataExportDialog
+          open={dataExportOpen}
+          onOpenChange={setDataExportOpen}
+          initialFilters={dataExportFilters}
           programData={programData}
           classesData={classesData}
           sectionsData={sectionsData}

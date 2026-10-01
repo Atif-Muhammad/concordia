@@ -585,6 +585,10 @@ export const ChallansTab = ({
         studentProgram: result.challan?.studentProgram || studentInfo?.programId || studentInfo?.program,
         studentSection: result.challan?.studentSection || studentInfo?.sectionId || studentInfo?.section,
         lateFeeRatePerDay: result.challan?.lateFeeRatePerDay || lateFeeRatePerDay,
+        advanceApplied: result.challan?.advanceApplied ?? result.advanceApplied,
+        advanceFromChallanNo: result.challan?.advanceFromChallanNo ?? result.advanceFromChallanNo,
+        advanceFromMonth: result.challan?.advanceFromMonth ?? result.advanceFromMonth,
+        advanceAllocations: result.challan?.advanceAllocations ?? result.advanceAllocations,
       };
       const normalized = normalizeChallan(challanWithStudent);
       const tpl = installmentTemplate || await getDefaultFeeChallanTemplate("INSTALLMENT");
@@ -629,6 +633,10 @@ export const ChallansTab = ({
             studentProgram: r.challan?.studentProgram || studentInfo?.programId || studentInfo?.program,
             studentSection: r.challan?.studentSection || studentInfo?.sectionId || studentInfo?.section,
             lateFeeRatePerDay: r.challan?.lateFeeRatePerDay || lateFeeRatePerDay,
+            advanceApplied: r.challan?.advanceApplied ?? r.advanceApplied,
+            advanceFromChallanNo: r.challan?.advanceFromChallanNo ?? r.advanceFromChallanNo,
+            advanceFromMonth: r.challan?.advanceFromMonth ?? r.advanceFromMonth,
+            advanceAllocations: r.challan?.advanceAllocations ?? r.advanceAllocations,
           };
           const normalized = normalizeChallan(challanWithStudent);
           const baseHtml = generateChallanHtml(

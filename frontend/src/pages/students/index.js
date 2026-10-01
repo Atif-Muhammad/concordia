@@ -20,4 +20,5 @@ export {
   generateStudentDocumentReportPrintHtml,
   resolveStudentDocumentData,
 } from "./StudentDocumentReportTemplate";
+export { StudentDataExportDialog } from "./StudentDataExportDialog";
 export * from "./studentFinancialUtils";

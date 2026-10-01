@@ -118,11 +118,20 @@ export const normalizeChallan = (c) => {
     : 0;
   const lateFeeFine = existingFine > 0 ? existingFine : autoFine;
   const discount = Number(c.discountAmount ?? c.discount ?? 0);
-  const advanceApplied = isExtra ? 0 : Number(c.advanceApplied ?? 0);
-  const advanceFromChallanNo = c.advanceFromChallanNo || '';
-  const advanceFromMonth = c.advanceFromMonth || '';
-  const advanceFromChallanId = c.advanceFromChallanId || null;
   const advanceAllocations = Array.isArray(c.advanceAllocations) ? c.advanceAllocations : [];
+  const allocSum = advanceAllocations.reduce((sum, a) => sum + Number(a.amountApplied ?? a.amount ?? 0), 0);
+  const advanceApplied = isExtra ? 0 : Number(
+    c.advanceApplied ||
+    c.advanceAmount ||
+    c.advanceAdjustment ||
+    c.appliedAdvance ||
+    c.advanceCredit ||
+    allocSum ||
+    0
+  );
+  const advanceFromChallanNo = c.advanceFromChallanNo || advanceAllocations.map(a => a.sourceChallanNo).filter(Boolean).join(', ') || '';
+  const advanceFromMonth = c.advanceFromMonth || advanceAllocations[0]?.sourceMonth || '';
+  const advanceFromChallanId = c.advanceFromChallanId || advanceAllocations[0]?.sourceChallanId || null;
   const excessCreditGenerated = Number(c.excessCreditGenerated ?? 0);
   const creditRemaining = Number(c.creditRemaining ?? 0);
   const creditAdjustedTo = Array.isArray(c.creditAdjustedTo) ? c.creditAdjustedTo : [];
@@ -462,6 +471,77 @@ export const getPaidAtText = (challan, feeChallans = []) => {
   return "";
 };
 
+export const getAdvanceTargetMonthInfo = (challan, feeChallans = [], studentInstallments = []) => {
+  if (!challan) return "";
+
+  const challanNo = String(challan.challanNumber || challan.challanNo || '');
+  const challanId = String(challan.id || challan._id || '');
+  const targetChallans = (feeChallans || []).filter(c => {
+    if (!c) return false;
+    const cId = String(c.id || c._id || '');
+    if (cId && challanId && cId === challanId) return false;
+    if (challanNo && String(c.advanceFromChallanNo || '') === challanNo) return true;
+    if (challanId && String(c.advanceFromChallanId || '') === challanId) return true;
+    if (Array.isArray(c.advanceAllocations)) {
+      return c.advanceAllocations.some(a =>
+        (challanNo && String(a.sourceChallanNo || '') === challanNo) ||
+        (challanId && String(a.sourceChallanId || '') === challanId)
+      );
+    }
+    return false;
+  });
+
+  if (targetChallans.length > 0) {
+    const months = [...new Set(targetChallans.map(c => c.month).filter(Boolean))].join(', ');
+    const insts = [...new Set(targetChallans.map(c => c.installmentNumber ?? c.installmentNo).filter(v => v !== undefined && v !== null && v !== ''))].join(', ');
+    if (months && insts) return `${months} - Installment ${insts}`;
+    if (months) return months;
+    if (insts) return `Installment ${insts}`;
+  }
+
+  const allInsts = (() => {
+    const raw = [
+      ...(Array.isArray(challan.installment?.student?.feeInstallments) ? challan.installment.student.feeInstallments : []),
+      ...(Array.isArray(challan.student?.feeInstallments) ? challan.student.feeInstallments : []),
+      ...(Array.isArray(studentInstallments) ? studentInstallments : [])
+    ];
+    const seen = new Set();
+    return raw.filter(i => {
+      if (!i) return false;
+      const key = i.id || i._id || i.installmentNumber;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
+
+  const currentInstNo = Number(challan.installmentNumber ?? challan.installmentNo ?? challan.installment?.installmentNumber ?? 0);
+  if (currentInstNo > 0 && allInsts.length > 0) {
+    const nextInst = allInsts.find(i => Number(i.installmentNumber) === currentInstNo + 1) ||
+                     allInsts.find(i => Number(i.installmentNumber) > currentInstNo);
+    if (nextInst) {
+      const m = nextInst.month || '';
+      const num = nextInst.installmentNumber;
+      if (m && num) return `${m} - Installment ${num}`;
+      if (m) return m;
+      if (num) return `Installment ${num}`;
+    }
+  }
+
+  const currentMonth = challan.month || challan.installment?.month || '';
+  if (currentMonth) {
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const curIdx = months.findIndex(m => m.toLowerCase() === currentMonth.trim().toLowerCase());
+    if (curIdx >= 0) {
+      const nextMonthName = months[(curIdx + 1) % 12];
+      const nextInstLabel = currentInstNo > 0 ? ` - Installment ${currentInstNo + 1}` : '';
+      return `${nextMonthName}${nextInstLabel}`;
+    }
+  }
+
+  return "";
+};
+
 export const getPaidChallanRemarks = (challan, feeChallans = []) => {
   const sourceAdvanceChallan = getAdvanceSourceChallan(challan, feeChallans);
   if (sourceAdvanceChallan) {
@@ -490,56 +570,160 @@ export const getPaidChallanRemarks = (challan, feeChallans = []) => {
     const sNo = challan?.settledByChallanNo || challan?.settledByChallanNumber || (challan?.supersededBy?.challanNumber || challan?.supersededBy?.challanNo);
     latestRemarks = sNo ? `Settled via Arrears in Challan #${sNo}` : 'Settled via Arrears';
   }
+  const excessCredit = Number(challan?.excessCreditGenerated ?? (Math.max(0, Number(challan?.paidAmount ?? 0) - Number(challan?.totalAmount ?? 0))));
+  if (!latestRemarks && excessCredit > 0) {
+    const targetInfo = getAdvanceTargetMonthInfo(challan, feeChallans);
+    latestRemarks = `Includes PKR ${excessCredit.toLocaleString()} Advance Payment${targetInfo ? ` (${targetInfo})` : ''}`;
+  }
   return latestRemarks || '-';
 };
 
-export const getPaidByText = (challan, feeChallans = []) => {
-  const sourceAdvanceChallan = getAdvanceSourceChallan(challan, feeChallans);
-  if (sourceAdvanceChallan) {
-    const sourceInfo = typeof sourceAdvanceChallan.paymentInfo === 'string'
-      ? (() => { try { return JSON.parse(sourceAdvanceChallan.paymentInfo); } catch { return {}; } })()
-      : (sourceAdvanceChallan.paymentInfo || {});
-    const fromSource =
-      sourceInfo?.paidBy ||
-      sourceInfo?.receivedByName ||
-      sourceInfo?.updatedByName ||
-      sourceAdvanceChallan?.paidBy ||
-      sourceAdvanceChallan?.updatedByName ||
-      sourceAdvanceChallan?.createdByName;
-    if (fromSource) return String(fromSource);
+export const isGenericPaymentMode = (val) => {
+  if (!val) return false;
+  const s = String(val).trim().toLowerCase();
+  return [
+    'cash',
+    'bank',
+    'bank account',
+    'advance credit',
+    'advance',
+    'credit',
+    'online',
+    'cheque',
+    'check',
+    'easypaisa',
+    'jazzcash',
+    'other',
+    'wallet',
+    'pos',
+    'system',
+    'null',
+    'undefined',
+    'n/a',
+    '-'
+  ].includes(s);
+};
+
+export const extractPayerName = (challan) => {
+  if (!challan) return null;
+
+  // 1. Direct staff / admin / receiver fields
+  const candidates = [
+    challan.receivedByName,
+    typeof challan.receivedBy === 'object' ? challan.receivedBy?.name : null,
+    typeof challan.receivedBy === 'string' && !isGenericPaymentMode(challan.receivedBy) ? challan.receivedBy : null,
+    challan.recordedByName,
+    typeof challan.recordedBy === 'object' ? challan.recordedBy?.name : null,
+    typeof challan.recordedBy === 'string' && !isGenericPaymentMode(challan.recordedBy) ? challan.recordedBy : null,
+    challan.collectedByName,
+    challan.staffName,
+    typeof challan.staff === 'object' ? challan.staff?.name : null,
+    challan.adminName,
+    challan.paidByName,
+    challan.payerName,
+    challan.userName,
+    typeof challan.user === 'object' ? challan.user?.name : null,
+  ];
+
+  for (const c of candidates) {
+    if (c && typeof c === 'string' && !isGenericPaymentMode(c)) {
+      return c.trim();
+    }
   }
 
-  if (Array.isArray(challan?.payments) && challan.payments.length > 0) {
-    const latestPayment = [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0))[0];
-    const fromPayment =
-      latestPayment?.receivedByName ||
-      latestPayment?.receivedBy ||
-      latestPayment?.paidBy ||
-      latestPayment?.updatedByName ||
-      latestPayment?.updatedBy;
-    if (fromPayment) return String(fromPayment);
+  // 2. Receipts array or receipt
+  const receipts = Array.isArray(challan.receipts)
+    ? challan.receipts
+    : (challan.receipt ? [challan.receipt] : []);
+  for (const r of receipts) {
+    const rName = r?.recordedBy?.name || r?.recordedByName || r?.receivedByName || (typeof r?.recordedBy === 'string' && !isGenericPaymentMode(r?.recordedBy) ? r.recordedBy : null);
+    if (rName && typeof rName === 'string' && !isGenericPaymentMode(rName)) {
+      return rName.trim();
+    }
   }
 
-  if (challan?.paymentInfo) {
+  // 3. Payments array
+  if (Array.isArray(challan.payments) && challan.payments.length > 0) {
+    const sorted = [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0));
+    for (const p of sorted) {
+      const pName = p?.receivedByName || p?.recordedByName || p?.receivedBy?.name || (typeof p?.receivedBy === 'string' && !isGenericPaymentMode(p?.receivedBy) ? p.receivedBy : null) || p?.paidByName || (!isGenericPaymentMode(p?.paidBy) ? p.paidBy : null) || p?.updatedByName;
+      if (pName && typeof pName === 'string' && !isGenericPaymentMode(pName)) {
+        return pName.trim();
+      }
+    }
+  }
+
+  // 4. paymentInfo object
+  if (challan.paymentInfo) {
     try {
       const info = typeof challan.paymentInfo === 'string' ? JSON.parse(challan.paymentInfo) : challan.paymentInfo;
-      const fromInfo =
-        info?.receivedByName ||
-        info?.receivedBy ||
-        info?.updatedByName ||
-        info?.updatedBy ||
-        info?.paidBy ||
-        info?.paymentMode;
-      if (fromInfo) return String(fromInfo);
+      const infoName = info?.receivedByName || info?.recordedByName || info?.updatedByName || (!isGenericPaymentMode(info?.paidBy) ? info.paidBy : null);
+      if (infoName && typeof infoName === 'string' && !isGenericPaymentMode(infoName)) {
+        return infoName.trim();
+      }
     } catch (e) {}
   }
 
-  if (challan?.paidBy) return String(challan.paidBy);
-  if (challan?.updatedByName) return String(challan.updatedByName);
-  if (challan?.updatedBy) return String(challan.updatedBy);
-  if (challan?.createdByName) return String(challan.createdByName);
-  if (challan?.createdBy) return String(challan.createdBy);
-  return "System";
+  // 5. paidBy (if not generic payment mode)
+  if (challan.paidBy && typeof challan.paidBy === 'string' && !isGenericPaymentMode(challan.paidBy)) {
+    return challan.paidBy.trim();
+  }
+
+  // 6. updatedByName / createdByName
+  if (challan.updatedByName && typeof challan.updatedByName === 'string' && !isGenericPaymentMode(challan.updatedByName)) {
+    return challan.updatedByName.trim();
+  }
+  if (challan.createdByName && typeof challan.createdByName === 'string' && !isGenericPaymentMode(challan.createdByName)) {
+    return challan.createdByName.trim();
+  }
+
+  return null;
+};
+
+export const getPaidByText = (challan, feeChallans = []) => {
+  // 1. Direct payer / staff / admin name on this challan
+  const directName = extractPayerName(challan);
+  if (directName) return directName;
+
+  // 2. Advance Source Challan (e.g. November installment paid via excess credit from October challan)
+  const sourceAdvanceChallan = getAdvanceSourceChallan(challan, feeChallans);
+  if (sourceAdvanceChallan) {
+    const fromSource = extractPayerName(sourceAdvanceChallan);
+    if (fromSource) return fromSource;
+  }
+
+  // 3. Settling Challan (if this challan was settled via arrears into a future challan)
+  const settlingNo = challan?.settledByChallanNo || challan?.settledByChallanNumber || (challan?.supersededBy?.challanNo || challan?.supersededBy?.challanNumber);
+  const settlingId = challan?.settledByChallanId || (challan?.supersededBy?._id || challan?.supersededBy?.id);
+  if (settlingNo || settlingId) {
+    const settlingChallan = feeChallans.find(c =>
+      (settlingNo && (c?.challanNo === settlingNo || c?.challanNumber === settlingNo)) ||
+      (settlingId && (c?.id === settlingId || c?._id === settlingId))
+    );
+    if (settlingChallan) {
+      const fromSettling = extractPayerName(settlingChallan);
+      if (fromSettling) return fromSettling;
+    }
+  }
+
+  // 4. Any related paid challan in feeChallans for the same student that has a staff/admin name
+  if (Array.isArray(feeChallans) && feeChallans.length > 0) {
+    const sId = challan?.studentId?._id || challan?.studentId || challan?.student?.id;
+    if (sId) {
+      const siblingChallan = feeChallans.find(c =>
+        (c?.studentId?._id === sId || c?.studentId === sId || c?.student?.id === sId) &&
+        c !== challan &&
+        extractPayerName(c)
+      );
+      if (siblingChallan) {
+        const fromSibling = extractPayerName(siblingChallan);
+        if (fromSibling) return fromSibling;
+      }
+    }
+  }
+
+  // 5. Final fallback to Super Admin / Admin
+  return "Super Admin";
 };
 
 export const isPaidChallanForPrint = (challan) => {
@@ -800,7 +984,20 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     headsTotal = Number(challan.headsAmount || 0);
   }
 
-  const appliedAdvance = Number(challan.advanceApplied || challan.advanceAmount || 0);
+  const allocSum = Array.isArray(challan.advanceAllocations)
+    ? challan.advanceAllocations.reduce((sum, a) => sum + Number(a.amountApplied ?? a.amount ?? 0), 0)
+    : 0;
+  const appliedAdvance = Number(
+    challan.advanceApplied ||
+    challan.advanceAmount ||
+    challan.advanceAdjustment ||
+    challan.appliedAdvance ||
+    challan.advanceCredit ||
+    challan.installment?.advanceApplied ||
+    challan.installment?.advanceAmount ||
+    allocSum ||
+    0
+  );
   let grossTotal = tuitionOnly + headsTotal + lateFee + extraFine + absentiesFine + originalArrears;
   let standardTotal = Math.max(0, grossTotal - Math.abs(scholarship) - appliedAdvance);
   let netPayable = Math.max(0, standardTotal - (challan.paidAmount || 0));
@@ -929,7 +1126,9 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
 
   let advanceRowsHtml = "";
   if (appliedAdvance > 0) {
-    const sourceChallanNo = challan.advanceFromChallanNo || (challan.advanceAllocations?.[0]?.sourceChallanNo) || "";
+    const advAllocations = Array.isArray(challan.advanceAllocations) ? challan.advanceAllocations : [];
+    const validAdvAllocations = advAllocations.filter(a => Number(a.amountApplied ?? a.amount ?? 0) > 0);
+
     const allInsts = (() => {
       const seen = new Set();
       const merged = [
@@ -938,43 +1137,62 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         ...(Array.isArray(studentInstallments) ? studentInstallments : []),
       ];
       return merged.filter(inst => {
+        if (!inst || !inst.id) return false;
         if (seen.has(inst.id)) return false;
         seen.add(inst.id);
         return true;
       });
     })();
 
-    let sourceInst = null;
-    let sourceChallan = null;
-    if (sourceChallanNo) {
-      for (const inst of allInsts) {
-        const found = (inst.challans || []).find(c => String(c.challanNumber || c.challanNo) === String(sourceChallanNo));
-        if (found) {
-          sourceChallan = found;
-          sourceInst = inst;
-          break;
+    const resolveSourceInfo = (srcChallanNo, srcMonth, srcInstNo) => {
+      let sourceInst = null;
+      let sourceChallan = null;
+      if (srcChallanNo) {
+        for (const inst of allInsts) {
+          const found = (inst.challans || []).find(c => String(c.challanNumber || c.challanNo) === String(srcChallanNo));
+          if (found) {
+            sourceChallan = found;
+            sourceInst = inst;
+            break;
+          }
         }
       }
+      const finalMonth = srcMonth || sourceInst?.month || sourceChallan?.installment?.month || sourceChallan?.month || "";
+      const finalInstNo = srcInstNo ?? sourceInst?.installmentNumber ?? sourceChallan?.installmentNo ?? sourceChallan?.installmentNumber ?? sourceChallan?.installment?.installmentNumber;
+      const instLabel = finalInstNo ? `Installment ${finalInstNo}` : "";
+      const challanLabel = srcChallanNo ? `Challan #${srcChallanNo}` : "";
+
+      const labelPrefix = finalMonth
+        ? `${finalMonth}${instLabel ? ` (${instLabel})` : ''}${challanLabel ? ` - ${challanLabel}` : ''}`
+        : (challanLabel ? challanLabel : (instLabel ? instLabel : ""));
+      return labelPrefix ? `${labelPrefix} (Advance Adjustment)` : "Advance Adjustment";
+    };
+
+    if (validAdvAllocations.length > 0) {
+      advanceRowsHtml = validAdvAllocations.map(alloc => {
+        const amt = Number(alloc.amountApplied ?? alloc.amount ?? 0);
+        const rowLabel = resolveSourceInfo(
+          alloc.sourceChallanNo || alloc.challanNumber || alloc.challanNo || "",
+          alloc.sourceMonth || "",
+          alloc.sourceInstallmentNumber ?? alloc.installmentNumber ?? alloc.installmentNo
+        );
+        return `<tr style="background-color: #fafafa; line-height: 1.2;">
+          <td style="font-style: italic; font-size: 10px; color: #555;">${rowLabel}</td>
+          <td style="font-size: 10px; color: #555; text-align: right;">-${amt.toLocaleString()}</td>
+        </tr>`;
+      }).join('\n');
+    } else {
+      const sourceChallanNo = challan.advanceFromChallanNo || (challan.advanceAllocations?.[0]?.sourceChallanNo) || "";
+      const sourceMonth = challan.advanceFromMonth || (challan.advanceAllocations?.[0]?.sourceMonth) || "";
+      const rowLabel = resolveSourceInfo(sourceChallanNo, sourceMonth, undefined);
+      advanceRowsHtml = `<tr style="background-color: #fafafa; line-height: 1.2;">
+        <td style="font-style: italic; font-size: 10px; color: #555;">${rowLabel}</td>
+        <td style="font-size: 10px; color: #555; text-align: right;">-${appliedAdvance.toLocaleString()}</td>
+      </tr>`;
     }
-
-    const sourceMonth = challan.advanceFromMonth || sourceInst?.month || sourceChallan?.installment?.month || sourceChallan?.month || "";
-    const sourceInstNo = sourceInst?.installmentNumber || sourceChallan?.installmentNo || sourceChallan?.installmentNumber || sourceChallan?.installment?.installmentNumber;
-    const instLabel = sourceInstNo ? `Installment ${sourceInstNo}` : "";
-    const sessionLabel = sourceInst?.session?.name || sourceChallan?.installment?.session?.name || sourceChallan?.session?.name || "";
-    const challanLabel = sourceChallanNo ? `Challan #${sourceChallanNo}` : "";
-    const rowLabel = sourceMonth
-      ? `${sourceMonth}${instLabel ? ` (${instLabel})` : ''}${challanLabel ? ` - ${challanLabel}` : ''}`
-      : (challanLabel ? `Advance from ${challanLabel}` : "Advance Payment");
-
-    advanceRowsHtml = `<tr style="background-color: #f0f9ff; line-height: 1.2;">
-      <td style="font-style: italic; font-size: 10px; color: #0369a1;">${rowLabel} (Advance)</td>
-      <td style="font-size: 10px; color: #0369a1;">- ${appliedAdvance.toLocaleString()}</td>
-    </tr>`;
   }
 
-  if (advanceRowsHtml) {
-    arrearsRowsHtml += advanceRowsHtml;
-  }
+  const arrearsRowsOnly = arrearsRowsHtml;
 
   const isSettled = challan.status === 'SETTLED';
   const directPaid = Number(challan.directPaidAmount ?? challan.paidAmount ?? 0);
@@ -1036,7 +1254,27 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   html = html.replace(/\{\{Tuition Fee\}\}/g, '');
   html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Total Payable after due date\s*<\/td>[\s\S]*?<\/tr>/gi, '');
   html = html.replace(/\{\{feeHeadsRows\}\}/g, feeHeadsRowsHtml);
-  html = html.replace(/\{\{arrearsRows\}\}/g, arrearsRowsHtml);
+  if (html.includes('{{advanceRows}}')) {
+    html = html.replace(/\{\{arrearsRows\}\}/g, arrearsRowsOnly);
+    html = html.replace(/\{\{advanceRows\}\}/g, advanceRowsHtml);
+  } else {
+    const combinedArrearsAndAdvance = arrearsRowsOnly
+      ? (advanceRowsHtml ? `${arrearsRowsOnly}\n${advanceRowsHtml}` : arrearsRowsOnly)
+      : (advanceRowsHtml || "");
+    html = html.replace(/\{\{arrearsRows\}\}/g, combinedArrearsAndAdvance);
+  }
+  html = html.replace(/\{\{advanceAdjustmentRows\}\}/g, advanceRowsHtml);
+  html = html.replace(/\{\{advance\}\}/g, appliedAdvance > 0 ? `-${appliedAdvance.toLocaleString()}` : '0');
+  html = html.replace(/\{\{advanceAdjustment\}\}/g, appliedAdvance > 0 ? `-${appliedAdvance.toLocaleString()}` : '0');
+
+  if (appliedAdvance > 0 && advanceRowsHtml && !html.includes(advanceRowsHtml)) {
+    if (/<tr[^>]*>[\s\S]*?Arrears[\s\S]*?<\/tr>/i.test(html)) {
+      html = html.replace(/(<tr[^>]*>[\s\S]*?Arrears[\s\S]*?<\/tr>)/i, `$1\n${advanceRowsHtml}`);
+    } else {
+      html = html.replace(/(<tr[^>]*class=["']total-row["'][\s\S]*?<\/tr>)/i, `${advanceRowsHtml}\n$1`);
+    }
+  }
+
   html = html.replace(/\{\{arrears\}\}/g, totalArrears.toLocaleString());
   const slipRate = challan.installment?.lateFeeRatePerDay ?? (configuredRate !== undefined && configuredRate !== null ? configuredRate : 0);
   const displayRate = effectiveLateFeeRate > 0 ? effectiveLateFeeRate : (slipRate || 0);
@@ -1046,7 +1284,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   html = html.replace(/\{\{accountTitle\}\}/g, options.accountTitle || options.feeSettings?.accountTitle || "Concordia College Peshawar");
   html = html.replace(/\{\{discount\}\}/g, '');
 
-  const directInstallmentPayment = isInstallmentChallanType && !isAdvanceAdjustedInstallment && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
+  const directInstallmentPayment = isInstallmentChallanType && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status) || appliedAdvance > 0);
   const nonInstallmentPayment = !isInstallmentChallanType && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
   const shouldShowBalanceRows = directInstallmentPayment || nonInstallmentPayment;
 
@@ -1059,11 +1297,24 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   };
 
   if (shouldShowBalanceRows) {
-    const paidDisplay = alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0';
+    const isAdvanceCovered = appliedAdvance > 0 && standardTotal === 0;
+    const paidDisplay = isAdvanceCovered
+      ? `${appliedAdvance.toLocaleString()} (Advance)`
+      : (alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0');
     const showTotalRowInPaid = isFullyPaid ? `
       <tr style="font-weight: 700; border-top: 1px solid #cbd5e1; background-color: #f1f5f9; color: #000;">
         <td>Total Amount</td>
         <td>${standardTotal.toLocaleString()}</td>
+      </tr>` : '';
+
+    const excessPaid = (!isAdvanceCovered && appliedAdvance === 0) ? Math.max(0, alreadyPaid - standardTotal) : 0;
+    const advanceGenerated = Number(challan.excessCreditGenerated || excessPaid || 0);
+    const targetMonthInfo = advanceGenerated > 0 ? getAdvanceTargetMonthInfo(challan, feeChallans, studentInstallments) : '';
+    const advanceLabel = targetMonthInfo ? `Advance Payment (${targetMonthInfo})` : 'Advance Payment';
+    const showAdvanceGeneratedRow = advanceGenerated > 0 ? `
+      <tr style="background-color: #f1f5f9; font-size: 11px; font-weight: normal; line-height: 1.2;">
+        <td style="font-style: italic; font-size: 10px; color: #555; font-weight: normal;">${advanceLabel}</td>
+        <td style="font-size: 10px; text-align: right; color: #555; font-weight: normal;">${advanceGenerated.toLocaleString()}</td>
       </tr>` : '';
 
     const paidRowHtml = `
@@ -1072,6 +1323,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         <td>Paid Amount</td>
         <td>${paidDisplay}</td>
       </tr>
+      ${showAdvanceGeneratedRow}
       ${challan.status !== 'PENDING' ? `
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 700; border-top: 1px solid #cbd5e1;">
         <td>Remaining Balance</td>

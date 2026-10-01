@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Printer, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
+import { resolveFileUrl } from "@/lib/utils";
 import { getStudentFeeHistory, getStudentById } from "../../../config/apis";
 import { StudentProfilePrintSkeleton } from "@/skeletons/StudentProfilePrintSkeleton";
 

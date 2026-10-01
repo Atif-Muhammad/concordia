@@ -242,6 +242,20 @@ class FeeService {
 
     const challanIds = challans.map(c => c._id);
     const challanNos = challans.map(c => c.challanNo).filter(Boolean);
+
+    // Fetch receipts for these challans to resolve recorded staff/admin user
+    const paymentReceipts = await FeePaymentReceipt.find({
+      challanId: { $in: challanIds }
+    }).populate('recordedBy', 'name role email').sort({ createdAt: -1 }).lean();
+
+    const receiptMap = {};
+    for (const r of paymentReceipts) {
+      const cId = r.challanId ? r.challanId.toString() : null;
+      if (cId && !receiptMap[cId]) {
+        receiptMap[cId] = r;
+      }
+    }
+
     const reverseAllocChallans = await FeeChallan.find({
       'arrearAllocations.sourceChallanId': { $in: challanIds }
     }).select('_id challanNo arrearAllocations').lean();
@@ -411,8 +425,18 @@ class FeeService {
       const totalSettledAmount = isSettled ? netPayable : (directPaidAmount + settledViaArrearsAmount);
       const remainingAmount = isSettled ? 0 : Math.max(0, netPayable - totalSettledAmount);
 
+      const isGenericPayer = (val) => !val || /^(cash|bank|bank account|advance credit|advance|credit|online|cheque|check|easypaisa|jazzcash|other|wallet|pos|system)$/i.test(String(val).trim());
+      const rec = sId ? receiptMap[sId] : null;
+      const recUser = rec?.recordedBy?.name || null;
+      const resolvedReceivedByName = c.receivedByName || recUser || (!isGenericPayer(c.paidBy) ? c.paidBy : null);
+      const resolvedPaidBy = (!isGenericPayer(c.paidBy) ? c.paidBy : (resolvedReceivedByName || 'Super Admin'));
+      const resolvedPaymentMode = c.paymentMode || rec?.paymentMode || (isGenericPayer(c.paidBy) ? c.paidBy : 'Cash');
+
       return {
         ...c,
+        receivedByName: resolvedReceivedByName,
+        paidBy: resolvedPaidBy,
+        paymentMode: resolvedPaymentMode,
         id: c._id?.toString(),
         student,
         studentId: student?._id?.toString() || c.studentId?.toString(),
@@ -527,8 +551,21 @@ class FeeService {
 
     const student = (c.studentId && typeof c.studentId === 'object') ? c.studentId : null;
 
+    const rec = await FeePaymentReceipt.findOne({ challanId: c._id })
+      .populate('recordedBy', 'name role email')
+      .sort({ createdAt: -1 })
+      .lean();
+    const isGenericPayer = (val) => !val || /^(cash|bank|bank account|advance credit|advance|credit|online|cheque|check|easypaisa|jazzcash|other|wallet|pos|system)$/i.test(String(val).trim());
+    const recUser = rec?.recordedBy?.name || null;
+    const resolvedReceivedByName = c.receivedByName || recUser || (!isGenericPayer(c.paidBy) ? c.paidBy : null);
+    const resolvedPaidBy = (!isGenericPayer(c.paidBy) ? c.paidBy : (resolvedReceivedByName || 'Super Admin'));
+    const resolvedPaymentMode = c.paymentMode || rec?.paymentMode || (isGenericPayer(c.paidBy) ? c.paidBy : 'Cash');
+
     return {
       ...c,
+      receivedByName: resolvedReceivedByName,
+      paidBy: resolvedPaidBy,
+      paymentMode: resolvedPaymentMode,
       id: c._id?.toString(),
       student,
       studentId: student?._id?.toString() || c.studentId?.toString(),
@@ -1068,7 +1105,7 @@ class FeeService {
     return FeeChallan.findByIdAndDelete(id);
   }
 
-  async recordPayment({ challanId, id, amount, paidDate, paidBy, paymentMode, remarks, walletId, useAdvanceCredit }, userId) {
+  async recordPayment({ challanId, id, amount, paidDate, paidBy, paymentMode, remarks, walletId, useAdvanceCredit, receivedByName }, userId) {
     const targetId = challanId || id;
     let challan = await FeeChallan.findById(targetId);
     let isExtra = false;
@@ -1306,8 +1343,18 @@ class FeeService {
       challan.status = 'PARTIAL';
     }
 
+    const isGenericPayer = (val) => !val || /^(cash|bank|bank account|advance credit|advance|credit|online|cheque|check|easypaisa|jazzcash|other|wallet|pos|system)$/i.test(String(val).trim());
+    const user = userId ? await User.findById(userId).select('name role') : null;
+    const staffOrAdminName = (receivedByName && !isGenericPayer(receivedByName))
+      ? String(receivedByName).trim()
+      : (user?.name || (!isGenericPayer(paidBy) ? String(paidBy).trim() : 'Super Admin'));
+    const resolvedMode = paymentMode || (isGenericPayer(paidBy) ? paidBy : 'Cash');
+
     challan.paidDate = paidDate ? new Date(paidDate) : new Date();
-    challan.paidBy = paidBy || paymentMode || 'Cash';
+    challan.receivedBy = userId || null;
+    challan.receivedByName = staffOrAdminName;
+    challan.paymentMode = resolvedMode;
+    challan.paidBy = staffOrAdminName;
     if (remarks !== undefined) challan.remarks = remarks;
 
     // Update matching installment on Student
@@ -1340,7 +1387,7 @@ class FeeService {
         studentId: challan.studentId,
         amountPaid: payAmount,
         walletId: walletId || undefined,
-        paymentMode: challan.paidBy,
+        paymentMode: resolvedMode,
         paidDate: challan.paidDate,
         recordedBy: userId || null,
         allocatedToArrears,

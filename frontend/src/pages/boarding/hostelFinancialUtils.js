@@ -426,9 +426,9 @@ export const generateHostelChallanHtml = async (challan, reg, hostelLateFee = 0)
       ? `${sourceMonth}${challanLabel ? ` - ${challanLabel}` : ''}`
       : (challanLabel ? `Advance from ${challanLabel}` : "Advance Payment");
 
-    advanceRowsHtml = `<tr style="background-color: #f0f9ff; line-height: 1.2;">
-      <td style="font-style: italic; font-size: 10px; color: #0369a1;">${rowLabel} (Advance)</td>
-      <td style="font-size: 10px; color: #0369a1;">- ${appliedAdvance.toLocaleString()}</td>
+    advanceRowsHtml = `<tr style="background-color: #fafafa; line-height: 1.2;">
+      <td style="font-style: italic; font-size: 10px; color: #555;">${rowLabel} (Advance Adjustment)</td>
+      <td style="font-size: 10px; color: #555; text-align: right;">-${appliedAdvance.toLocaleString()}</td>
     </tr>`;
   }
   const combinedArrearsAndAdvance = (arrearsRowsHtml || "") + advanceRowsHtml;

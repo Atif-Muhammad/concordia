@@ -42,6 +42,7 @@ import {
   IdCard,
   Printer,
   FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import { getStudents, getPassedOutStudents } from "@/services/api";
 import usePermissions from "@/hooks/usePermissions";
@@ -67,6 +68,7 @@ export const StudentsTableTab = ({
   onIdCard,
   onPrintProfile,
   onOpenDocumentReport,
+  onOpenStudentDataExport,
   onPromote,
   onAddStudent,
 }) => {
@@ -292,6 +294,27 @@ export const StudentsTableTab = ({
             >
               <FileText className="w-4 h-4 text-orange-600" />
               Document Report
+            </Button>
+          )}
+          {onOpenStudentDataExport && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                onOpenStudentDataExport(studentsData, {
+                  filterProgram,
+                  filterClass,
+                  filterSection,
+                  filterSessionId,
+                  status,
+                  searchQuery,
+                })
+              }
+              className="gap-2 border-slate-300 text-slate-700 hover:text-slate-900"
+              title="Export Student Data with Fee Installment Plans"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              Export Students
             </Button>
           )}
           {status === "ACTIVE" && canUpdate && onPromote && (

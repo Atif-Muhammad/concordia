@@ -1675,11 +1675,12 @@ export const getPassedOutStudents = async (programId, classId, sectionId, search
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate, sessionId, summary = false) => {
+export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate, sessionId, summary = false, gender = '') => {
   try {
     const limitParam = limit !== undefined && limit !== null && limit !== '' ? limit : 20;
     const summaryParam = summary ? '&summary=true' : '';
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}`, {
+    const genderParam = gender && gender !== 'all' ? `&gender=${encodeURIComponent(gender)}` : '';
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}${genderParam}`, {
       withCredentials: true,
     });
     return response.data;

@@ -64,13 +64,20 @@ export const PaymentDialog = ({
     return wallets.filter(w => w.status === 'ACTIVE' || !w.status);
   }, [wallets]);
 
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+  });
+  const currentUserName = currentUser?.name || currentUser?.username || 'Super Admin';
+
   const [paymentAmount, setPaymentAmount] = useState("");
   const [selectedWalletId, setSelectedWalletId] = useState("");
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
   const [challanForm, setChallanForm] = useState({
     paidDate: format(new Date(), "yyyy-MM-dd"),
     paidTime: getCurrentPaidTime(),
+    paymentMode: "Cash",
     paidBy: "Cash",
+    receivedByName: "",
     remarks: "",
   });
 
@@ -121,14 +128,16 @@ export const PaymentDialog = ({
       const outstanding = Math.max(0, effectiveTotal - alreadyPaid);
 
       setPaymentAmount(outstanding.toString());
-      setChallanForm({
+      setChallanForm(prev => ({
         paidDate: format(new Date(), "yyyy-MM-dd"),
         paidTime: getCurrentPaidTime(),
+        paymentMode: "Cash",
         paidBy: "Cash",
+        receivedByName: prev.receivedByName || currentUserName,
         remarks: challan.remarks || "",
-      });
+      }));
     }
-  }, [challan, open, lateFeeRatePerDay, extraChallanLateFee]);
+  }, [challan, open, lateFeeRatePerDay, extraChallanLateFee, currentUserName]);
 
   // Default wallet selection based on payment mode or United Bank Limited / main account
   useEffect(() => {
@@ -198,6 +207,8 @@ export const PaymentDialog = ({
     }
 
     const submissionDate = buildPaidTimestamp(challanForm.paidDate, challanForm.paidTime);
+    const resolvedStaffOrAdmin = (challanForm.receivedByName || currentUserName || 'Super Admin').trim();
+    const resolvedMode = challanForm.paymentMode || challanForm.paidBy || 'Cash';
 
     if (isExtraC) {
       setIsPaymentLoading(true);
@@ -207,8 +218,9 @@ export const PaymentDialog = ({
           challanId: challan.id,
           data: {
             amount: receiving,
-            paymentMode: challanForm.paidBy || 'Cash',
-            paidBy: challanForm.paidBy || 'Cash',
+            paymentMode: resolvedMode,
+            paidBy: resolvedStaffOrAdmin,
+            receivedByName: resolvedStaffOrAdmin,
             paymentDate: submissionDate,
             paidDate: submissionDate,
             remarks: challanForm.remarks || undefined,
@@ -240,8 +252,9 @@ export const PaymentDialog = ({
         challanId: challan.id,
         amount: receiving,
         useAdvanceCredit: appliedCreditNum,
-        paymentMode: challanForm.paidBy || 'Cash',
-        paidBy: challanForm.paidBy || 'Cash',
+        paymentMode: resolvedMode,
+        paidBy: resolvedStaffOrAdmin,
+        receivedByName: resolvedStaffOrAdmin,
         paidDate: submissionDate,
         remarks: challanForm.remarks || undefined,
         walletId: selectedWalletId || undefined,
@@ -493,7 +506,7 @@ export const PaymentDialog = ({
           )}
 
           <div className="space-y-3.5 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-foreground">Paid Date</Label>
                 <Input
@@ -513,11 +526,11 @@ export const PaymentDialog = ({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-foreground">Paid By</Label>
+                <Label className="text-xs font-semibold text-foreground">Payment Mode</Label>
                 <Select
-                  value={challanForm.paidBy}
+                  value={challanForm.paymentMode || challanForm.paidBy || "Cash"}
                   onValueChange={(val) => {
-                    setChallanForm({ ...challanForm, paidBy: val });
+                    setChallanForm({ ...challanForm, paymentMode: val, paidBy: val });
                     if (val === "Cash") {
                       const cashWallet = activeWallets.find(w => w.type === "CASH");
                       if (cashWallet) setSelectedWalletId((cashWallet._id || cashWallet.id).toString());
@@ -539,6 +552,16 @@ export const PaymentDialog = ({
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-foreground">Paid By / Received By</Label>
+                <Input
+                  type="text"
+                  placeholder="Staff or Admin name"
+                  value={challanForm.receivedByName !== undefined && challanForm.receivedByName !== "" ? challanForm.receivedByName : currentUserName}
+                  onChange={(e) => setChallanForm({ ...challanForm, receivedByName: e.target.value })}
+                  className="h-8 text-xs"
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-foreground flex items-center gap-1">

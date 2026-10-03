@@ -992,6 +992,28 @@ export const StudentDocumentReportDialog = ({
   });
   const [selectedSession, setSelectedSession] = useState(() => activeFilters.filterSessionId || "all");
 
+  const topBarRef = useRef(null);
+  const [topBarHeight, setTopBarHeight] = useState(125);
+
+  useEffect(() => {
+    if (!open) return;
+    const updateHeight = () => {
+      if (topBarRef.current) {
+        setTopBarHeight(topBarRef.current.offsetHeight || 125);
+      }
+    };
+    updateHeight();
+    const timer = setTimeout(updateHeight, 50);
+    const observer = new ResizeObserver(updateHeight);
+    if (topBarRef.current) {
+      observer.observe(topBarRef.current);
+    }
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [open, selectedPrograms, selectedClasses, selectedSections]);
+
   useEffect(() => {
     if (open) {
       setSelectedPrograms(
@@ -1250,9 +1272,13 @@ export const StudentDocumentReportDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!overflow-hidden flex flex-col h-dvh max-h-dvh sm:!w-[95dvw] sm:!max-w-[95dvw] p-0 gap-0 border shadow-2xl">
-        {/* Sticky Dialog Header */}
-        <DialogHeader className="bg-white border-b px-6 py-3.5 flex flex-row items-center justify-between space-y-0 shrink-0">
+      <DialogContent
+        className="!overflow-hidden flex flex-col h-dvh sm:!w-[95dvw] sm:!max-w-[95dvw] p-0 gap-0 border shadow-2xl"
+        style={{ height: "100dvh", maxHeight: "100dvh" }}
+      >
+        <div ref={topBarRef} className="shrink-0 flex flex-col z-10 bg-white">
+          {/* Sticky Dialog Header */}
+          <DialogHeader className="bg-white border-b px-6 py-3.5 flex flex-row items-center justify-between space-y-0 shrink-0">
           <div>
             <div className="flex items-center gap-2">
               <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -1399,9 +1425,16 @@ export const StudentDocumentReportDialog = ({
             </span>
           </div>
         </div>
+      </div>
 
         {/* Scrollable Preview Canvas with thin & visible scrollbar - native DOM */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors"
+          style={{
+            height: `calc(100dvh - ${topBarHeight}px)`,
+            maxHeight: `calc(100dvh - ${topBarHeight}px)`,
+          }}
+        >
           <style>{getStudentDocumentReportStyles()}</style>
           {selectedPrograms.length === 0 ? (
             <div className="py-24 px-4 text-center text-slate-500 flex flex-col items-center justify-center gap-3">

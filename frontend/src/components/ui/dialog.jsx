@@ -59,7 +59,7 @@ const DialogContent = React.forwardRef(({ className, bodyClassName, children, ..
           stripped
         )}
         {...props}
-        style={{ height: '100dvh', minHeight: '100vh' }}
+        style={{ height: '100dvh', minHeight: '100vh', maxHeight: '100dvh', ...props.style }}
       >
         {/* Close button */}
         <DialogPrimitive.Close className="absolute right-3 top-3 z-20 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-1 focus:ring-ring">

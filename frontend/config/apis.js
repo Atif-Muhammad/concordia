@@ -1675,12 +1675,26 @@ export const getPassedOutStudents = async (programId, classId, sectionId, search
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate, sessionId, summary = false, gender = '') => {
+export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate, sessionId, summary = false, gender = '', fields = '') => {
   try {
+    if (typeof programId === 'object' && programId !== null) {
+      const params = new URLSearchParams();
+      Object.entries(programId).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          params.append(k, v);
+        }
+      });
+      const response = await axios.get(`${base_url}/student/get/all${params.toString() ? '?' + params.toString() : ''}`, {
+        withCredentials: true,
+      });
+      return response.data;
+    }
+
     const limitParam = limit !== undefined && limit !== null && limit !== '' ? limit : 20;
     const summaryParam = summary ? '&summary=true' : '';
     const genderParam = gender && gender !== 'all' ? `&gender=${encodeURIComponent(gender)}` : '';
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}${genderParam}`, {
+    const fieldsParam = fields ? `&fields=${encodeURIComponent(fields)}` : '';
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}${genderParam}${fieldsParam}`, {
       withCredentials: true,
     });
     return response.data;
@@ -4807,6 +4821,80 @@ export const getFinanceLedger = async (filters = {}) => {
     return response.data;
   } catch (error) {
     const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Categories & Sub-categories
+export const getFinanceCategories = async (type) => {
+  try {
+    const params = new URLSearchParams();
+    if (type) params.append('type', type);
+    const url = params.toString() ? `${base_url}/finance/categories?${params.toString()}` : `${base_url}/finance/categories`;
+    const response = await axios.get(url, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to fetch categories";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createFinanceCategory = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/finance/categories`, data, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to create category";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateFinanceCategory = async (id, data) => {
+  try {
+    const response = await axios.put(`${base_url}/finance/categories/${id}`, data, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to update category";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteFinanceCategory = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/finance/categories/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to delete category";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const addFinanceSubCategory = async (id, name) => {
+  try {
+    const response = await axios.post(`${base_url}/finance/categories/${id}/subcategories`, { name }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to add sub-category";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateFinanceSubCategory = async (id, oldName, newName) => {
+  try {
+    const response = await axios.put(`${base_url}/finance/categories/${id}/subcategories`, { oldName, newName }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to update sub-category";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteFinanceSubCategory = async (id, subName) => {
+  try {
+    const response = await axios.delete(`${base_url}/finance/categories/${id}/subcategories/${encodeURIComponent(subName)}`, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to delete sub-category";
     throw { message, status: error.response?.status || 500 };
   }
 };

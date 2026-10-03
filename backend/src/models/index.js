@@ -50,7 +50,8 @@ const {
 const {
   FinanceIncome,
   FinanceExpense,
-  FinanceClosing
+  FinanceClosing,
+  FinanceCategory
 } = require('./Finance');
 const {
   InventoryItem,
@@ -111,6 +112,7 @@ module.exports = {
   FinanceIncome,
   FinanceExpense,
   FinanceClosing,
+  FinanceCategory,
   InventoryItem,
   InventoryExpense,
   Wallet,

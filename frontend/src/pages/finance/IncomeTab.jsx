@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import {
   createFinanceIncome,
   deleteFinanceIncome,
   getWallets,
+  getFinanceCategories,
 } from "../../../config/apis";
 
 const getMonthDateRange = (month) => {
@@ -63,10 +64,44 @@ const getCurrentMonthRange = () => {
   return getMonthDateRange(month);
 };
 
+const DEFAULT_INCOME_CATEGORIES = [
+  "Tuition Fee",
+  "Extra Challan",
+  "Hostel Challan",
+  "Donation",
+  "Funding",
+  "Revenue",
+  "Investments",
+  "Other Income",
+];
+
 export default function IncomeTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canCreate, canDelete } = usePermissions("Finance", "income");
+
+  const { data: dynamicCategories = [] } = useQuery({
+    queryKey: ["financeCategories", "INCOME"],
+    queryFn: () => getFinanceCategories("INCOME"),
+  });
+
+  const incomeCategoryMap = useMemo(() => {
+    const map = {};
+    DEFAULT_INCOME_CATEGORIES.forEach((cat) => {
+      map[cat] = [];
+    });
+    if (dynamicCategories && dynamicCategories.length > 0) {
+      dynamicCategories.forEach((cat) => {
+        map[cat.name] = cat.subCategories || [];
+      });
+    }
+    return map;
+  }, [dynamicCategories]);
+
+  const incomeCategories = useMemo(
+    () => Object.keys(incomeCategoryMap),
+    [incomeCategoryMap]
+  );
 
   const [incomeOpen, setIncomeOpen] = useState(false);
   const [incomeFilterCategory, setIncomeFilterCategory] = useState("all");
@@ -77,6 +112,7 @@ export default function IncomeTab() {
   const [incomeFormData, setIncomeFormData] = useState({
     date: new Date().toISOString().split("T")[0],
     category: "Donation",
+    subCategory: "",
     description: "",
     amount: 0,
     walletId: "",
@@ -141,6 +177,7 @@ export default function IncomeTab() {
       setIncomeFormData({
         date: new Date().toISOString().split("T")[0],
         category: "Donation",
+        subCategory: "",
         description: "",
         amount: 0,
         walletId: "",
@@ -226,13 +263,11 @@ export default function IncomeTab() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="Tuition Fee">Tuition Fee</SelectItem>
-                  <SelectItem value="Extra Challan">Extra Challan</SelectItem>
-                  <SelectItem value="Hostel Challan">Hostel Challan</SelectItem>
-                  <SelectItem value="Donation">Donation</SelectItem>
-                  <SelectItem value="Funding">Funding</SelectItem>
-                  <SelectItem value="Revenue">Revenue</SelectItem>
-                  <SelectItem value="Investments">Investments</SelectItem>
+                  {incomeCategories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -307,7 +342,14 @@ export default function IncomeTab() {
                       onClick={() => setSelectedIncome(item)}
                     >
                       <TableCell className="py-2 px-3 text-xs sm:text-sm">
-                        <div className="font-semibold text-foreground">{item.category}</div>
+                        <div className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                          <span>{item.category}</span>
+                          {item.subCategory && (
+                            <Badge variant="outline" className="text-[10px] font-normal py-0 px-1 text-muted-foreground">
+                              {item.subCategory}
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
                           {new Date(item.date).toLocaleDateString()}
                         </div>
@@ -416,20 +458,50 @@ export default function IncomeTab() {
               <Select
                 value={incomeFormData.category}
                 onValueChange={(value) =>
-                  setIncomeFormData({ ...incomeFormData, category: value })
+                  setIncomeFormData({
+                    ...incomeFormData,
+                    category: value,
+                    subCategory: (incomeCategoryMap[value] || [])[0] || "",
+                  })
                 }
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Donation">Donation</SelectItem>
-                  <SelectItem value="Funding">Funding</SelectItem>
-                  <SelectItem value="Revenue">Revenue</SelectItem>
-                  <SelectItem value="Investments">Investments</SelectItem>
+                  {incomeCategories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            {(incomeCategoryMap[incomeFormData.category] || []).length > 0 && (
+              <div>
+                <Label>Sub Category</Label>
+                <Select
+                  value={incomeFormData.subCategory}
+                  onValueChange={(value) =>
+                    setIncomeFormData({
+                      ...incomeFormData,
+                      subCategory: value,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select sub-category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(incomeCategoryMap[incomeFormData.category] || []).map((sub) => (
+                      <SelectItem key={sub} value={sub}>
+                        {sub}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Description</Label>
               <Textarea
@@ -475,7 +547,12 @@ export default function IncomeTab() {
             <div className="space-y-3 text-xs sm:text-sm pt-2">
               <div className="flex justify-between items-center py-1.5 border-b">
                 <span className="text-muted-foreground">Category:</span>
-                <Badge variant="default">{selectedIncome.category}</Badge>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Badge variant="default">{selectedIncome.category}</Badge>
+                  {selectedIncome.subCategory && (
+                    <Badge variant="outline">{selectedIncome.subCategory}</Badge>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b">
                 <span className="text-muted-foreground">Amount:</span>

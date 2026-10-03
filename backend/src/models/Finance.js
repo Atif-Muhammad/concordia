@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const FinanceIncomeSchema = new mongoose.Schema({
   date: { type: String, default: () => new Date().toISOString().split('T')[0] },
   category: { type: String, required: true },
+  subCategory: { type: String, default: '' },
   description: { type: String, default: '' },
   amount: { type: Number, required: true },
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet', default: null },
@@ -95,8 +96,11 @@ const FinanceIncome = mongoose.model('FinanceIncome', FinanceIncomeSchema);
 const FinanceExpense = mongoose.model('FinanceExpense', FinanceExpenseSchema);
 const FinanceClosing = mongoose.model('FinanceClosing', FinanceClosingSchema);
 
+const FinanceCategory = require('./FinanceCategory');
+
 module.exports = {
   FinanceIncome,
   FinanceExpense,
-  FinanceClosing
+  FinanceClosing,
+  FinanceCategory
 };

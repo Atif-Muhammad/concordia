@@ -161,13 +161,22 @@ class FeeService {
 
     const studentFilter = {};
     if (filters.programId && filters.programId !== 'all') {
-      studentFilter.programId = filters.programId;
+      const pIds = Array.isArray(filters.programId)
+        ? filters.programId
+        : String(filters.programId).split(',').map(s => s.trim()).filter(Boolean);
+      studentFilter.programId = pIds.length > 1 ? { $in: pIds } : pIds[0];
     }
     if (filters.classId && filters.classId !== 'all') {
-      studentFilter.classId = filters.classId;
+      const cIds = Array.isArray(filters.classId)
+        ? filters.classId
+        : String(filters.classId).split(',').map(s => s.trim()).filter(Boolean);
+      studentFilter.classId = cIds.length > 1 ? { $in: cIds } : cIds[0];
     }
     if (filters.sectionId && filters.sectionId !== 'all') {
-      studentFilter.sectionId = filters.sectionId;
+      const sIds = Array.isArray(filters.sectionId)
+        ? filters.sectionId
+        : String(filters.sectionId).split(',').map(s => s.trim()).filter(Boolean);
+      studentFilter.sectionId = sIds.length > 1 ? { $in: sIds } : sIds[0];
     }
 
     if (Object.keys(studentFilter).length > 0) {
@@ -219,22 +228,44 @@ class FeeService {
     const skip = (page - 1) * limit;
 
     const total = await FeeChallan.countDocuments(query);
-    const challans = await FeeChallan.find(query)
+    const isReportMode = filters.report === 'true' || filters.report === true || filters.summary === 'true' || filters.summary === true;
+
+    let challanQuery = FeeChallan.find(query);
+    if (isReportMode) {
+      challanQuery = challanQuery.select(
+        '_id challanNo installmentNumber amount basePayable dueDate fineAmount lateFeeAmount snapshotLateFee headsAmount arrearsAmount grossAmount discountAmount discount advanceApplied advanceAmount netPayable totalAmount status paidAmount directPaidAmount settledViaArrearsAmount settledAmount month session sessionId classId studentId challanHeads selectedHeads arrearAllocations advanceAllocations'
+      )
       .populate({
         path: 'studentId',
+        select: '_id fName lName fatherOrguardian rollNumber programId classId sectionId',
         populate: [
-          { path: 'programId' },
-          { path: 'classId' },
-          { path: 'sectionId' }
+          { path: 'programId', select: '_id name code duration' },
+          { path: 'classId', select: '_id name' },
+          { path: 'sectionId', select: '_id name' }
         ]
       })
-      .populate('sessionId')
-      .populate('classId')
-      .populate('walletId')
-      .populate('challanHeads.headId')
-      .populate('arrearAllocations.sourceChallanId')
-      .populate('supersededBy')
-      .populate('supersedes')
+      .populate('sessionId', '_id name')
+      .populate('classId', '_id name');
+    } else {
+      challanQuery = challanQuery
+        .populate({
+          path: 'studentId',
+          populate: [
+            { path: 'programId' },
+            { path: 'classId' },
+            { path: 'sectionId' }
+          ]
+        })
+        .populate('sessionId')
+        .populate('classId')
+        .populate('walletId')
+        .populate('challanHeads.headId')
+        .populate('arrearAllocations.sourceChallanId')
+        .populate('supersededBy')
+        .populate('supersedes');
+    }
+
+    const challans = await challanQuery
       .sort({ createdAt: -1, dueDate: -1 })
       .skip(skip)
       .limit(limit)
@@ -243,8 +274,8 @@ class FeeService {
     const challanIds = challans.map(c => c._id);
     const challanNos = challans.map(c => c.challanNo).filter(Boolean);
 
-    // Fetch receipts for these challans to resolve recorded staff/admin user
-    const paymentReceipts = await FeePaymentReceipt.find({
+    // Fetch receipts for these challans to resolve recorded staff/admin user (skip in report mode)
+    const paymentReceipts = isReportMode ? [] : await FeePaymentReceipt.find({
       challanId: { $in: challanIds }
     }).populate('recordedBy', 'name role email').sort({ createdAt: -1 }).lean();
 
@@ -256,7 +287,7 @@ class FeeService {
       }
     }
 
-    const reverseAllocChallans = await FeeChallan.find({
+    const reverseAllocChallans = isReportMode ? [] : await FeeChallan.find({
       'arrearAllocations.sourceChallanId': { $in: challanIds }
     }).select('_id challanNo arrearAllocations').lean();
 
@@ -283,8 +314,8 @@ class FeeService {
       }
     }
 
-    // Advance Payment & Credit Provenance Linking
-    const relatedCreditLedgers = await StudentCreditLedger.find({
+    // Advance Payment & Credit Provenance Linking (skip in report mode)
+    const relatedCreditLedgers = isReportMode ? [] : await StudentCreditLedger.find({
       $or: [
         { sourceChallanId: { $in: challanIds } },
         { sourceChallanNo: { $in: challanNos } },
@@ -2290,10 +2321,20 @@ class FeeService {
     });
   }
 
-  async bulkGenerateChallans({ studentIds = [], month, dueDate, sessionId }) {
+  async bulkGenerateChallans({ studentIds = [], month, dueDate, sessionId, selectedHeads = [], studentIdsWithHeads = null }) {
     const results = [];
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return { results };
+    }
+
+    let resolvedHeads = [];
+    if (Array.isArray(selectedHeads) && selectedHeads.length > 0) {
+      if (typeof selectedHeads[0] === 'string' || (selectedHeads[0] && typeof selectedHeads[0] === 'object' && !selectedHeads[0].name && selectedHeads[0]._id)) {
+        const headIds = selectedHeads.map(h => (typeof h === 'object' ? h._id : h));
+        resolvedHeads = await FeeHead.find({ _id: { $in: headIds } }).lean();
+      } else {
+        resolvedHeads = selectedHeads;
+      }
     }
 
     const [selYear, selMonthNum] = (month || '').split('-').map(Number);
@@ -2491,6 +2532,25 @@ class FeeService {
         const absenteeFineAmount = absenteeCount * absenteeRate;
         const challanHeads = [];
         let headsAmount = 0;
+
+        // Add selected fee heads if any (only to selected students who have heads enabled)
+        const applyHeadsToThisStudent = !Array.isArray(studentIdsWithHeads) ||
+          studentIdsWithHeads.some(sid => String(sid) === student._id.toString());
+
+        if (applyHeadsToThisStudent && Array.isArray(resolvedHeads) && resolvedHeads.length > 0) {
+          for (const h of resolvedHeads) {
+            const hAmount = Number(h.amount) || 0;
+            challanHeads.push({
+              headId: h._id || h.headId || undefined,
+              name: h.name,
+              category: h.type || h.category || 'monthly',
+              amount: hAmount,
+              isCustom: false,
+              appliedAt: new Date()
+            });
+            headsAmount += hAmount;
+          }
+        }
 
         if (absenteeCount > 0 && absenteeFineAmount > 0) {
           challanHeads.push({

@@ -26,5 +26,14 @@ router.delete('/closing/:id', authMiddleware, financeController.deleteClosing);
 router.get('/ledger', financeController.getFinanceLedger);
 router.get('/reports/analytics', financeController.getAnalytics);
 
+// Categories & Sub-categories
+router.get('/categories', financeController.getCategories);
+router.post('/categories', authMiddleware, financeController.createCategory);
+router.put('/categories/:id', authMiddleware, financeController.updateCategory);
+router.delete('/categories/:id', authMiddleware, financeController.deleteCategory);
+router.post('/categories/:id/subcategories', authMiddleware, financeController.addSubCategory);
+router.put('/categories/:id/subcategories', authMiddleware, financeController.updateSubCategory);
+router.delete('/categories/:id/subcategories/:subName', authMiddleware, financeController.deleteSubCategory);
+
 module.exports = router;
 

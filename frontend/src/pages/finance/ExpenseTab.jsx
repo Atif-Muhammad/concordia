@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ import {
   rejectFinanceExpense,
   userWho,
   getWallets,
+  getFinanceCategories,
 } from "../../../config/apis";
 import usePermissions from "@/hooks/usePermissions";
 
@@ -66,7 +67,7 @@ const getCurrentMonthRange = () => {
   return getMonthDateRange(month);
 };
 
-const EXPENSE_CATEGORY_MAP = {
+const DEFAULT_EXPENSE_CATEGORY_MAP = {
   Bills: ["Electricity Bill", "Gas Bill", "Water Bill", "Internet Bill", "Telephone Bill", "Generator Fuel"],
   Payroll: ["Teaching Salaries", "Non-Teaching Salaries", "Contract Wages", "Bonuses", "Payroll Taxes"],
   Operations: ["Office Supplies", "Printing & Stationery", "Software Subscription", "Bank Charges", "Courier"],
@@ -83,11 +84,36 @@ const EXPENSE_CATEGORY_MAP = {
   Other: ["Other"],
 };
 
-const EXPENSE_CATEGORIES = Object.keys(EXPENSE_CATEGORY_MAP);
-
 export default function ExpenseTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const { data: dynamicCategories = [] } = useQuery({
+    queryKey: ["financeCategories", "EXPENSE"],
+    queryFn: () => getFinanceCategories("EXPENSE"),
+  });
+
+  const EXPENSE_CATEGORY_MAP = useMemo(() => {
+    if (!dynamicCategories || dynamicCategories.length === 0) {
+      return DEFAULT_EXPENSE_CATEGORY_MAP;
+    }
+    const map = {};
+    dynamicCategories.forEach((cat) => {
+      map[cat.name] = cat.subCategories || [];
+    });
+    // Fallback ensure defaults are present
+    Object.keys(DEFAULT_EXPENSE_CATEGORY_MAP).forEach((key) => {
+      if (!map[key]) {
+        map[key] = DEFAULT_EXPENSE_CATEGORY_MAP[key];
+      }
+    });
+    return map;
+  }, [dynamicCategories]);
+
+  const EXPENSE_CATEGORIES = useMemo(
+    () => Object.keys(EXPENSE_CATEGORY_MAP),
+    [EXPENSE_CATEGORY_MAP]
+  );
 
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [expenseFilterCategory, setExpenseFilterCategory] = useState("all");

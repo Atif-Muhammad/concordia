@@ -57,10 +57,24 @@ class StudentService {
     }
 
     if (filters.classId && filters.classId !== 'all') {
-      andConditions.push({ classId: filters.classId });
+      const cIds = Array.isArray(filters.classId)
+        ? filters.classId
+        : String(filters.classId).split(',').map(s => s.trim()).filter(Boolean);
+      if (cIds.length === 1) {
+        andConditions.push({ classId: cIds[0] });
+      } else if (cIds.length > 1) {
+        andConditions.push({ classId: { $in: cIds } });
+      }
     }
     if (filters.sectionId && filters.sectionId !== 'all') {
-      andConditions.push({ sectionId: filters.sectionId });
+      const sIds = Array.isArray(filters.sectionId)
+        ? filters.sectionId
+        : String(filters.sectionId).split(',').map(s => s.trim()).filter(Boolean);
+      if (sIds.length === 1) {
+        andConditions.push({ sectionId: sIds[0] });
+      } else if (sIds.length > 1) {
+        andConditions.push({ sectionId: { $in: sIds } });
+      }
     }
     if (filters.sessionId && filters.sessionId !== 'all') {
       if (mongoose.Types.ObjectId.isValid(filters.sessionId)) {
@@ -90,7 +104,14 @@ class StudentService {
     }
 
     if (filters.programId && filters.programId !== 'all') {
-      andConditions.push({ programId: filters.programId });
+      const pIds = Array.isArray(filters.programId)
+        ? filters.programId
+        : String(filters.programId).split(',').map(s => s.trim()).filter(Boolean);
+      if (pIds.length === 1) {
+        andConditions.push({ programId: pIds[0] });
+      } else if (pIds.length > 1) {
+        andConditions.push({ programId: { $in: pIds } });
+      }
     }
 
     if (filters.gender && filters.gender !== 'all') {
@@ -126,11 +147,12 @@ class StudentService {
     }
 
     studentQuery = studentQuery
-      .populate('programId')
-      .populate('classId')
-      .populate('sectionId')
-      .populate('sessionId')
-      .sort({ rollNumber: 1 });
+      .populate('programId', '_id name code duration')
+      .populate('classId', '_id name')
+      .populate('sectionId', '_id name')
+      .populate('sessionId', '_id name')
+      .sort({ rollNumber: 1 })
+      .lean();
 
     const page = parseInt(filters.page, 10);
     const limit = parseInt(filters.limit, 10);
@@ -138,7 +160,16 @@ class StudentService {
       studentQuery = studentQuery.skip((page - 1) * limit).limit(limit);
     }
 
-    const students = await studentQuery;
+    const rawStudents = await studentQuery;
+    const students = (Array.isArray(rawStudents) ? rawStudents : []).map(s => {
+      const obj = { ...s };
+      if (s._id) obj.id = s._id.toString();
+      if (!obj.program && s.programId) obj.program = s.programId;
+      if (!obj.class && s.classId) obj.class = s.classId;
+      if (!obj.section && s.sectionId) obj.section = s.sectionId;
+      if (!obj.feeInstallments && s.installments) obj.feeInstallments = s.installments;
+      return obj;
+    });
 
     return {
       students,

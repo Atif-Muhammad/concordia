@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import {
   Popover,
   PopoverContent,
@@ -99,11 +100,11 @@ export const FeeReportsTab = ({
 }) => {
   const { toast } = useToast();
 
-  // Pending Fee Report Filters
+  // Pending Fee Report Filters (Multi-Select arrays for programs, classes, sections)
   const [selectedSession, setSelectedSession] = useState("all");
-  const [selectedProgram, setSelectedProgram] = useState(""); // empty string: waits for user selection before fetching!
-  const [selectedClass, setSelectedClass] = useState("all");
-  const [selectedSection, setSelectedSection] = useState("all");
+  const [selectedPrograms, setSelectedPrograms] = useState([]); // array of program IDs; empty = not selected yet
+  const [selectedClasses, setSelectedClasses] = useState([]); // array of class IDs; empty = all for selected programs
+  const [selectedSections, setSelectedSections] = useState([]); // array of section IDs; empty = all for selected classes
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedStudentIds, setExpandedStudentIds] = useState(new Set());
@@ -151,40 +152,74 @@ export const FeeReportsTab = ({
   const classesList = propClasses.length > 0 ? propClasses : (Array.isArray(qClasses) ? qClasses : []);
   const sectionsList = propSections.length > 0 ? propSections : (Array.isArray(qSections) ? qSections : []);
 
-  // Filtered classes based on selectedProgram
+  // Filtered classes based on selectedPrograms
   const availableClasses = useMemo(() => {
-    if (!selectedProgram || selectedProgram === "all") return classesList;
-    return classesList.filter(c => extractId(c.programId || c.program) === selectedProgram);
-  }, [classesList, selectedProgram]);
+    if (selectedPrograms.length === 0) return classesList;
+    return classesList.filter(c => selectedPrograms.includes(extractId(c.programId || c.program)));
+  }, [classesList, selectedPrograms]);
 
   // Section applicability
-  const selectedClassObj = useMemo(() => {
-    if (!selectedClass || selectedClass === "all") return null;
-    return classesList.find(c => extractId(c) === selectedClass);
-  }, [classesList, selectedClass]);
-
-  const isSectionApplicable = Boolean(selectedClassObj && selectedClassObj.allowSections !== false);
   const availableSections = useMemo(() => {
-    if (!isSectionApplicable) return [];
-    return sectionsList.filter(s => extractId(s.classId || s.class) === selectedClass);
-  }, [sectionsList, selectedClass, isSectionApplicable]);
+    if (selectedClasses.length === 0) {
+      if (selectedPrograms.length === 0) return sectionsList;
+      const validClassIds = availableClasses.map(c => extractId(c));
+      return sectionsList.filter(s => validClassIds.includes(extractId(s.classId || s.class)));
+    }
+    return sectionsList.filter(s => selectedClasses.includes(extractId(s.classId || s.class)));
+  }, [sectionsList, selectedClasses, selectedPrograms, availableClasses]);
 
-  // Main Challans Query: ONLY enabled when a program selection is made!
+  const isSectionApplicable = selectedClasses.length === 0 ? true : availableSections.length > 0;
+
+  // Auto-prune classes when selected programs change
+  const handleProgramsChange = (vals) => {
+    setSelectedPrograms(vals);
+    if (vals.length > 0) {
+      const validClassIds = classesList
+        .filter(c => vals.includes(extractId(c.programId || c.program)))
+        .map(c => extractId(c));
+      setSelectedClasses(prev => prev.filter(id => validClassIds.includes(id)));
+    }
+  };
+
+  // Auto-prune sections when selected classes change
+  const handleClassesChange = (vals) => {
+    setSelectedClasses(vals);
+    if (vals.length > 0) {
+      const validSectionIds = sectionsList
+        .filter(s => vals.includes(extractId(s.classId || s.class)))
+        .map(s => extractId(s));
+      setSelectedSections(prev => prev.filter(id => validSectionIds.includes(id)));
+    }
+  };
+
+  // Main Challans Query: ONLY enabled when program selection is made!
+  const programParam = selectedPrograms.length > 0 ? selectedPrograms.join(',') : undefined;
+  const classParam = selectedClasses.length > 0 ? selectedClasses.join(',') : undefined;
+  const sectionParam = selectedSections.length > 0 ? selectedSections.join(',') : undefined;
+
   const {
     data: challansResponse,
     isLoading: isChallansLoading,
   } = useQuery({
-    queryKey: ['feeReportsChallans', selectedSession, selectedProgram, selectedClass, selectedSection, selectedMonth],
+    queryKey: [
+      'feeReportsChallans',
+      selectedSession,
+      [...selectedPrograms].sort().join(','),
+      [...selectedClasses].sort().join(','),
+      [...selectedSections].sort().join(','),
+      selectedMonth,
+    ],
     queryFn: () => getFeeChallans({
       sessionId: selectedSession !== 'all' ? selectedSession : undefined,
-      programId: selectedProgram !== 'all' ? selectedProgram : undefined,
-      classId: selectedClass !== 'all' ? selectedClass : undefined,
-      sectionId: selectedSection !== 'all' ? selectedSection : undefined,
+      programId: programParam,
+      classId: classParam,
+      sectionId: sectionParam,
       month: selectedMonth !== 'all' ? selectedMonth : undefined,
       status: 'PENDING,PARTIAL,OVERDUE',
-      limit: 1000,
+      limit: 10000,
+      report: 'true',
     }),
-    enabled: Boolean(selectedProgram),
+    enabled: selectedPrograms.length > 0,
   });
 
   // Derived student fee summaries
@@ -231,6 +266,20 @@ export const FeeReportsTab = ({
       // Challan data: pending challans only
       if (pendingAmount <= 0) continue;
 
+      // Multi-select client-side filtering if multiple programs / classes / sections selected
+      if (selectedPrograms.length > 1) {
+        const pId = extractId(c.studentProgram || c.student?.programId);
+        if (pId && !selectedPrograms.includes(pId)) continue;
+      }
+      if (selectedClasses.length > 1) {
+        const clId = extractId(c.studentClass || c.student?.classId);
+        if (clId && !selectedClasses.includes(clId)) continue;
+      }
+      if (selectedSections.length > 1) {
+        const scId = extractId(c.studentSection || c.student?.sectionId);
+        if (scId && !selectedSections.includes(scId)) continue;
+      }
+
       const sId = extractId(c.studentId || c.student) || c.rollNumber || c.studentName;
       if (!sId) continue;
 
@@ -245,6 +294,7 @@ export const FeeReportsTab = ({
           studentName: c.studentName || 'Unknown Student',
           fatherName: c.fatherName || '-',
           rollNumber: c.rollNumber || '-',
+          programName: progName || 'General',
           programClassSection: pcs,
           pendingChallans: [],
           totalPaid: 0,
@@ -281,7 +331,23 @@ export const FeeReportsTab = ({
     }
 
     return list;
-  }, [challansResponse, searchQuery, effectiveLateFeeRate]);
+  }, [challansResponse, searchQuery, effectiveLateFeeRate, selectedPrograms, selectedClasses, selectedSections]);
+
+  // Partition studentReports by Program for grouped display
+  const groupedReports = useMemo(() => {
+    if (selectedPrograms.length <= 1 && selectedClasses.length === 0) {
+      return [{ groupLabel: null, students: studentReports }];
+    }
+    const groups = {};
+    for (const s of studentReports) {
+      const key = s.programName || "General";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(s);
+    }
+    return Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([label, students]) => ({ groupLabel: label, students }));
+  }, [studentReports, selectedPrograms, selectedClasses]);
 
   // Auto-expand first student when records first load
   React.useEffect(() => {
@@ -332,14 +398,16 @@ export const FeeReportsTab = ({
     }
 
     const sessionObj = sessionList.find(s => extractId(s) === selectedSession);
-    const progObj = programsList.find(p => extractId(p) === selectedProgram);
-    const classObj = classesList.find(c => extractId(c) === selectedClass);
-    const secObj = sectionsList.find(s => extractId(s) === selectedSection);
-
     const sessionName = sessionObj?.name || sessionObj?.sessionName || (selectedSession === 'all' ? 'All Sessions' : 'Selected Session');
-    const programName = progObj?.name || progObj?.programName || (selectedProgram === 'all' ? 'All Programs' : 'Selected Program');
-    const className = classObj?.name || classObj?.className || (selectedClass === 'all' ? 'All Classes' : 'Selected Class');
-    const sectionName = secObj?.name || secObj?.sectionName || (selectedSection === 'all' ? 'All Sections' : '-');
+    const programName = selectedPrograms.length === 0
+      ? 'All Programs'
+      : selectedPrograms.map(id => programsList.find(p => extractId(p) === id)?.name || id).join(', ');
+    const className = selectedClasses.length === 0
+      ? 'All Classes'
+      : selectedClasses.map(id => classesList.find(c => extractId(c) === id)?.name || id).join(', ');
+    const sectionName = selectedSections.length === 0
+      ? 'All Sections'
+      : selectedSections.map(id => sectionsList.find(s => extractId(s) === id)?.name || id).join(', ');
     const monthName = selectedMonth === 'all' ? 'All Months' : selectedMonth;
     const exportDate = format(new Date(), "dd MMMM yyyy, hh:mm a");
 
@@ -624,53 +692,66 @@ export const FeeReportsTab = ({
                 </tr>
               </thead>
               <tbody>
-                ${studentReports.map((s, idx) => `
-                  <tr class="student-row no-break">
-                    <td>${idx + 1}</td>
-                    <td>${s.studentName}</td>
-                    <td>${s.fatherName}</td>
-                    <td>${s.rollNumber}</td>
-                    <td>${s.programClassSection}</td>
-                    <td class="text-right">PKR ${s.totalPaid.toLocaleString()}</td>
-                    <td class="text-right"><span class="badge-pending">PKR ${s.totalPending.toLocaleString()}</span></td>
-                  </tr>
-                  <tr class="no-break">
-                    <td colspan="7" style="padding: 0;">
-                      <div class="subtable-wrapper">
-                        <table class="subtable">
-                          <thead>
-                            <tr>
-                              <th>Challan No.</th>
-                              <th>Month</th>
-                              <th>Installment #</th>
-                              <th class="text-right">Total Amount</th>
-                              <th class="text-right">Paid</th>
-                              <th class="text-right">Pending</th>
-                              <th style="text-align: center;">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            ${s.pendingChallans.map(c => `
+                ${groupedReports.map((group) => {
+                  const groupHeaderHtml = group.groupLabel ? `
+                    <tr style="background: #f1f5f9; break-inside: avoid;">
+                      <td colspan="7" style="padding: 8px 10px; font-weight: 700; font-size: 11px; color: #0f172a; border-bottom: 2px solid #cbd5e1; text-align: left;">
+                        ${group.groupLabel}
+                        <span style="font-weight: 400; font-size: 9px; color: #64748b; margin-left: 8px;">(${group.students.length} ${group.students.length === 1 ? 'student with dues' : 'students with dues'})</span>
+                      </td>
+                    </tr>
+                  ` : '';
+
+                  const rowsHtml = group.students.map((s, idx) => `
+                    <tr class="student-row no-break">
+                      <td>${idx + 1}</td>
+                      <td>${s.studentName}</td>
+                      <td>${s.fatherName}</td>
+                      <td>${s.rollNumber}</td>
+                      <td>${s.programClassSection}</td>
+                      <td class="text-right">PKR ${s.totalPaid.toLocaleString()}</td>
+                      <td class="text-right"><span class="badge-pending">PKR ${s.totalPending.toLocaleString()}</span></td>
+                    </tr>
+                    <tr class="no-break">
+                      <td colspan="7" style="padding: 0;">
+                        <div class="subtable-wrapper">
+                          <table class="subtable">
+                            <thead>
                               <tr>
-                                <td>#${c.challanNo}</td>
-                                <td>${c.month}</td>
-                                <td>${c.installmentNumber}</td>
-                                <td class="text-right">PKR ${c.totalAmount.toLocaleString()}</td>
-                                <td class="text-right">PKR ${c.paidAmount.toLocaleString()}</td>
-                                <td class="text-right" style="color: #991b1b; font-weight: 600;">PKR ${c.pendingAmount.toLocaleString()}</td>
-                                <td style="text-align: center;">
-                                  <span class="badge-status ${c.status === 'PARTIAL' ? 'status-partial' : 'status-pending'}">
-                                    ${c.status}
-                                  </span>
-                                </td>
+                                <th>Challan No.</th>
+                                <th>Month</th>
+                                <th>Installment #</th>
+                                <th class="text-right">Total Amount</th>
+                                <th class="text-right">Paid</th>
+                                <th class="text-right">Pending</th>
+                                <th style="text-align: center;">Status</th>
                               </tr>
-                            `).join('')}
-                          </tbody>
-                        </table>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
+                            </thead>
+                            <tbody>
+                              ${s.pendingChallans.map(c => `
+                                <tr>
+                                  <td>#${c.challanNo}</td>
+                                  <td>${c.month}</td>
+                                  <td>${c.installmentNumber}</td>
+                                  <td class="text-right">PKR ${c.totalAmount.toLocaleString()}</td>
+                                  <td class="text-right">PKR ${c.paidAmount.toLocaleString()}</td>
+                                  <td class="text-right" style="color: #991b1b; font-weight: 600;">PKR ${c.pendingAmount.toLocaleString()}</td>
+                                  <td style="text-align: center;">
+                                    <span class="badge-status ${c.status === 'PARTIAL' ? 'status-partial' : 'status-pending'}">
+                                      ${c.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              `).join('')}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('');
+
+                  return groupHeaderHtml + rowsHtml;
+                }).join('')}
               </tbody>
               <tfoot>
                 <tr class="grand-total-row no-break">
@@ -931,14 +1012,14 @@ export const FeeReportsTab = ({
                 </Button>
               </>
             )}
-            {(selectedProgram || selectedSession !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedMonth !== "all" || searchQuery) && (
+            {(selectedPrograms.length > 0 || selectedSession !== "all" || selectedClasses.length > 0 || selectedSections.length > 0 || selectedMonth !== "all" || searchQuery) && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  setSelectedProgram("");
-                  setSelectedClass("all");
-                  setSelectedSection("all");
+                  setSelectedPrograms([]);
+                  setSelectedClasses([]);
+                  setSelectedSections([]);
                   setSelectedSession("all");
                   setSelectedMonth("all");
                   setSearchQuery("");
@@ -984,29 +1065,15 @@ export const FeeReportsTab = ({
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Program <span className="text-primary font-bold">*</span>
               </Label>
-              <Select
-                value={selectedProgram}
-                onValueChange={(val) => {
-                  setSelectedProgram(val);
-                  setSelectedClass("all");
-                  setSelectedSection("all");
-                }}
-              >
-                <SelectTrigger className={`h-9 text-xs ${!selectedProgram ? "border-amber-400/80 bg-amber-50/30 dark:bg-amber-950/20" : ""}`}>
-                  <SelectValue placeholder="Select Program..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Programs</SelectItem>
-                  {programsList.map(p => {
-                    const val = extractId(p);
-                    return (
-                      <SelectItem key={val} value={val}>
-                        {p.name || p.programName || p.title}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={programsList.map(p => ({ value: extractId(p), label: p.name || p.programName || p.title }))}
+                selected={selectedPrograms}
+                onChange={handleProgramsChange}
+                placeholder="Select Programs..."
+                allLabel="All Programs"
+                defaultSelectedAll={false}
+                triggerClassName={`h-9 text-xs ${selectedPrograms.length === 0 ? "border-amber-400/80 bg-amber-50/30 dark:bg-amber-950/20" : ""}`}
+              />
             </div>
 
             {/* Class */}
@@ -1014,56 +1081,31 @@ export const FeeReportsTab = ({
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Class
               </Label>
-              <Select
-                value={selectedClass}
-                onValueChange={(val) => {
-                  setSelectedClass(val);
-                  setSelectedSection("all");
-                }}
-                disabled={!selectedProgram}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="All Classes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Classes</SelectItem>
-                  {availableClasses.map(c => {
-                    const val = extractId(c);
-                    return (
-                      <SelectItem key={val} value={val}>
-                        {c.name || c.className}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={availableClasses.map(c => ({ value: extractId(c), label: c.name || c.className }))}
+                selected={selectedClasses}
+                onChange={handleClassesChange}
+                placeholder="Classes"
+                allLabel="All Classes"
+                disabled={selectedPrograms.length === 0}
+                triggerClassName="h-9 text-xs"
+              />
             </div>
 
             {/* Section (if applicable) */}
             <div className="space-y-1">
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Section {isSectionApplicable ? "" : "(N/A)"}
+                Section {!isSectionApplicable ? "(N/A)" : ""}
               </Label>
-              <Select
-                value={selectedSection}
-                onValueChange={setSelectedSection}
-                disabled={!isSectionApplicable || availableSections.length === 0}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder={isSectionApplicable ? "All Sections" : "N/A"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sections</SelectItem>
-                  {availableSections.map(s => {
-                    const val = extractId(s);
-                    return (
-                      <SelectItem key={val} value={val}>
-                        {s.name || s.sectionName}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={availableSections.map(s => ({ value: extractId(s), label: s.name || s.sectionName }))}
+                selected={selectedSections}
+                onChange={setSelectedSections}
+                placeholder="Sections"
+                allLabel="All Sections"
+                disabled={!isSectionApplicable || availableSections.length === 0 || selectedPrograms.length === 0}
+                triggerClassName="h-9 text-xs"
+              />
             </div>
 
             {/* Month */}
@@ -1071,7 +1113,7 @@ export const FeeReportsTab = ({
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Month
               </Label>
-              <Select value={selectedMonth} onValueChange={setSelectedMonth} disabled={!selectedProgram}>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth} disabled={selectedPrograms.length === 0}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="All Months" />
                 </SelectTrigger>
@@ -1096,14 +1138,14 @@ export const FeeReportsTab = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-8 text-xs"
-                  disabled={!selectedProgram}
+                  disabled={selectedPrograms.length === 0}
                 />
               </div>
             </div>
           </div>
 
           {/* Content Body */}
-          {!selectedProgram ? (
+          {selectedPrograms.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed rounded-lg bg-muted/10 my-4 space-y-3">
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                 <FileSpreadsheet className="w-6 h-6" />
@@ -1111,7 +1153,7 @@ export const FeeReportsTab = ({
               <div>
                 <h3 className="font-semibold text-sm text-foreground">Select a Program to View Reports</h3>
                 <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                  Choose a program from the filter dropdown above (or select <strong>"All Programs"</strong>) to load student fee dues and pending challans.
+                  Choose one or more programs from the filter dropdown above (or click <strong>"All"</strong>) to load student fee dues and pending challans.
                 </p>
               </div>
             </div>
@@ -1130,9 +1172,9 @@ export const FeeReportsTab = ({
             </div>
           ) : (
             <div className="rounded-lg border border-border overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
                 <Table className="w-full text-xs">
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
                     <TableRow className="bg-muted/50 hover:bg-muted/50 border-b">
                       <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground w-12">#</TableHead>
                       <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Student</TableHead>
@@ -1144,110 +1186,126 @@ export const FeeReportsTab = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {studentReports.map((student, idx) => {
-                      const isExpanded = expandedStudentIds.has(student.id);
-                      return (
-                        <React.Fragment key={student.id}>
-                          <TableRow
-                            onClick={() => toggleStudent(student.id)}
-                            className={`cursor-pointer transition-colors hover:bg-muted/40 ${
-                              isExpanded ? "bg-muted/20" : ""
-                            }`}
-                          >
-                            <TableCell className="py-3 px-3">
-                              <div className="flex items-center gap-1.5 font-medium">
-                                {isExpanded ? (
-                                  <ChevronDown className="w-3.5 h-3.5 text-primary" />
-                                ) : (
-                                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                                )}
-                                <span>{idx + 1}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="py-3 px-3 font-semibold text-foreground">
-                              {student.studentName}
-                            </TableCell>
-                            <TableCell className="py-3 px-3 text-muted-foreground">
-                              {student.fatherName}
-                            </TableCell>
-                            <TableCell className="py-3 px-3 font-mono text-xs text-foreground">
-                              {student.rollNumber}
-                            </TableCell>
-                            <TableCell className="py-3 px-3 text-muted-foreground">
-                              {student.programClassSection}
-                            </TableCell>
-                            <TableCell className="py-3 px-4 text-right font-medium text-foreground">
-                              PKR {student.totalPaid.toLocaleString()}
-                            </TableCell>
-                            <TableCell className="py-3 px-4 text-right">
-                              <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
-                                PKR {student.totalPending.toLocaleString()}
+                    {groupedReports.map((group, gIdx) => (
+                      <React.Fragment key={group.groupLabel || gIdx}>
+                        {group.groupLabel && (
+                          <TableRow className="bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-100/90 border-y border-border">
+                            <TableCell colSpan={7} className="py-2 px-3 text-left">
+                              <span className="text-xs font-bold text-foreground tracking-wide">
+                                {group.groupLabel}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground ml-2 font-normal">
+                                ({group.students.length} {group.students.length === 1 ? "student with dues" : "students with dues"})
                               </span>
                             </TableCell>
                           </TableRow>
-
-                          {/* Expanded Challans Row (Flat, matching app theme, no floating box or shadow) */}
-                          {isExpanded && (
-                            <TableRow className="bg-muted/15 hover:bg-muted/15 border-b border-border/60">
-                              <TableCell colSpan={7} className="p-0">
-                                <div className="py-2.5 px-4 pl-10 border-t border-dashed border-border/60">
-                                  <div className="overflow-x-auto">
-                                    <Table className="w-full text-xs">
-                                      <TableHeader>
-                                        <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/40">
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Challan No.</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Month</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Installment #</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Total Amount</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Paid</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Pending</TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-center">Status</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {student.pendingChallans.map((c) => (
-                                          <TableRow key={c.id || c.challanNo} className="hover:bg-muted/25 border-b border-border/30">
-                                            <TableCell className="py-2 px-3 font-mono font-medium text-foreground">
-                                              #{c.challanNo}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-muted-foreground">
-                                              {c.month}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-muted-foreground">
-                                              {c.installmentNumber}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-right font-medium text-foreground">
-                                              PKR {c.totalAmount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-right text-muted-foreground">
-                                              PKR {c.paidAmount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-right text-rose-600 font-semibold">
-                                              PKR {c.pendingAmount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-center">
-                                              <span
-                                                className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-                                                  c.status === "PARTIAL"
-                                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                                                    : "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
-                                                }`}
-                                              >
-                                                {c.status}
-                                              </span>
-                                            </TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
+                        )}
+                        {group.students.map((student, idx) => {
+                          const isExpanded = expandedStudentIds.has(student.id);
+                          return (
+                            <React.Fragment key={student.id}>
+                              <TableRow
+                                onClick={() => toggleStudent(student.id)}
+                                className={`cursor-pointer transition-colors hover:bg-muted/40 ${
+                                  isExpanded ? "bg-muted/20" : ""
+                                }`}
+                              >
+                                <TableCell className="py-3 px-3">
+                                  <div className="flex items-center gap-1.5 font-medium">
+                                    {isExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5 text-primary" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                                    )}
+                                    <span>{idx + 1}</span>
                                   </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
+                                </TableCell>
+                                <TableCell className="py-3 px-3 font-semibold text-foreground">
+                                  {student.studentName}
+                                </TableCell>
+                                <TableCell className="py-3 px-3 text-muted-foreground">
+                                  {student.fatherName}
+                                </TableCell>
+                                <TableCell className="py-3 px-3 font-mono text-xs text-foreground">
+                                  {student.rollNumber}
+                                </TableCell>
+                                <TableCell className="py-3 px-3 text-muted-foreground">
+                                  {student.programClassSection}
+                                </TableCell>
+                                <TableCell className="py-3 px-4 text-right font-medium text-foreground">
+                                  PKR {student.totalPaid.toLocaleString()}
+                                </TableCell>
+                                <TableCell className="py-3 px-4 text-right">
+                                  <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                                    PKR {student.totalPending.toLocaleString()}
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+
+                              {/* Expanded Challans Row (Flat, matching app theme, no floating box or shadow) */}
+                              {isExpanded && (
+                                <TableRow className="bg-muted/15 hover:bg-muted/15 border-b border-border/60">
+                                  <TableCell colSpan={7} className="p-0">
+                                    <div className="py-2.5 px-4 pl-10 border-t border-dashed border-border/60">
+                                      <div className="overflow-x-auto">
+                                        <Table className="w-full text-xs">
+                                          <TableHeader>
+                                            <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/40">
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Challan No.</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Month</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">Installment #</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Total Amount</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Paid</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">Pending</TableHead>
+                                              <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-center">Status</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {student.pendingChallans.map((c) => (
+                                              <TableRow key={c.id || c.challanNo} className="hover:bg-muted/25 border-b border-border/30">
+                                                <TableCell className="py-2 px-3 font-mono font-medium text-foreground">
+                                                  #{c.challanNo}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-muted-foreground">
+                                                  {c.month}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-muted-foreground">
+                                                  {c.installmentNumber}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-right font-medium text-foreground">
+                                                  PKR {c.totalAmount.toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-right text-muted-foreground">
+                                                  PKR {c.paidAmount.toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-right text-rose-600 font-semibold">
+                                                  PKR {c.pendingAmount.toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="py-2 px-3 text-center">
+                                                  <span
+                                                    className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                                                      c.status === "PARTIAL"
+                                                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                                                        : "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                                                    }`}
+                                                  >
+                                                    {c.status}
+                                                  </span>
+                                                </TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
                   </TableBody>
                 </Table>
               </div>

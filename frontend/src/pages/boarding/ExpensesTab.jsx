@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -53,6 +53,7 @@ import {
   deleteHostelExpense,
   getWallets,
 } from "@/services/api";
+import { getFinanceCategories } from "../../../config/apis";
 
 export const ExpensesTab = () => {
   const { toast } = useToast();
@@ -63,6 +64,8 @@ export const ExpensesTab = () => {
   const [editMode, setEditMode] = useState({});
   const [expenseFormData, setExpenseFormData] = useState({
     expenseTitle: "",
+    category: "Hostel",
+    subCategory: "Hostel Food",
     amount: 0,
     date: new Date().toISOString().split("T")[0],
     remarks: "",
@@ -71,6 +74,25 @@ export const ExpensesTab = () => {
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState(null);
+
+  const { data: dynamicCategories = [] } = useQuery({
+    queryKey: ['financeCategories', 'EXPENSE'],
+    queryFn: () => getFinanceCategories('EXPENSE'),
+  });
+
+  const expenseCategoryMap = useMemo(() => {
+    const map = {
+      Hostel: ["Hostel Food", "Hostel Utilities", "Hostel Maintenance", "Hostel Supplies"],
+    };
+    if (dynamicCategories && dynamicCategories.length > 0) {
+      dynamicCategories.forEach((cat) => {
+        map[cat.name] = cat.subCategories || [];
+      });
+    }
+    return map;
+  }, [dynamicCategories]);
+
+  const expenseCategories = useMemo(() => Object.keys(expenseCategoryMap), [expenseCategoryMap]);
 
   const { data: hostelExpenses = [] } = useQuery({
     queryKey: ['hostelExpenses'],
@@ -102,7 +124,15 @@ export const ExpensesTab = () => {
       queryClient.invalidateQueries({ queryKey: ['walletExpenseLogs'] });
       setExpenseOpen(false);
       setEditMode({});
-      setExpenseFormData({ expenseTitle: "", amount: 0, date: new Date().toISOString().split("T")[0], remarks: "", walletId: "" });
+      setExpenseFormData({
+        expenseTitle: "",
+        category: "Hostel",
+        subCategory: "Hostel Food",
+        amount: 0,
+        date: new Date().toISOString().split("T")[0],
+        remarks: "",
+        walletId: "",
+      });
     } catch (error) {
       toast({ title: "Error", description: error.message || "Failed to save expense", variant: "destructive" });
     }
@@ -136,6 +166,8 @@ export const ExpensesTab = () => {
                 setEditMode({});
                 setExpenseFormData({
                   expenseTitle: "",
+                  category: "Hostel",
+                  subCategory: (expenseCategoryMap["Hostel"] || [])[0] || "",
                   amount: 0,
                   date: new Date().toISOString().split("T")[0],
                   remarks: "",
@@ -165,7 +197,23 @@ export const ExpensesTab = () => {
               <TableBody>
                 {hostelExpenses.map((expense) => (
                   <TableRow key={expense.id}>
-                    <TableCell className="py-2 px-3 text-sm font-medium">{expense.expenseTitle}</TableCell>
+                    <TableCell className="py-2 px-3 text-sm font-medium">
+                      <div>{expense.expenseTitle}</div>
+                      {(expense.category || expense.subCategory) && (
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {expense.category && (
+                            <Badge variant="secondary" className="text-[10px] py-0 px-1 font-normal">
+                              {expense.category}
+                            </Badge>
+                          )}
+                          {expense.subCategory && (
+                            <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-muted-foreground">
+                              {expense.subCategory}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="py-2 px-3 text-sm font-semibold text-foreground">
                       PKR {Number(expense.amount || 0).toLocaleString()}
                     </TableCell>
@@ -193,6 +241,8 @@ export const ExpensesTab = () => {
                                   setEditMode({ expense: expense.id });
                                   setExpenseFormData({
                                     expenseTitle: expense.expenseTitle,
+                                    category: expense.category || "Hostel",
+                                    subCategory: expense.subCategory || "",
                                     amount: expense.amount,
                                     date: expense.date,
                                     remarks: expense.remarks,
@@ -258,6 +308,55 @@ export const ExpensesTab = () => {
                 placeholder="e.g. Mess groceries, Gas cylinders"
               />
             </div>
+            <div>
+              <Label>Category</Label>
+              <Select
+                value={expenseFormData.category || "Hostel"}
+                onValueChange={(val) =>
+                  setExpenseFormData({
+                    ...expenseFormData,
+                    category: val,
+                    subCategory: (expenseCategoryMap[val] || [])[0] || "",
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {expenseCategories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(expenseCategoryMap[expenseFormData.category] || []).length > 0 && (
+              <div>
+                <Label>Sub Category</Label>
+                <Select
+                  value={expenseFormData.subCategory || ""}
+                  onValueChange={(val) =>
+                    setExpenseFormData({
+                      ...expenseFormData,
+                      subCategory: val,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Sub-Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(expenseCategoryMap[expenseFormData.category] || []).map((sub) => (
+                      <SelectItem key={sub} value={sub}>
+                        {sub}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Amount (PKR)</Label>
               <Input

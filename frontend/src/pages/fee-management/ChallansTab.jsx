@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +62,7 @@ import {
   getNewFeeReportSummary,
   getDefaultFeeChallanTemplate,
   getSections,
+  getFeeHeads,
 } from "@/services/api";
 
 const extractId = (val) => {
@@ -92,7 +93,7 @@ import { ChallanDetailsDialog } from "./ChallanDetailsDialog";
 import usePermissions from "@/hooks/usePermissions";
 
 export const ChallansTab = ({
-  feeHeads = [],
+  feeHeads: propFeeHeads = [],
   programs = [],
   classes = [],
   departments = [],
@@ -212,6 +213,27 @@ export const ChallansTab = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPrintingKey, setGeneratedPrintingKey] = useState("");
   const sessionManuallySet = useRef(false);
+
+  // Fee Heads Query and Selection for Generate Monthly Challans
+  const [selectedFeeHeadIds, setSelectedFeeHeadIds] = useState([]);
+  const [studentsWithHeadsExcluded, setStudentsWithHeadsExcluded] = useState([]);
+  const { data: rawFeeHeads = [] } = useQuery({
+    queryKey: ['feeHeads'],
+    queryFn: getFeeHeads,
+    enabled: !propFeeHeads || propFeeHeads.length === 0,
+  });
+  const feeHeads = useMemo(() => {
+    const list = (propFeeHeads && propFeeHeads.length > 0) ? propFeeHeads : rawFeeHeads;
+    return Array.isArray(list) ? list : (Array.isArray(list?.data) ? list.data : []);
+  }, [propFeeHeads, rawFeeHeads]);
+
+  const selectedHeads = useMemo(() => {
+    return feeHeads.filter(h => selectedFeeHeadIds.includes(extractId(h)));
+  }, [feeHeads, selectedFeeHeadIds]);
+
+  const totalSelectedHeadsAmount = useMemo(() => {
+    return selectedHeads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+  }, [selectedHeads]);
 
   // Sections Query for Class->Section cascading
   const { data: sections = [] } = useQuery({
@@ -1888,22 +1910,24 @@ export const ChallansTab = ({
           setBulkDueDate(null);
           setBulkStudents([]);
           setSelectedBulkStudents([]);
+          setSelectedFeeHeadIds([]);
+          setStudentsWithHeadsExcluded([]);
           setGenerationErrors({});
         }
       }}>
-        <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
-          <DialogHeader className="pb-1 border-b mb-2">
+        <DialogContent className="max-w-4xl px-1 py-2 sm:px-1 sm:py-3 max-h-[96vh] flex flex-col overflow-hidden">
+          <DialogHeader className="pb-1 border-b mb-1.5 px-1">
             <DialogTitle className="text-base font-bold">Generate Monthly Challans</DialogTitle>
           </DialogHeader>
 
-          <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[11px] text-yellow-800 leading-tight">
+          <div className="mx-1 mb-2 px-1 py-1.5 bg-yellow-50 border border-yellow-200 rounded text-[11px] text-yellow-800 leading-tight">
             <strong>Hint:</strong> To generate challans for fee heads like Fine, Lab Fee, Library Fee, etc. (not tied to installments), please use the <strong>"Extra Challans"</strong> tab.
           </div>
 
           {!generateResults ? (
-            <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-              <div className="space-y-3">
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
+            <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden px-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+              <div className="space-y-2">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-3 px-1">
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Select Month</Label>
                     <MonthPicker
@@ -1954,7 +1978,7 @@ export const ChallansTab = ({
                   </div>
                 </div>
 
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-3 px-1">
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Program</Label>
                     <Select
@@ -2019,19 +2043,95 @@ export const ChallansTab = ({
                     </Select>
                   </div>
                 </div>
+
+                {/* Fee Heads Selection */}
+                <div className="space-y-1 pt-1 border-t border-slate-100 px-1">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Label className="text-[10px] sm:text-[11px] font-bold uppercase text-muted-foreground">
+                        Fee Heads
+                      </Label>
+                      <span className="text-[9px] sm:text-[10px] text-slate-500 font-medium">
+                        ({selectedFeeHeadIds.length} of {feeHeads.length} selected{totalSelectedHeadsAmount > 0 ? ` • +PKR ${formatAmount(totalSelectedHeadsAmount)}` : ""})
+                      </span>
+                    </div>
+                    {feeHeads.length > 0 && (
+                      <div className="flex gap-1.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 text-[9.5px] sm:text-[10px] px-1"
+                          onClick={() => setSelectedFeeHeadIds(feeHeads.map(h => extractId(h)))}
+                        >
+                          Select All
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 text-[9.5px] sm:text-[10px] px-1 text-red-500"
+                          onClick={() => setSelectedFeeHeadIds([])}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {feeHeads.length === 0 ? (
+                    <div className="text-[11px] text-muted-foreground italic py-0.5">No fee heads configured in Fee Heads tab.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-slate-50/70 border border-slate-200 rounded">
+                      {feeHeads.map(head => {
+                        const hId = extractId(head);
+                        const isSelected = selectedFeeHeadIds.includes(hId);
+                        const headAmount = Number(head.amount) || 0;
+                        return (
+                          <label
+                            key={hId}
+                            className={cn(
+                              "flex items-center gap-1 px-1 py-0.5 rounded border text-xs cursor-pointer select-none transition-colors",
+                              isSelected
+                                ? "bg-primary/10 border-primary text-primary font-medium"
+                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-primary h-3.5 w-3.5 cursor-pointer rounded"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedFeeHeadIds(prev => [...prev, hId]);
+                                } else {
+                                  setSelectedFeeHeadIds(prev => prev.filter(id => id !== hId));
+                                }
+                              }}
+                            />
+                            <span className="text-[11px]">{head.name}</span>
+                            <span className="text-[10px] font-semibold text-slate-500 font-mono">
+                              (PKR {formatAmount(headAmount)})
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Student List */}
-              <div className="space-y-1.5 pt-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[11px] font-bold uppercase text-muted-foreground">
+              <div className="space-y-1.5 pt-1 border-t border-slate-100 px-1">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <Label className="text-[10px] sm:text-[11px] font-bold uppercase text-muted-foreground">
                     Students ({selectedBulkStudents.length} of {bulkStudents.length} selected)
                   </Label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 text-[10px] px-2"
+                      className="h-5 text-[9.5px] sm:text-[10px] px-1"
                       onClick={() => setSelectedBulkStudents(bulkStudents.map(s => s.id))}
                     >
                       Select All
@@ -2039,7 +2139,7 @@ export const ChallansTab = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 text-[10px] px-2 text-red-500"
+                      className="h-5 text-[9.5px] sm:text-[10px] px-1 text-red-500"
                       onClick={() => setSelectedBulkStudents([])}
                     >
                       Clear
@@ -2047,177 +2147,218 @@ export const ChallansTab = ({
                   </div>
                 </div>
 
-                <div className="border rounded-md max-h-60 overflow-y-auto">
-                  <Table>
-                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
-                      <TableRow className="h-7 text-[10px]">
-                        <TableHead className="w-8 p-1 text-center">#</TableHead>
-                        <TableHead className="p-1">Student</TableHead>
-                        <TableHead className="p-1 text-right">Base Tuition</TableHead>
-                        <TableHead className="p-1 text-right">Arrears</TableHead>
-                        <TableHead className="p-1 text-right">Absent Fine</TableHead>
-                        <TableHead className="p-1 text-right">Advance Credit</TableHead>
-                        <TableHead className="p-1 text-right">Net Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {isFetchingBulkStudents ? (
-                        <TableRow><TableCell colSpan={7} className="text-center py-6 text-xs text-muted-foreground">Fetching students...</TableCell></TableRow>
-                      ) : bulkStudents.length === 0 ? (
-                        <TableRow><TableCell colSpan={7} className="text-center py-6 text-xs text-muted-foreground italic">No students match filter.</TableCell></TableRow>
-                      ) : (
-                        bulkStudents.map(student => {
-                          const [, sm] = (generateForm.month || '').split('-').map(Number);
-                          const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-                          const mName = sm ? (monthNames[sm - 1] || '').toLowerCase() : '';
-                          const matchingInst = (student.feeInstallments || []).find(i => (i.month || '').trim().toLowerCase() === mName);
-                          const baseAmount = matchingInst?.amount || matchingInst?.basePayable || student.tuitionFee || 0;
-                          const currentInstNumber = matchingInst?.installmentNumber || 1;
-                          const currentDueDate = matchingInst?.dueDate ? new Date(matchingInst.dueDate) : (bulkDueDate || new Date());
+                <div className="border rounded-md max-h-72 overflow-y-auto p-1 bg-slate-50/50">
+                  {isFetchingBulkStudents ? (
+                    <div className="text-center py-8 text-xs text-muted-foreground">Fetching students...</div>
+                  ) : bulkStudents.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-muted-foreground italic">No students match filter.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                      {bulkStudents.map(student => {
+                        const [, sm] = (generateForm.month || '').split('-').map(Number);
+                        const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+                        const mName = sm ? (monthNames[sm - 1] || '').toLowerCase() : '';
+                        const matchingInst = (student.feeInstallments || []).find(i => (i.month || '').trim().toLowerCase() === mName);
+                        const baseAmount = matchingInst?.amount || matchingInst?.basePayable || student.tuitionFee || 0;
+                        const currentInstNumber = matchingInst?.installmentNumber || 1;
+                        const currentDueDate = matchingInst?.dueDate ? new Date(matchingInst.dueDate) : (bulkDueDate || new Date());
 
-                          // Calculate carried arrears for this student from prior unpaid challans
-                          const priorChallans = Array.isArray(student.challans) ? student.challans : [];
-                          const unpaidPriorChallans = priorChallans.filter(c =>
-                            ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status) &&
-                            (c.month || '').trim().toLowerCase() !== mName &&
-                            (c.installmentNumber < currentInstNumber || (c.dueDate && new Date(c.dueDate) < currentDueDate))
+                        // Calculate carried arrears for this student from prior unpaid challans
+                        const priorChallans = Array.isArray(student.challans) ? student.challans : [];
+                        const unpaidPriorChallans = priorChallans.filter(c =>
+                          ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status) &&
+                          (c.month || '').trim().toLowerCase() !== mName &&
+                          (c.installmentNumber < currentInstNumber || (c.dueDate && new Date(c.dueDate) < currentDueDate))
+                        );
+
+                        const arrearsFromChallans = unpaidPriorChallans.reduce((sum, c) => {
+                          const target = (c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
+                            ? Number(c.netPayable)
+                            : (Number(c.totalAmount) || Number(c.amount) || Number(c.basePayable) || 0);
+                          const paid = Number(c.paidAmount || 0);
+                          return sum + Math.max(0, target - paid);
+                        }, 0);
+
+                        // Also check prior installments not yet generated into challans that are unpaid
+                        const priorInsts = (student.feeInstallments || []).filter(inst => {
+                          if (inst.installmentNumber >= currentInstNumber) return false;
+                          const isPaid = ['PAID', 'SETTLED', 'SUPERSEDED'].includes(inst.status) || (Number(inst.pendingAmount ?? inst.amount ?? 0) <= Number(inst.paidAmount || 0) && Number(inst.paidAmount || 0) > 0);
+                          const hasChallan = priorChallans.some(c =>
+                            (c.installmentNumber && c.installmentNumber === inst.installmentNumber) ||
+                            (c.installmentId && c.installmentId.toString() === inst._id?.toString()) ||
+                            (c.month && inst.month && c.month.toLowerCase() === inst.month.toLowerCase())
                           );
+                          return !isPaid && !hasChallan;
+                        });
 
-                          const arrearsFromChallans = unpaidPriorChallans.reduce((sum, c) => {
-                            const target = (c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
-                              ? Number(c.netPayable)
-                              : (Number(c.totalAmount) || Number(c.amount) || Number(c.basePayable) || 0);
-                            const paid = Number(c.paidAmount || 0);
-                            return sum + Math.max(0, target - paid);
-                          }, 0);
+                        const arrearsFromInsts = priorInsts.reduce((sum, inst) => {
+                          const pending = Number(inst.pendingAmount ?? inst.amount ?? 0) - Number(inst.paidAmount || 0);
+                          return sum + Math.max(0, pending);
+                        }, 0);
 
-                          // Also check prior installments not yet generated into challans that are unpaid
-                          const priorInsts = (student.feeInstallments || []).filter(inst => {
-                            if (inst.installmentNumber >= currentInstNumber) return false;
-                            const isPaid = ['PAID', 'SETTLED', 'SUPERSEDED'].includes(inst.status) || (Number(inst.pendingAmount ?? inst.amount ?? 0) <= Number(inst.paidAmount || 0) && Number(inst.paidAmount || 0) > 0);
-                            const hasChallan = priorChallans.some(c =>
-                              (c.installmentNumber && c.installmentNumber === inst.installmentNumber) ||
-                              (c.installmentId && c.installmentId.toString() === inst._id?.toString()) ||
-                              (c.month && inst.month && c.month.toLowerCase() === inst.month.toLowerCase())
-                            );
-                            return !isPaid && !hasChallan;
-                          });
+                        const arrearsAmount = arrearsFromChallans + arrearsFromInsts;
+                        const absenteeFine = Number(student.absenteeFineAmount || 0);
+                        const absenteeCount = Number(student.absenteeCount || 0);
 
-                          const arrearsFromInsts = priorInsts.reduce((sum, inst) => {
-                            const pending = Number(inst.pendingAmount ?? inst.amount ?? 0) - Number(inst.paidAmount || 0);
-                            return sum + Math.max(0, pending);
-                          }, 0);
+                        const isChecked = selectedBulkStudents.includes(student.id);
+                        const isHeadExcluded = studentsWithHeadsExcluded.includes(student.id);
+                        const hasHeads = isChecked && !isHeadExcluded && selectedHeads.length > 0;
+                        const headsAmount = hasHeads ? totalSelectedHeadsAmount : 0;
 
-                          const arrearsAmount = arrearsFromChallans + arrearsFromInsts;
-                          const absenteeFine = Number(student.absenteeFineAmount || 0);
-                          const absenteeCount = Number(student.absenteeCount || 0);
-                          const grossAmount = baseAmount + arrearsAmount + absenteeFine;
-                          const availableAdvance = Number(student.availableAdvanceCredit || 0);
-                          const advanceCredit = Math.min(grossAmount, availableAdvance);
-                          const netAmount = Math.max(0, grossAmount - advanceCredit);
+                        const grossAmount = baseAmount + headsAmount + arrearsAmount + absenteeFine;
+                        const availableAdvance = Number(student.availableAdvanceCredit || 0);
+                        const advanceCredit = Math.min(grossAmount, availableAdvance);
+                        const netAmount = Math.max(0, grossAmount - advanceCredit);
 
-                          return (
-                            <TableRow key={student.id} className="h-8 text-xs">
-                              <TableCell className="w-8 p-1 text-center">
+                        return (
+                          <div
+                            key={student.id}
+                            className={cn(
+                              "border rounded px-1 py-1 sm:py-1.5 bg-white transition-all text-xs flex flex-col justify-between gap-1 overflow-hidden",
+                              isChecked
+                                ? "border-primary/50 shadow-xs bg-primary/[0.02]"
+                                : "border-slate-200 hover:border-slate-300 opacity-80"
+                            )}
+                          >
+                            {/* Row 1: Checkbox & Student Details */}
+                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1 px-0.5 sm:px-1">
+                              <label className="flex items-center gap-1.5 cursor-pointer min-w-0 flex-1 overflow-hidden">
                                 <input
                                   type="checkbox"
-                                  className="accent-primary h-3.5 w-3.5 cursor-pointer"
-                                  checked={selectedBulkStudents.includes(student.id)}
+                                  className="accent-primary h-3.5 w-3.5 cursor-pointer rounded shrink-0"
+                                  checked={isChecked}
                                   onChange={(e) => {
                                     if (e.target.checked) setSelectedBulkStudents([...selectedBulkStudents, student.id]);
                                     else setSelectedBulkStudents(selectedBulkStudents.filter(id => id !== student.id));
                                   }}
                                 />
-                              </TableCell>
-                              <TableCell className="p-1 font-medium">
-                                <div className="flex flex-col">
-                                  <span>
-                                    {student.fName} {student.lName || ""}
-                                    <span className="text-[10px] text-muted-foreground ml-1.5 uppercase">({student.rollNumber})</span>
+                                <span className="font-semibold text-slate-800 truncate text-[10.5px] sm:text-[11.5px] max-w-full">
+                                  {student.fName} {student.lName || ""}
+                                  <span className="text-[9px] sm:text-[10px] text-muted-foreground ml-1 font-mono uppercase font-normal shrink-0">
+                                    ({student.rollNumber})
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {student.class?.name || student.classId?.name || ""}
-                                    {(student.section?.name || student.sectionId?.name) ? ` • ${student.section?.name || student.sectionId?.name}` : ""}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-1 text-right font-medium">
-                                PKR {formatAmount(baseAmount)}
-                              </TableCell>
-                              <TableCell className="p-1 text-right font-medium">
-                                {arrearsAmount > 0 ? (
-                                  <span className="text-amber-600 font-semibold">PKR {formatAmount(arrearsAmount)}</span>
-                                ) : (
-                                  <span className="text-muted-foreground/60">—</span>
+                                </span>
+                              </label>
+                              <span className="text-[8.5px] sm:text-[10px] text-muted-foreground shrink-0 text-right max-w-[45%] truncate font-medium">
+                                {student.class?.name || student.classId?.name || ""}
+                                {(student.section?.name || student.sectionId?.name) ? ` • ${student.section?.name || student.sectionId?.name}` : ""}
+                              </span>
+                            </div>
+
+                            {/* Row 2: base tuition, heads, arrears upto net amount */}
+                            <div className="grid grid-cols-6 gap-0.5 sm:gap-1 px-0.5 sm:px-1 pt-0.5 items-center w-full">
+                              <div className="flex flex-col items-start min-w-0 overflow-hidden" title={`Tuition: ${formatAmount(baseAmount)}`}>
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-left">
+                                  Tuition
+                                </span>
+                                <span className="text-[8px] sm:text-[10.5px] font-semibold text-slate-700 font-mono truncate max-w-full text-left">
+                                  {formatAmount(baseAmount)}
+                                </span>
+                              </div>
+                              <div
+                                className={cn(
+                                  "flex flex-col items-center min-w-0 overflow-hidden",
+                                  isChecked && selectedHeads.length > 0 && "cursor-pointer hover:bg-slate-100 rounded px-0.5 select-none"
                                 )}
-                              </TableCell>
-                              <TableCell className="p-1 text-right font-medium">
-                                {absenteeFine > 0 ? (
-                                  <div className="flex flex-col items-end">
-                                    <span className="text-rose-600 font-semibold font-mono">
-                                      PKR {formatAmount(absenteeFine)}
-                                    </span>
-                                    <span className="text-[9px] text-muted-foreground">
-                                      {absenteeCount} {absenteeCount === 1 ? 'absentie' : 'absenties'}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="text-muted-foreground/60">—</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="p-1 text-right font-medium">
-                                {advanceCredit > 0 ? (
-                                  <div className="flex flex-col items-end">
-                                    <span className="text-purple-600 font-semibold font-mono">
-                                      -PKR {formatAmount(advanceCredit)}
-                                    </span>
-                                    {advanceCredit >= grossAmount ? (
-                                      <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1 rounded border border-emerald-200">
-                                        Fully Covered
-                                      </span>
-                                    ) : (
-                                      <span className="text-[9px] text-purple-700 bg-purple-50 px-1 rounded border border-purple-200">
-                                        Advance Adjusted
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-muted-foreground/60">—</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="p-1 text-right font-bold text-primary">
-                                <div className="flex flex-col items-end">
-                                  <span className={netAmount === 0 ? "text-emerald-600 font-mono" : "text-primary font-mono"}>
-                                    PKR {formatAmount(netAmount)}
-                                  </span>
-                                  {netAmount === 0 && grossAmount > 0 && (
-                                    <span className="text-[9px] text-emerald-600 font-medium font-sans">
-                                      Covered in Advance
-                                    </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
+                                title={
+                                  !isChecked
+                                    ? "Select challan to apply fee heads"
+                                    : selectedHeads.length === 0
+                                    ? "No fee heads selected"
+                                    : hasHeads
+                                    ? `Heads: +${formatAmount(headsAmount)} (Click to exclude from this challan)`
+                                    : "Fee heads excluded (Click to apply to this challan)"
+                                }
+                                onClick={() => {
+                                  if (!isChecked || selectedHeads.length === 0) return;
+                                  setStudentsWithHeadsExcluded(prev =>
+                                    prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id]
+                                  );
+                                }}
+                              >
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-center">
+                                  Heads
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] sm:text-[10.5px] font-mono truncate max-w-full text-center",
+                                  hasHeads ? "text-primary font-semibold" : "text-muted-foreground/60"
+                                )}>
+                                  {hasHeads ? `+${formatAmount(headsAmount)}` : "—"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-center min-w-0 overflow-hidden" title={`Arrears: ${arrearsAmount > 0 ? `+${formatAmount(arrearsAmount)}` : '0'}`}>
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-center">
+                                  Arrears
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] sm:text-[10.5px] font-mono truncate max-w-full text-center",
+                                  arrearsAmount > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground/60"
+                                )}>
+                                  {arrearsAmount > 0 ? `+${formatAmount(arrearsAmount)}` : "—"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-center min-w-0 overflow-hidden" title={`Absent: ${absenteeFine > 0 ? `+${formatAmount(absenteeFine)}` : '0'}`}>
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-center">
+                                  Absent
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] sm:text-[10.5px] font-mono truncate max-w-full text-center",
+                                  absenteeFine > 0 ? "text-rose-600 font-semibold" : "text-muted-foreground/60"
+                                )}>
+                                  {absenteeFine > 0 ? `+${formatAmount(absenteeFine)}` : "—"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-center min-w-0 overflow-hidden" title={`Advance Adjusted: ${advanceCredit > 0 ? `-${formatAmount(advanceCredit)}` : '0'}`}>
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-center">
+                                  Advance
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] sm:text-[10.5px] font-mono truncate max-w-full text-center",
+                                  advanceCredit > 0 ? "text-purple-600 font-semibold" : "text-muted-foreground/60"
+                                )}>
+                                  {advanceCredit > 0 ? `-${formatAmount(advanceCredit)}` : "—"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-end min-w-0 overflow-hidden" title={`Net Payable: PKR ${formatAmount(netAmount)}`}>
+                                <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-right">
+                                  Net
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] sm:text-[10.5px] font-bold font-mono truncate max-w-full text-right",
+                                  netAmount === 0 ? "text-emerald-600" : "text-primary"
+                                )}>
+                                  <span className="hidden sm:inline text-[7.5px] font-sans mr-0.5 font-normal">PKR </span>{formatAmount(netAmount)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t">
+              <div className="flex justify-end gap-2 pt-2 border-t px-1">
                 <Button variant="outline" size="sm" onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
                 <Button
                   size="sm"
                   disabled={selectedBulkStudents.length === 0 || !bulkDueDate || isGenerating}
                   onClick={() => {
                     setIsGenerating(true);
+                    const studentsWithHeads = selectedBulkStudents.filter(id => !studentsWithHeadsExcluded.includes(id));
                     bulkGenerateChallansMutation.mutate({
                       studentIds: selectedBulkStudents,
                       month: generateForm.month,
                       dueDate: format(bulkDueDate, "yyyy-MM-dd"),
                       sessionId: generateForm.sessionId !== "all" ? generateForm.sessionId : undefined,
+                      selectedHeads: selectedHeads.map(h => ({
+                        headId: extractId(h),
+                        name: h.name,
+                        amount: Number(h.amount) || 0,
+                        category: h.type || 'monthly'
+                      })),
+                      studentIdsWithHeads: studentsWithHeads,
                     });
                   }}
                 >

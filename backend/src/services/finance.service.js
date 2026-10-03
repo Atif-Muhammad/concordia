@@ -2,10 +2,39 @@ const {
   FinanceIncome,
   FinanceExpense,
   FinanceClosing,
+  FinanceCategory,
   Wallet,
   WalletTransaction,
   User,
 } = require('../models');
+
+const DEFAULT_EXPENSE_CATEGORIES = [
+  { name: 'Bills', subCategories: ['Electricity Bill', 'Gas Bill', 'Water Bill', 'Internet Bill', 'Telephone Bill', 'Generator Fuel'] },
+  { name: 'Payroll', subCategories: ['Teaching Salaries', 'Non-Teaching Salaries', 'Contract Wages', 'Bonuses', 'Payroll Taxes'] },
+  { name: 'Operations', subCategories: ['Office Supplies', 'Printing & Stationery', 'Software Subscription', 'Bank Charges', 'Courier'] },
+  { name: 'Maintenance', subCategories: ['Building Repair', 'Equipment Repair', 'Vehicle Maintenance', 'Cleaning', 'Security Services'] },
+  { name: 'Academic', subCategories: ['Books & Library', 'Lab Consumables', 'Exam Material', 'Training & Workshops', 'Sports Material'] },
+  { name: 'StudentWelfare', subCategories: ['Scholarships', 'Events', 'Medical Support', 'Transport Support', 'Meal Support'] },
+  { name: 'Hostel', subCategories: ['Hostel Food', 'Hostel Utilities', 'Hostel Maintenance', 'Hostel Supplies'] },
+  { name: 'Compliance', subCategories: ['Tax Payment', 'Legal Fee', 'Licensing & NOC', 'Audit Fee', 'Insurance'] },
+  { name: 'Miscellaneous', subCategories: ['Donation', 'Emergency', 'Petty Cash', 'Other'] },
+  { name: 'Inventory', subCategories: ['Inventory Purchase', 'Inventory Maintenance'] },
+  { name: 'Salaries', subCategories: ['Salary Payment'] },
+  { name: 'Utility Bills', subCategories: ['Electricity Bill', 'Gas Bill', 'Water Bill', 'Internet Bill', 'Telephone Bill'] },
+  { name: 'Supplies', subCategories: ['General Supplies'] },
+  { name: 'Other', subCategories: ['Other'] },
+];
+
+const DEFAULT_INCOME_CATEGORIES = [
+  { name: 'Tuition Fee', subCategories: ['Monthly Tuition', 'Admission Fee', 'Registration Fee'] },
+  { name: 'Extra Challan', subCategories: ['Fine', 'Late Fee', 'Lab Fee', 'Library Fee', 'Special Fee'] },
+  { name: 'Hostel Challan', subCategories: ['Mess Fee', 'Room Rent', 'Utility Charges'] },
+  { name: 'Donation', subCategories: ['General Donation', 'Zakat', 'Alumni Donation', 'Corporate Sponsor'] },
+  { name: 'Funding', subCategories: ['Government Grant', 'Trust Fund', 'Research Grant'] },
+  { name: 'Revenue', subCategories: ['Canteen Rent', 'Bookshop Rent', 'Uniform Sales', 'Event Revenue'] },
+  { name: 'Investments', subCategories: ['Bank Profit', 'Dividends', 'Fixed Deposit Return'] },
+  { name: 'Other', subCategories: ['Miscellaneous'] },
+];
 
 class FinanceService {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -872,6 +901,184 @@ class FinanceService {
       incomeCount: incomes.length,
       expenseCount: expenses.length,
     };
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CATEGORIES & SUB-CATEGORIES
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  async seedDefaultCategories() {
+    const count = await FinanceCategory.countDocuments();
+    if (count > 0) return;
+
+    const docs = [];
+    for (const item of DEFAULT_EXPENSE_CATEGORIES) {
+      docs.push({
+        type: 'EXPENSE',
+        name: item.name,
+        subCategories: item.subCategories || [],
+        isDefault: true,
+        isActive: true,
+      });
+    }
+    for (const item of DEFAULT_INCOME_CATEGORIES) {
+      docs.push({
+        type: 'INCOME',
+        name: item.name,
+        subCategories: item.subCategories || [],
+        isDefault: true,
+        isActive: true,
+      });
+    }
+    if (docs.length > 0) {
+      await FinanceCategory.insertMany(docs, { ordered: false }).catch(() => {});
+    }
+  }
+
+  async getCategories({ type } = {}) {
+    await this.seedDefaultCategories();
+    const query = { isActive: true };
+    if (type) {
+      query.type = type.toUpperCase();
+    }
+    return FinanceCategory.find(query).sort({ isDefault: -1, name: 1 });
+  }
+
+  async createCategory({ type, name, description = '', subCategories = [] }) {
+    if (!type || !['INCOME', 'EXPENSE'].includes(type.toUpperCase())) {
+      throw new Error('Valid category type (INCOME or EXPENSE) is required');
+    }
+    if (!name || !name.trim()) {
+      throw new Error('Category name is required');
+    }
+
+    const cleanType = type.toUpperCase();
+    const cleanName = name.trim();
+
+    const existing = await FinanceCategory.findOne({
+      type: cleanType,
+      name: { $regex: new RegExp(`^${cleanName}$`, 'i') }
+    });
+    if (existing) {
+      throw new Error(`Category "${cleanName}" already exists for ${cleanType}`);
+    }
+
+    const cleanSubCategories = Array.isArray(subCategories)
+      ? [...new Set(subCategories.map(s => String(s).trim()).filter(Boolean))]
+      : [];
+
+    return FinanceCategory.create({
+      type: cleanType,
+      name: cleanName,
+      description: description ? description.trim() : '',
+      subCategories: cleanSubCategories,
+      isDefault: false,
+      isActive: true,
+    });
+  }
+
+  async updateCategory(id, { name, description, subCategories }) {
+    const category = await FinanceCategory.findById(id);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    if (name && name.trim() && name.trim().toLowerCase() !== category.name.toLowerCase()) {
+      const duplicate = await FinanceCategory.findOne({
+        _id: { $ne: id },
+        type: category.type,
+        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }
+      });
+      if (duplicate) {
+        throw new Error(`Category "${name.trim()}" already exists for ${category.type}`);
+      }
+      category.name = name.trim();
+    }
+
+    if (description !== undefined) {
+      category.description = description ? description.trim() : '';
+    }
+
+    if (Array.isArray(subCategories)) {
+      category.subCategories = [...new Set(subCategories.map(s => String(s).trim()).filter(Boolean))];
+    }
+
+    await category.save();
+    return category;
+  }
+
+  async deleteCategory(id) {
+    const category = await FinanceCategory.findById(id);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+    if (category.isDefault) {
+      throw new Error('Cannot delete a system default category. You can modify its sub-categories instead.');
+    }
+
+    await FinanceCategory.findByIdAndDelete(id);
+    return { success: true, message: 'Category deleted successfully' };
+  }
+
+  async addSubCategory(id, { name }) {
+    if (!name || !name.trim()) {
+      throw new Error('Sub-category name is required');
+    }
+    const category = await FinanceCategory.findById(id);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    const cleanSub = name.trim();
+    const exists = (category.subCategories || []).some(
+      s => s.toLowerCase() === cleanSub.toLowerCase()
+    );
+    if (exists) {
+      throw new Error(`Sub-category "${cleanSub}" already exists in ${category.name}`);
+    }
+
+    category.subCategories.push(cleanSub);
+    await category.save();
+    return category;
+  }
+
+  async updateSubCategory(id, { oldName, newName }) {
+    if (!oldName || !newName || !newName.trim()) {
+      throw new Error('Both old and new sub-category names are required');
+    }
+    const category = await FinanceCategory.findById(id);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    const cleanNew = newName.trim();
+    const index = (category.subCategories || []).findIndex(
+      s => s.toLowerCase() === oldName.trim().toLowerCase()
+    );
+    if (index === -1) {
+      throw new Error(`Sub-category "${oldName}" not found in ${category.name}`);
+    }
+
+    category.subCategories[index] = cleanNew;
+    category.subCategories = [...new Set(category.subCategories)];
+    await category.save();
+    return category;
+  }
+
+  async deleteSubCategory(id, subName) {
+    if (!subName || !subName.trim()) {
+      throw new Error('Sub-category name is required');
+    }
+    const category = await FinanceCategory.findById(id);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    category.subCategories = (category.subCategories || []).filter(
+      s => s.toLowerCase() !== subName.trim().toLowerCase()
+    );
+    await category.save();
+    return category;
   }
 }
 

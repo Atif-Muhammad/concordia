@@ -152,6 +152,70 @@ class FinanceController {
       next(err);
     }
   }
+
+  // Categories & Sub-categories
+  async getCategories(req, res, next) {
+    try {
+      const categories = await financeService.getCategories(req.query);
+      res.json(categories);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createCategory(req, res, next) {
+    try {
+      const category = await financeService.createCategory(req.body);
+      res.status(201).json(category);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateCategory(req, res, next) {
+    try {
+      const category = await financeService.updateCategory(req.params.id, req.body);
+      res.json(category);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteCategory(req, res, next) {
+    try {
+      const result = await financeService.deleteCategory(req.params.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async addSubCategory(req, res, next) {
+    try {
+      const category = await financeService.addSubCategory(req.params.id, req.body);
+      res.status(201).json(category);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateSubCategory(req, res, next) {
+    try {
+      const category = await financeService.updateSubCategory(req.params.id, req.body);
+      res.json(category);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteSubCategory(req, res, next) {
+    try {
+      const category = await financeService.deleteSubCategory(req.params.id, req.params.subName);
+      res.json(category);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new FinanceController();

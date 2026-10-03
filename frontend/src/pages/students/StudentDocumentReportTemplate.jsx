@@ -19,11 +19,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Printer, Download, Loader2, Search, FileText } from "lucide-react";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
+import { Printer, Download, Loader2, Search, FileText, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getStudents } from "../../../config/apis";
 import { extractId } from "./StudentProfilePrintTemplate";
+
+const STUDENT_DOCUMENT_FIELDS = [
+  '_id', 'fName', 'lName', 'fatherOrguardian', 'fatherName', 'rollNumber',
+  'programId', 'classId', 'sectionId', 'sessionId',
+  'documents', 'status', 'passedOut'
+].join(' ');
 
 /**
  * Canonical documents exactly matching StudentForm.jsx (create/edit forms):
@@ -713,49 +720,77 @@ export const generateStudentDocumentReportBodyHtml = ({
       ? filterSummary.session
       : resolvedStudents.find((s) => s.sessionName && s.sessionName !== "—")?.sessionName || "All Sessions";
 
+  // Partition students by program
+  const groups = {};
+  for (const s of resolvedStudents) {
+    const key = s.programName || "General";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  }
+  const groupedList = Object.entries(groups)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, students]) => ({ groupLabel: label, students }));
+
+  let globalIdx = 0;
   const rowsHtml =
     resolvedStudents.length > 0
-      ? resolvedStudents
-          .map((student, idx) => {
-            // Render document submission tags
-            const tagsHtml = student.docsList
-              .map((doc) => {
-                if (doc.isSubmitted) {
-                  return `<span class="doc-tag doc-submitted">[✓] ${doc.label}</span>`;
-                }
-                return `<span class="doc-tag doc-pending">[ ] ${doc.label}</span>`;
+      ? groupedList
+          .map((group) => {
+            const groupHeader = `
+              <tr class="program-group-header" style="background: #f1f5f9; break-inside: avoid;">
+                <td colspan="4" style="padding: 7px 10px; font-weight: 700; font-size: 11px; color: #0f172a; border-bottom: 2px solid #cbd5e1; text-align: left;">
+                  ${group.groupLabel}
+                  <span style="font-weight: 400; font-size: 9px; color: #64748b; margin-left: 8px;">(${group.students.length} ${group.students.length === 1 ? "student" : "students"} with pending documents)</span>
+                </td>
+              </tr>
+            `;
+
+            const studentRows = group.students
+              .map((student) => {
+                globalIdx++;
+                // Render document submission tags
+                const tagsHtml = student.docsList
+                  .map((doc) => {
+                    if (doc.isSubmitted) {
+                      return `<span class="doc-tag doc-submitted">[✓] ${doc.label}</span>`;
+                    }
+                    return `<span class="doc-tag doc-pending">[ ] ${doc.label}</span>`;
+                  })
+                  .join("");
+
+                return `
+                <tr>
+                  <td class="center col-num">${globalIdx}</td>
+                  <td class="col-student">
+                    <div class="student-cell">
+                      <div class="student-name">${student.studentName}</div>
+                      <div class="student-father"><span class="student-meta-label">Father:</span> ${student.fatherName}</div>
+                      <div class="student-roll-row">
+                        <span class="student-meta-label">Roll:</span>
+                        <span class="roll-pill">${student.rollNumber}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="col-academic">
+                    <div class="academic-prog">${student.programName}</div>
+                    <div class="academic-class">${student.className} ${student.sectionName !== "—" ? `(${student.sectionName})` : ""}</div>
+                    <div class="academic-sess">Session: ${student.sessionName}</div>
+                  </td>
+                  <td class="col-docs">
+                    <div class="doc-tags-container">
+                      ${tagsHtml}
+                    </div>
+                    <div class="doc-tally-line">
+                      <span>Submissions: <strong>${student.submittedCount} / ${student.totalCount}</strong></span>
+                      <span style="color: #64748b; font-weight: 600;">${student.missingCount} Pending</span>
+                    </div>
+                  </td>
+                </tr>
+              `;
               })
               .join("");
 
-            return `
-            <tr>
-              <td class="center col-num">${idx + 1}</td>
-              <td class="col-student">
-                <div class="student-cell">
-                  <div class="student-name">${student.studentName}</div>
-                  <div class="student-father"><span class="student-meta-label">Father:</span> ${student.fatherName}</div>
-                  <div class="student-roll-row">
-                    <span class="student-meta-label">Roll:</span>
-                    <span class="roll-pill">${student.rollNumber}</span>
-                  </div>
-                </div>
-              </td>
-              <td class="col-academic">
-                <div class="academic-prog">${student.programName}</div>
-                <div class="academic-class">${student.className} ${student.sectionName !== "—" ? `(${student.sectionName})` : ""}</div>
-                <div class="academic-sess">Session: ${student.sessionName}</div>
-              </td>
-              <td class="col-docs">
-                <div class="doc-tags-container">
-                  ${tagsHtml}
-                </div>
-                <div class="doc-tally-line">
-                  <span>Submissions: <strong>${student.submittedCount} / ${student.totalCount}</strong></span>
-                  <span style="color: #64748b; font-weight: 600;">${student.missingCount} Pending</span>
-                </div>
-              </td>
-            </tr>
-          `;
+            return groupHeader + studentRows;
           })
           .join("")
       : `
@@ -936,17 +971,44 @@ export const StudentDocumentReportDialog = ({
   const [dialogSearch, setDialogSearch] = useState("");
   const [orientation, setOrientation] = useState("portrait"); // "portrait" | "landscape"
 
-  // Program -> Class -> Section filters state
-  const [selectedProgram, setSelectedProgram] = useState(() => activeFilters.filterProgram || "");
-  const [selectedClass, setSelectedClass] = useState(() => activeFilters.filterClass || "all");
-  const [selectedSection, setSelectedSection] = useState(() => activeFilters.filterSection || "all");
+  // Program -> Class -> Section filters state (multi-select arrays)
+  const [selectedPrograms, setSelectedPrograms] = useState(() => {
+    if (activeFilters.filterProgram && activeFilters.filterProgram !== "all") {
+      return [activeFilters.filterProgram];
+    }
+    return [];
+  });
+  const [selectedClasses, setSelectedClasses] = useState(() => {
+    if (activeFilters.filterClass && activeFilters.filterClass !== "all") {
+      return [activeFilters.filterClass];
+    }
+    return [];
+  });
+  const [selectedSections, setSelectedSections] = useState(() => {
+    if (activeFilters.filterSection && activeFilters.filterSection !== "all") {
+      return [activeFilters.filterSection];
+    }
+    return [];
+  });
   const [selectedSession, setSelectedSession] = useState(() => activeFilters.filterSessionId || "all");
 
   useEffect(() => {
     if (open) {
-      setSelectedProgram(activeFilters.filterProgram || "");
-      setSelectedClass(activeFilters.filterClass || "all");
-      setSelectedSection(activeFilters.filterSection || "all");
+      setSelectedPrograms(
+        activeFilters.filterProgram && activeFilters.filterProgram !== "all"
+          ? [activeFilters.filterProgram]
+          : []
+      );
+      setSelectedClasses(
+        activeFilters.filterClass && activeFilters.filterClass !== "all"
+          ? [activeFilters.filterClass]
+          : []
+      );
+      setSelectedSections(
+        activeFilters.filterSection && activeFilters.filterSection !== "all"
+          ? [activeFilters.filterSection]
+          : []
+      );
       setSelectedSession(activeFilters.filterSessionId || "all");
       setDialogSearch("");
     }
@@ -954,54 +1016,102 @@ export const StudentDocumentReportDialog = ({
 
   // Dependent cascading options
   const classesForProgram = useMemo(() => {
-    if (!selectedProgram) return [];
-    if (selectedProgram === "all") return classesData;
-    return classesData.filter((c) => extractId(c.programId || c.program) === selectedProgram);
-  }, [selectedProgram, classesData]);
+    if (selectedPrograms.length === 0) return classesData;
+    return classesData.filter((c) => selectedPrograms.includes(extractId(c.programId || c.program)));
+  }, [selectedPrograms, classesData]);
 
   const sectionsForClass = useMemo(() => {
-    if (!selectedClass || selectedClass === "all") return [];
-    const cls = classesData.find((c) => extractId(c) === selectedClass);
-    if (cls?.sections?.length) return cls.sections;
-    return sectionsData.filter((s) => extractId(s.classId || s.class) === selectedClass);
-  }, [selectedClass, classesData, sectionsData]);
+    if (selectedClasses.length === 0) {
+      if (selectedPrograms.length === 0) return sectionsData;
+      const validClassIds = classesForProgram.map((c) => extractId(c));
+      return sectionsData.filter((s) => validClassIds.includes(extractId(s.classId || s.class)));
+    }
+    return sectionsData.filter((s) => selectedClasses.includes(extractId(s.classId || s.class)));
+  }, [selectedClasses, selectedPrograms, classesForProgram, sectionsData]);
 
-  // Fetch students matching the selected program, class, section, session lazily
+  const isSectionApplicable = selectedClasses.length === 0 ? true : sectionsForClass.length > 0;
+
+  // Auto-prune classes when selected programs change
+  const handleProgramsChange = (vals) => {
+    setSelectedPrograms(vals);
+    if (vals.length > 0) {
+      const validClassIds = classesData
+        .filter((c) => vals.includes(extractId(c.programId || c.program)))
+        .map((c) => extractId(c));
+      setSelectedClasses((prev) => prev.filter((id) => validClassIds.includes(id)));
+    }
+  };
+
+  // Auto-prune sections when selected classes change
+  const handleClassesChange = (vals) => {
+    setSelectedClasses(vals);
+    if (vals.length > 0) {
+      const validSectionIds = sectionsData
+        .filter((s) => vals.includes(extractId(s.classId || s.class)))
+        .map((s) => extractId(s));
+      setSelectedSections((prev) => prev.filter((id) => validSectionIds.includes(id)));
+    }
+  };
+
+  // Fetch students matching selected programs, classes, sections, session lazily with trimmed fields
+  const programParam = selectedPrograms.length > 0 ? selectedPrograms.join(",") : "";
+  const classParam = selectedClasses.length > 0 ? selectedClasses.join(",") : "";
+  const sectionParam = selectedSections.length > 0 ? selectedSections.join(",") : "";
+
   const { data: rawStudentsResponse, isLoading: isLoadingQuery } = useQuery({
     queryKey: [
       "documentReportStudents",
-      selectedProgram,
-      selectedClass,
-      selectedSection,
+      [...selectedPrograms].sort().join(","),
+      [...selectedClasses].sort().join(","),
+      [...selectedSections].sort().join(","),
       selectedSession,
       status,
     ],
     queryFn: () =>
       getStudents(
-        selectedProgram === "all" ? "" : selectedProgram,
-        selectedClass === "all" ? "" : selectedClass,
-        selectedSection === "all" ? "" : selectedSection,
+        programParam,
+        classParam,
+        sectionParam,
         "",
         status || "ACTIVE",
         "",
         1,
-        0, // fetch all
+        10000, // fetch all
         "",
         "",
-        selectedSession === "all" ? "" : selectedSession
+        selectedSession === "all" ? "" : selectedSession,
+        false,
+        "",
+        STUDENT_DOCUMENT_FIELDS
       ),
-    enabled: open && Boolean(selectedProgram),
+    enabled: open && selectedPrograms.length > 0,
     staleTime: 30000,
   });
 
   const sourceStudents = useMemo(() => {
-    if (!selectedProgram) return [];
+    if (selectedPrograms.length === 0) return [];
+    let list = [];
     if (rawStudentsResponse) {
-      if (Array.isArray(rawStudentsResponse)) return rawStudentsResponse;
-      if (Array.isArray(rawStudentsResponse?.students)) return rawStudentsResponse.students;
+      if (Array.isArray(rawStudentsResponse)) list = rawStudentsResponse;
+      else if (Array.isArray(rawStudentsResponse?.students)) list = rawStudentsResponse.students;
     }
-    return [];
-  }, [rawStudentsResponse, selectedProgram]);
+    // Client-side multi-select filtering
+    return list.filter((s) => {
+      if (selectedPrograms.length > 1) {
+        const progId = extractId(s.programId || s.program);
+        if (progId && !selectedPrograms.includes(progId)) return false;
+      }
+      if (selectedClasses.length > 1) {
+        const clsId = extractId(s.classId || s.class);
+        if (clsId && !selectedClasses.includes(clsId)) return false;
+      }
+      if (selectedSections.length > 1) {
+        const secId = extractId(s.sectionId || s.section);
+        if (secId && !selectedSections.includes(secId)) return false;
+      }
+      return true;
+    });
+  }, [rawStudentsResponse, selectedPrograms, selectedClasses, selectedSections]);
 
   // Resolve document data and ONLY KEEP STUDENTS WITH AT LEAST ONE PENDING DOCUMENT
   const pendingStudents = useMemo(() => {
@@ -1033,25 +1143,26 @@ export const StudentDocumentReportDialog = ({
 
   // Resolve human-readable filter names
   const filterSummary = useMemo(() => {
-    let programName = "";
-    if (selectedProgram === "all") {
-      programName = "All Programs";
-    } else if (selectedProgram) {
-      const p = programData.find((item) => extractId(item) === selectedProgram);
-      programName = p?.name || "";
-    }
+    const programName =
+      selectedPrograms.length === 0
+        ? "All Programs"
+        : selectedPrograms
+            .map((id) => programData.find((item) => extractId(item) === id)?.name || id)
+            .join(", ");
 
-    let className = "";
-    if (selectedClass && selectedClass !== "all") {
-      const c = classesData.find((item) => extractId(item) === selectedClass);
-      className = c?.name || "";
-    }
+    const className =
+      selectedClasses.length === 0
+        ? "All Classes"
+        : selectedClasses
+            .map((id) => classesData.find((item) => extractId(item) === id)?.name || id)
+            .join(", ");
 
-    let sectionName = "";
-    if (selectedSection && selectedSection !== "all") {
-      const s = sectionsData.find((item) => extractId(item) === selectedSection);
-      sectionName = s?.name || "";
-    }
+    const sectionName =
+      selectedSections.length === 0
+        ? "All Sections"
+        : selectedSections
+            .map((id) => sectionsData.find((item) => extractId(item) === id)?.name || id)
+            .join(", ");
 
     let sessionName = "";
     if (selectedSession && selectedSession !== "all") {
@@ -1067,9 +1178,9 @@ export const StudentDocumentReportDialog = ({
       session: sessionName,
     };
   }, [
-    selectedProgram,
-    selectedClass,
-    selectedSection,
+    selectedPrograms,
+    selectedClasses,
+    selectedSections,
     selectedSession,
     programData,
     classesData,
@@ -1104,7 +1215,13 @@ export const StudentDocumentReportDialog = ({
     if (!fullPrintHtml) return;
     setIsPrinting(true);
     try {
-      const docTitle = `Student_Document_Report_${filterSummary.program || "All"}_${orientation}_${format(
+      const progDocTitle =
+        selectedPrograms.length === 0
+          ? "All"
+          : selectedPrograms.length === 1
+          ? programData.find((p) => extractId(p) === selectedPrograms[0])?.name || "Program"
+          : `${selectedPrograms.length}Programs`;
+      const docTitle = `Student_Document_Report_${progDocTitle}_${orientation}_${format(
         new Date(),
         "yyyyMMdd"
       )}`;
@@ -1143,7 +1260,7 @@ export const StudentDocumentReportDialog = ({
                 Student Document Report
               </DialogTitle>
               <Badge variant="outline" className="font-mono text-xs font-semibold bg-slate-50">
-                {!selectedProgram
+                {selectedPrograms.length === 0
                   ? "Select Program"
                   : `${filteredResolvedStudents.length} Pending`}
               </Badge>
@@ -1160,14 +1277,14 @@ export const StudentDocumentReportDialog = ({
                 placeholder="Search pending..."
                 value={dialogSearch}
                 onChange={(e) => setDialogSearch(e.target.value)}
-                disabled={!selectedProgram}
+                disabled={selectedPrograms.length === 0}
                 className="h-8 pl-8 text-xs"
               />
             </div>
             <Button
               size="sm"
               onClick={handlePrint}
-              disabled={!selectedProgram || isPrinting || filteredResolvedStudents.length === 0}
+              disabled={selectedPrograms.length === 0 || isPrinting || filteredResolvedStudents.length === 0}
               className="gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs"
             >
               {isPrinting ? (
@@ -1195,83 +1312,48 @@ export const StudentDocumentReportDialog = ({
         <div className="bg-slate-50 border-b px-6 py-2.5 flex flex-wrap items-center gap-3 shrink-0">
           <div className="flex items-center gap-1.5">
             <Label className="text-xs font-semibold text-slate-600">Program:</Label>
-            <Select
-              value={selectedProgram}
-              onValueChange={(val) => {
-                setSelectedProgram(val);
-                setSelectedClass("all");
-                setSelectedSection("all");
-              }}
-            >
-              <SelectTrigger className="h-8 w-44 text-xs bg-white">
-                <SelectValue placeholder="Select Program..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Programs</SelectItem>
-                {programData.map((p) => {
-                  const pId = extractId(p);
-                  return (
-                    <SelectItem key={pId} value={pId}>
-                      {p.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            <div className="w-48">
+              <MultiSelectFilter
+                options={programData.map((p) => ({ value: extractId(p), label: p.name || p.programName }))}
+                selected={selectedPrograms}
+                onChange={handleProgramsChange}
+                placeholder="Select Programs..."
+                allLabel="All Programs"
+                defaultSelectedAll={false}
+                triggerClassName={`h-8 text-xs bg-white ${selectedPrograms.length === 0 ? "border-amber-400/80 bg-amber-50/30" : ""}`}
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
             <Label className="text-xs font-semibold text-slate-600">Class:</Label>
-            <Select
-              value={selectedClass}
-              onValueChange={(val) => {
-                setSelectedClass(val);
-                setSelectedSection("all");
-              }}
-              disabled={!selectedProgram || (selectedProgram !== "all" && classesForProgram.length === 0)}
-            >
-              <SelectTrigger className="h-8 w-36 text-xs bg-white">
-                <SelectValue placeholder={!selectedProgram ? "Select Program First" : "All Classes"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Classes</SelectItem>
-                {classesForProgram.map((c) => {
-                  const cId = extractId(c);
-                  return (
-                    <SelectItem key={cId} value={cId}>
-                      {c.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            <div className="w-40">
+              <MultiSelectFilter
+                options={classesForProgram.map((c) => ({ value: extractId(c), label: c.name || c.className }))}
+                selected={selectedClasses}
+                onChange={handleClassesChange}
+                placeholder="Classes"
+                allLabel="All Classes"
+                disabled={selectedPrograms.length === 0}
+                triggerClassName="h-8 text-xs bg-white"
+              />
+            </div>
           </div>
 
-          {sectionsForClass.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <Label className="text-xs font-semibold text-slate-600">Section:</Label>
-              <Select
-                value={selectedSection}
-                onValueChange={(val) => setSelectedSection(val)}
-                disabled={!selectedClass || selectedClass === "all"}
-              >
-                <SelectTrigger className="h-8 w-32 text-xs bg-white">
-                  <SelectValue placeholder="All Sections" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sections</SelectItem>
-                  {sectionsForClass.map((s) => {
-                    const sId = extractId(s);
-                    return (
-                      <SelectItem key={sId} value={sId}>
-                        {s.name}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+          <div className="flex items-center gap-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Section:</Label>
+            <div className="w-36">
+              <MultiSelectFilter
+                options={sectionsForClass.map((s) => ({ value: extractId(s), label: s.name || s.sectionName }))}
+                selected={selectedSections}
+                onChange={setSelectedSections}
+                placeholder="Sections"
+                allLabel="All Sections"
+                disabled={!isSectionApplicable || sectionsForClass.length === 0 || selectedPrograms.length === 0}
+                triggerClassName="h-8 text-xs bg-white"
+              />
             </div>
-          )}
+          </div>
 
           <div className="flex items-center gap-1.5">
             <Label className="text-xs font-semibold text-slate-600">Layout:</Label>
@@ -1286,9 +1368,26 @@ export const StudentDocumentReportDialog = ({
             </Select>
           </div>
 
+          {(selectedPrograms.length > 0 || selectedClasses.length > 0 || selectedSections.length > 0 || dialogSearch) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelectedPrograms([]);
+                setSelectedClasses([]);
+                setSelectedSections([]);
+                setDialogSearch("");
+              }}
+              className="h-8 px-2 text-xs text-slate-500 hover:text-slate-800 gap-1"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </Button>
+          )}
+
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-slate-500 font-medium">
-              {!selectedProgram ? (
+              {selectedPrograms.length === 0 ? (
                 <span className="text-slate-400 italic">Select a program to load pending records</span>
               ) : isLoadingQuery ? (
                 <span className="flex items-center gap-1 text-slate-400">
@@ -1302,9 +1401,9 @@ export const StudentDocumentReportDialog = ({
         </div>
 
         {/* Scrollable Preview Canvas with thin & visible scrollbar - native DOM */}
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-auto h-[calc(100dvh-112px)] max-h-[calc(100dvh-112px)] p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
           <style>{getStudentDocumentReportStyles()}</style>
-          {!selectedProgram ? (
+          {selectedPrograms.length === 0 ? (
             <div className="py-24 px-4 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
               <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-orange-600">
                 <FileText className="w-7 h-7" />
@@ -1314,7 +1413,7 @@ export const StudentDocumentReportDialog = ({
                   Select a Program to Load Document Report
                 </h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Choose a program or select <span className="font-semibold text-slate-700">"All Programs"</span> from the filter above to view students with pending documents.
+                  Choose one or more programs or click <span className="font-semibold text-slate-700">"All"</span> from the filter above to view students with pending documents.
                 </p>
               </div>
             </div>

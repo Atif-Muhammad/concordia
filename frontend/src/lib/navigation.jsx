@@ -165,6 +165,7 @@ export const NAV_MODULES = [
       { id: "expense", label: "Expense", path: "/finance/expense", icon: ArrowUpRight, description: "Manage expenditure vouchers, invoices, and disbursements" },
       { id: "reports", label: "Reports", path: "/finance/reports", icon: PieChart, description: "View balance sheets, profit & loss, and audit reports" },
       { id: "closing", label: "Closing", path: "/finance/closing", icon: Lock, description: "Perform daily drawer and fiscal year financial closing" },
+      { id: "settings", label: "Settings", path: "/finance/settings", icon: Sliders, description: "Manage expense categories, sub-categories, and income categories" },
     ],
   },
   {

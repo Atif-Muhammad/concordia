@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import {
   Table,
   TableBody,
@@ -46,6 +47,16 @@ import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getStudents } from "../../../config/apis";
 import { extractId, formatDateSafe, formatAmountSafe } from "./StudentProfilePrintTemplate";
 
+const STUDENT_EXPORT_FIELDS = [
+  '_id', 'fName', 'lName', 'fatherOrguardian', 'motherName', 'gender', 'dob',
+  'bloodGroup', 'religion', 'studentCnic', 'parentCNIC', 'parentOrGuardianPhone',
+  'contactNumber', 'emergencyContact', 'parentOrGuardianEmail', 'email', 'address',
+  'presentAddress', 'admissionDate', 'admissionFormNumber', 'sessionId', 'session',
+  'programId', 'classId', 'sectionId', 'status', 'previousBoardName',
+  'previousBoardRollNumber', 'obtainedMarks', 'totalMarks', 'tuitionFee',
+  'numberOfInstallments', 'lateFeeFine', 'installments'
+].join(' ');
+
 export const StudentDataExportDialog = ({
   open,
   onOpenChange,
@@ -59,9 +70,9 @@ export const StudentDataExportDialog = ({
   const { toast } = useToast();
 
   // Dialog filters state
-  const [filterProgram, setFilterProgram] = useState("all");
-  const [filterClass, setFilterClass] = useState("all");
-  const [filterSection, setFilterSection] = useState("all");
+  const [filterPrograms, setFilterPrograms] = useState([]);
+  const [filterClasses, setFilterClasses] = useState([]);
+  const [filterSections, setFilterSections] = useState([]);
   const [filterGender, setFilterGender] = useState("all");
   const [filterSessionId, setFilterSessionId] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -72,9 +83,9 @@ export const StudentDataExportDialog = ({
   // Sync initial filters when opened
   useEffect(() => {
     if (open) {
-      setFilterProgram(initialFilters.filterProgram || "all");
-      setFilterClass(initialFilters.filterClass || "all");
-      setFilterSection(initialFilters.filterSection || "all");
+      setFilterPrograms(initialFilters.filterProgram && initialFilters.filterProgram !== "all" ? [initialFilters.filterProgram] : []);
+      setFilterClasses(initialFilters.filterClass && initialFilters.filterClass !== "all" ? [initialFilters.filterClass] : []);
+      setFilterSections(initialFilters.filterSection && initialFilters.filterSection !== "all" ? [initialFilters.filterSection] : []);
       setFilterGender(initialFilters.gender || "all");
       setFilterSessionId(initialFilters.filterSessionId || "all");
       setFilterStatus(initialFilters.status || status || "all");
@@ -84,37 +95,53 @@ export const StudentDataExportDialog = ({
 
   // Dependent dropdowns
   const availableClasses = useMemo(() => {
-    if (!filterProgram || filterProgram === "all") return classesData;
-    return classesData.filter((c) => extractId(c.programId || c.program) === filterProgram);
-  }, [classesData, filterProgram]);
+    if (filterPrograms.length === 0) return classesData;
+    return classesData.filter((c) => filterPrograms.includes(extractId(c.programId || c.program)));
+  }, [classesData, filterPrograms]);
 
   const availableSections = useMemo(() => {
-    if (!filterClass || filterClass === "all") return sectionsData;
-    return sectionsData.filter((s) => extractId(s.classId || s.class) === filterClass);
-  }, [sectionsData, filterClass]);
+    if (filterClasses.length === 0) return sectionsData;
+    return sectionsData.filter((s) => filterClasses.includes(extractId(s.classId || s.class)));
+  }, [sectionsData, filterClasses]);
 
-  const handleProgramChange = (val) => {
-    setFilterProgram(val);
-    setFilterClass("all");
-    setFilterSection("all");
+  // Auto-prune classes when programs change
+  const handleProgramsChange = (vals) => {
+    setFilterPrograms(vals);
+    // Prune classes that no longer belong to selected programs
+    if (vals.length > 0) {
+      const validClassIds = classesData
+        .filter((c) => vals.includes(extractId(c.programId || c.program)))
+        .map((c) => extractId(c));
+      setFilterClasses((prev) => prev.filter((id) => validClassIds.includes(id)));
+    }
   };
 
-  const handleClassChange = (val) => {
-    setFilterClass(val);
-    setFilterSection("all");
+  // Auto-prune sections when classes change
+  const handleClassesChange = (vals) => {
+    setFilterClasses(vals);
+    if (vals.length > 0) {
+      const validSectionIds = sectionsData
+        .filter((s) => vals.includes(extractId(s.classId || s.class)))
+        .map((s) => extractId(s));
+      setFilterSections((prev) => prev.filter((id) => validSectionIds.includes(id)));
+    }
   };
 
   const handleResetFilters = () => {
-    setFilterProgram("all");
-    setFilterClass("all");
-    setFilterSection("all");
+    setFilterPrograms([]);
+    setFilterClasses([]);
+    setFilterSections([]);
     setFilterGender("all");
     setFilterSessionId("all");
     setFilterStatus("all");
     setSearchQuery("");
   };
 
-  // Query comprehensive student data with summary: false to retrieve all profile fields and fee installment plan
+  // Query comprehensive student data with trimmed fields and multi-program backend filtering
+  const programParam = filterPrograms.length > 0 ? filterPrograms.join(",") : "";
+  const classParam = filterClasses.length > 0 ? filterClasses.join(",") : "";
+  const sectionParam = filterSections.length > 0 ? filterSections.join(",") : "";
+
   const {
     data: studentsResponse,
     isLoading,
@@ -122,9 +149,9 @@ export const StudentDataExportDialog = ({
   } = useQuery({
     queryKey: [
       "studentDataExportFull",
-      filterProgram,
-      filterClass,
-      filterSection,
+      [...filterPrograms].sort().join(","),
+      [...filterClasses].sort().join(","),
+      [...filterSections].sort().join(","),
       filterGender,
       filterSessionId,
       filterStatus,
@@ -132,19 +159,20 @@ export const StudentDataExportDialog = ({
     ],
     queryFn: () =>
       getStudents(
-        filterProgram === "all" ? "" : filterProgram,
-        filterClass === "all" ? "" : filterClass,
-        filterSection === "all" ? "" : filterSection,
+        programParam,
+        classParam,
+        sectionParam,
         searchQuery.trim(),
         filterStatus === "all" ? "" : filterStatus,
         "", // session
         1, // page
-        5000, // limit: fetch all matching
+        10000, // limit: fetch all matching
         "", // startDate
         "", // endDate
         filterSessionId === "all" ? "" : filterSessionId,
         false, // summary = false to load complete records with installments!
-        filterGender === "all" ? "" : filterGender
+        filterGender === "all" ? "" : filterGender,
+        STUDENT_EXPORT_FIELDS
       ),
     enabled: open,
     staleTime: 30 * 1000,
@@ -157,7 +185,7 @@ export const StudentDataExportDialog = ({
       ? studentsResponse
       : [];
 
-    return raw.map((student, idx) => {
+    const mapped = raw.map((student, idx) => {
       const studentId = extractId(student.id || student._id);
       const fullName = `${student.fName || ""} ${student.lName || ""}`.trim() || "Student";
       const fatherName = student.fatherOrguardian || student.fatherName || "—";
@@ -250,7 +278,24 @@ export const StudentDataExportDialog = ({
             : "No Plan Set",
       };
     });
-  }, [studentsResponse, programData, classesData, sectionsData, academicSessions]);
+
+    // Client-side multi-select filtering (when >1 selected, API fetches all)
+    return mapped.filter((s) => {
+      if (filterPrograms.length > 1) {
+        const progId = extractId(s.programId || s.program);
+        if (!filterPrograms.includes(progId)) return false;
+      }
+      if (filterClasses.length > 1) {
+        const clsId = extractId(s.classId || s.class);
+        if (!filterClasses.includes(clsId)) return false;
+      }
+      if (filterSections.length > 1) {
+        const secId = extractId(s.sectionId || s.section);
+        if (!filterSections.includes(secId)) return false;
+      }
+      return true;
+    });
+  }, [studentsResponse, programData, classesData, sectionsData, academicSessions, filterPrograms, filterClasses, filterSections]);
 
   // Overall statistics for preview and report
   const metrics = useMemo(() => {
@@ -274,6 +319,23 @@ export const StudentDataExportDialog = ({
       totalInstallments,
     };
   }, [studentsList]);
+
+  // Group students by program for partitioned display
+  const groupedStudents = useMemo(() => {
+    if (filterPrograms.length <= 1 && filterClasses.length === 0) {
+      // No partitioning needed — single group
+      return [{ groupLabel: null, students: studentsList }];
+    }
+    const groups = {};
+    for (const s of studentsList) {
+      const key = s.programName || "Unknown Program";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(s);
+    }
+    return Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([label, students]) => ({ groupLabel: label, students }));
+  }, [studentsList, filterPrograms, filterClasses]);
 
   // Export to Excel handler
   const handleExportToExcel = () => {
@@ -527,18 +589,15 @@ export const StudentDataExportDialog = ({
         logoDataUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/logo.png";
       }
 
-      const progName =
-        filterProgram === "all"
-          ? "All Programs"
-          : programData.find((p) => extractId(p) === filterProgram)?.name || "Selected Program";
-      const clsName =
-        filterClass === "all"
-          ? "All Classes"
-          : classesData.find((c) => extractId(c) === filterClass)?.name || "Selected Class";
-      const secName =
-        filterSection === "all"
-          ? "All Sections"
-          : sectionsData.find((s) => extractId(s) === filterSection)?.name || "Selected Section";
+      const progName = filterPrograms.length === 0
+        ? "All Programs"
+        : filterPrograms.map(id => programData.find(p => extractId(p) === id)?.name || id).join(", ");
+      const clsName = filterClasses.length === 0
+        ? "All Classes"
+        : filterClasses.map(id => classesData.find(c => extractId(c) === id)?.name || id).join(", ");
+      const secName = filterSections.length === 0
+        ? "All Sections"
+        : filterSections.map(id => sectionsData.find(s => extractId(s) === id)?.name || id).join(", ");
       const sessName =
         filterSessionId === "all"
           ? "All Sessions"
@@ -547,8 +606,18 @@ export const StudentDataExportDialog = ({
       const statusName = filterStatus === "all" ? "All Statuses" : filterStatus;
       const exportDate = format(new Date(), "dd MMMM yyyy, hh:mm a");
 
-      const studentTableRows = studentsList
-        .map((s, idx) => {
+      let globalRowIdx = 0;
+      const studentTableRows = groupedStudents.map(group => {
+        const groupHeaderHtml = group.groupLabel ? `
+          <tr style="background: #f1f5f9; break-inside: avoid;">
+            <td colspan="7" style="padding: 8px 10px; font-weight: 700; font-size: 11px; color: #0f172a; border-bottom: 2px solid #cbd5e1;">
+              ${group.groupLabel}
+              <span style="font-weight: 400; font-size: 9px; color: #64748b; margin-left: 8px;">(${group.students.length} students)</span>
+            </td>
+          </tr>` : '';
+
+        const rows = group.students.map((s, idx) => {
+          globalRowIdx++;
           const installmentCells =
             s.installments && s.installments.length > 0
               ? s.installments
@@ -566,7 +635,7 @@ export const StudentDataExportDialog = ({
 
           return `
             <tr style="background: ${idx % 2 === 0 ? "#ffffff" : "#fffaf5"}; break-inside: avoid; border-bottom: 1px solid #e2e8f0;">
-              <td style="padding: 6px 8px; font-size: 10px; text-align: center; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
+              <td style="padding: 6px 8px; font-size: 10px; text-align: center; border-right: 1px solid #e2e8f0;">${globalRowIdx}</td>
               <td style="padding: 6px 8px; font-size: 10px; font-weight: 700; color: #0f172a; border-right: 1px solid #e2e8f0;">${s.rollNo}</td>
               <td style="padding: 6px 8px; font-size: 10px; border-right: 1px solid #e2e8f0;">
                 <div style="font-weight: 700; color: #0f172a;">${s.fullName}</div>
@@ -592,8 +661,10 @@ export const StudentDataExportDialog = ({
               </td>
             </tr>
           `;
-        })
-        .join("");
+        }).join("");
+
+        return groupHeaderHtml + rows;
+      }).join("");
 
       const html = `
         <!DOCTYPE html>
@@ -917,55 +988,40 @@ export const StudentDataExportDialog = ({
             {/* Program */}
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-foreground">Program</Label>
-              <Select value={filterProgram} onValueChange={handleProgramChange}>
-                <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue placeholder="All Programs" />
-                </SelectTrigger>
-                <SelectContent className="max-h-56">
-                  <SelectItem value="all">All Programs</SelectItem>
-                  {programData.map((p) => (
-                    <SelectItem key={p.id || p._id} value={extractId(p)} className="text-xs">
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={programData.map((p) => ({ value: extractId(p), label: p.name || p.programName }))}
+                selected={filterPrograms}
+                onChange={handleProgramsChange}
+                placeholder="Programs"
+                allLabel="All Programs"
+                triggerClassName="h-8 text-xs bg-background"
+              />
             </div>
 
             {/* Class */}
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-foreground">Class</Label>
-              <Select value={filterClass} onValueChange={handleClassChange}>
-                <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue placeholder="All Classes" />
-                </SelectTrigger>
-                <SelectContent className="max-h-56">
-                  <SelectItem value="all">All Classes</SelectItem>
-                  {availableClasses.map((c) => (
-                    <SelectItem key={c.id || c._id} value={extractId(c)} className="text-xs">
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={availableClasses.map((c) => ({ value: extractId(c), label: c.name || c.className }))}
+                selected={filterClasses}
+                onChange={handleClassesChange}
+                placeholder="Classes"
+                allLabel="All Classes"
+                triggerClassName="h-8 text-xs bg-background"
+              />
             </div>
 
             {/* Section */}
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-foreground">Section</Label>
-              <Select value={filterSection} onValueChange={setFilterSection}>
-                <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue placeholder="All Sections" />
-                </SelectTrigger>
-                <SelectContent className="max-h-56">
-                  <SelectItem value="all">All Sections</SelectItem>
-                  {availableSections.map((s) => (
-                    <SelectItem key={s.id || s._id} value={extractId(s)} className="text-xs">
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={availableSections.map((s) => ({ value: extractId(s), label: s.name || s.sectionName }))}
+                selected={filterSections}
+                onChange={setFilterSections}
+                placeholder="Sections"
+                allLabel="All Sections"
+                triggerClassName="h-8 text-xs bg-background"
+              />
             </div>
 
             {/* Gender */}
@@ -1030,9 +1086,9 @@ export const StudentDataExportDialog = ({
                 className="h-8 pl-8 text-xs bg-background"
               />
             </div>
-            {(filterProgram !== "all" ||
-              filterClass !== "all" ||
-              filterSection !== "all" ||
+            {(filterPrograms.length > 0 ||
+              filterClasses.length > 0 ||
+              filterSections.length > 0 ||
               filterGender !== "all" ||
               filterSessionId !== "all" ||
               filterStatus !== "all" ||
@@ -1088,7 +1144,7 @@ export const StudentDataExportDialog = ({
         </div>
 
         {/* Preview Table */}
-        <div className="flex-1 overflow-auto rounded-md border border-border">
+        <div className="flex-1 overflow-auto rounded-md border border-border min-h-0 max-h-[55vh]">
           {isLoading || isFetching ? (
             <div className="h-64 flex flex-col items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -1114,81 +1170,97 @@ export const StudentDataExportDialog = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {studentsList.map((student, idx) => (
-                  <TableRow key={student.resolvedId || idx} className="hover:bg-muted/30">
-                    <TableCell className="text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell className="text-xs font-mono font-bold text-foreground">{student.rollNo}</TableCell>
-                    <TableCell className="text-xs">
-                      <div className="font-semibold text-foreground">{student.fullName}</div>
-                      <div className="text-[11px] text-muted-foreground">Father: {student.fatherName}</div>
-                    </TableCell>
-                    <TableCell className="text-center text-xs">
-                      <Badge
-                        variant="outline"
-                        className={
-                          student.gender === "Male"
-                            ? "bg-blue-50 text-blue-700 border-blue-200 text-[10px]"
-                            : student.gender === "Female"
-                            ? "bg-pink-50 text-pink-700 border-pink-200 text-[10px]"
-                            : "text-[10px]"
-                        }
-                      >
-                        {student.gender}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      <div>{student.programClassSection}</div>
-                      <div className="text-[10px] text-slate-400">{student.sessionName}</div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div>{student.parentOrGuardianPhone || student.contactNumber || "—"}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {student.studentCnic || student.parentCNIC || "—"}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <span className="font-semibold text-foreground">
-                          PKR {formatAmountSafe(student.totalTuition)}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          ({student.installmentCount} {student.installmentCount === 1 ? "Installment" : "Installments"})
-                        </span>
-                        {student.totalPending <= 0 && student.totalTuition > 0 ? (
-                          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[9px] h-4">
-                            Paid
+                {groupedStudents.map((group, gIdx) => (
+                  <React.Fragment key={group.groupLabel || gIdx}>
+                    {group.groupLabel && (
+                      <TableRow className="bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-100/90 border-y border-border">
+                        <TableCell colSpan={7} className="py-2 px-3 text-left">
+                          <span className="text-xs font-bold text-foreground tracking-wide">
+                            {group.groupLabel}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground ml-2 font-normal">
+                            ({group.students.length} {group.students.length === 1 ? "student" : "students"})
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {group.students.map((student, idx) => (
+                      <TableRow key={student.resolvedId || idx} className="hover:bg-muted/30">
+                        <TableCell className="text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
+                        <TableCell className="text-xs font-mono font-bold text-foreground">{student.rollNo}</TableCell>
+                        <TableCell className="text-xs">
+                          <div className="font-semibold text-foreground">{student.fullName}</div>
+                          <div className="text-[11px] text-muted-foreground">Father: {student.fatherName}</div>
+                        </TableCell>
+                        <TableCell className="text-center text-xs">
+                          <Badge
+                            variant="outline"
+                            className={
+                              student.gender === "Male"
+                                ? "bg-blue-50 text-blue-700 border-blue-200 text-[10px]"
+                                : student.gender === "Female"
+                                ? "bg-pink-50 text-pink-700 border-pink-200 text-[10px]"
+                                : "text-[10px]"
+                            }
+                          >
+                            {student.gender}
                           </Badge>
-                        ) : student.totalPaid > 0 ? (
-                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[9px] h-4">
-                            Partial
-                          </Badge>
-                        ) : null}
-                      </div>
-
-                      {/* Mini pills of installments */}
-                      {student.installments && student.installments.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {student.installments.map((inst, iIdx) => (
-                            <span
-                              key={iIdx}
-                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
-                                inst.status === "PAID"
-                                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-800"
-                                  : inst.status === "PARTIAL"
-                                  ? "bg-amber-50/80 border-amber-200 text-amber-800"
-                                  : "bg-slate-50 border-slate-200 text-slate-700"
-                              }`}
-                            >
-                              <span className="font-semibold">#{inst.installmentNumber}:</span>
-                              <span>PKR {formatAmountSafe(inst.amount)}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          <div>{student.programClassSection}</div>
+                          <div className="text-[10px] text-slate-400">{student.sessionName}</div>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div>{student.parentOrGuardianPhone || student.contactNumber || "—"}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {student.studentCnic || student.parentCNIC || "—"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="font-semibold text-foreground">
+                              PKR {formatAmountSafe(student.totalTuition)}
                             </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground italic">No installments</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                            <span className="text-[11px] text-muted-foreground">
+                              ({student.installmentCount} {student.installmentCount === 1 ? "Installment" : "Installments"})
+                            </span>
+                            {student.totalPending <= 0 && student.totalTuition > 0 ? (
+                              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[9px] h-4">
+                                Paid
+                              </Badge>
+                            ) : student.totalPaid > 0 ? (
+                              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[9px] h-4">
+                                Partial
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          {/* Mini pills of installments */}
+                          {student.installments && student.installments.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {student.installments.map((inst, iIdx) => (
+                                <span
+                                  key={iIdx}
+                                  className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                                    inst.status === "PAID"
+                                      ? "bg-emerald-50/80 border-emerald-200 text-emerald-800"
+                                      : inst.status === "PARTIAL"
+                                      ? "bg-amber-50/80 border-amber-200 text-amber-800"
+                                      : "bg-slate-50 border-slate-200 text-slate-700"
+                                  }`}
+                                >
+                                  <span className="font-semibold">#{inst.installmentNumber}:</span>
+                                  <span>PKR {formatAmountSafe(inst.amount)}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground italic">No installments</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
                 ))}
               </TableBody>
             </Table>

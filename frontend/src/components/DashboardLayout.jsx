@@ -20,9 +20,9 @@ import { logout, userWho, refreshTokens, getInstituteSettings } from "../../conf
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import logo from "../assets/logo-full.png";
 import {
-  NAV_MODULES, TEACHER_NAV_MODULES,
+  NAV_MODULES, TEACHER_NAV_MODULES, LEAVE_APPLICATION_MODULE,
   getAllowedSubmodules, hasModuleAccess,
-  getEffectiveNavModules, isDualRole, getViewMode, setViewMode,
+  getEffectiveNavModules, isDualRole, isTeachingOnly, getViewMode, setViewMode,
 } from "@/lib/navigation.jsx";
 
 const DESKTOP_SIDEBAR_SCROLL_KEY = "dashboardSidebarScrollTop";
@@ -76,18 +76,20 @@ const DashboardLayout = ({ children }) => {
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
 
+  // Dual-role & teaching-only view mode state
+  const isTeacherUser = isTeachingOnly(currentUser);
+  const [viewMode, setViewModeState] = useState(() => getViewMode(currentUser));
+  const hasDualRole = isDualRole(currentUser);
+  const isInTeacherMode = isTeacherUser || viewMode === "teacher" || location.pathname.startsWith("/teacher");
+
   const canAccess = (label) => {
+    if (isInTeacherMode || isTeacherUser) return true;
     return hasModuleAccess(currentUser, label);
   };
 
-  // Dual-role view mode state
-  const [viewMode, setViewModeState] = useState(() => getViewMode());
-  const hasDualRole = isDualRole(currentUser);
-  const isInTeacherMode = viewMode === "teacher";
-
   // Determine which navigation modules to show
   const effectiveModules = getEffectiveNavModules(currentUser);
-  const visibleModules = isInTeacherMode
+  const visibleModules = (isInTeacherMode || isTeacherUser)
     ? effectiveModules // Teacher modules are always accessible
     : effectiveModules.filter((item) => canAccess(item.label));
 
@@ -116,7 +118,7 @@ const DashboardLayout = ({ children }) => {
   };
 
   // Find active module & submodule state for top bar
-  const allModules = [...NAV_MODULES, ...TEACHER_NAV_MODULES];
+  const allModules = [...NAV_MODULES, LEAVE_APPLICATION_MODULE, ...TEACHER_NAV_MODULES];
   const activeModule = allModules.find(
     (item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
   );
@@ -144,9 +146,9 @@ const DashboardLayout = ({ children }) => {
   const renderNavItem = (item, { mobile = false } = {}) => {
     const Icon = item.icon;
     const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
-    // Teacher portal items are always accessible (no permission gating)
-    const isTeacherItem = item.path?.startsWith("/teacher/");
-    const hasAccess = isTeacherItem || canAccess(item.label);
+    // Teacher portal items and personal leave application are always accessible (no permission gating)
+    const isAlwaysAccessible = item.path?.startsWith("/teacher/") || item.path === "/leave-application";
+    const hasAccess = isAlwaysAccessible || canAccess(item.label);
 
     if (!hasAccess) return null;
 
@@ -180,10 +182,24 @@ const DashboardLayout = ({ children }) => {
     );
   };
 
+  const displayName = currentUser?.name || currentUser?.user?.name || (isInTeacherMode || isTeacherUser ? "Teacher" : "Super Admin");
+  const displayRole = currentUser?.designation || currentUser?.role || currentUser?.user?.role || (isInTeacherMode || isTeacherUser ? "Faculty Member" : "Staff Member");
+
   const handleLogout = async () => {
-    await logout();
-    queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-    navigate("/");
+    try {
+      await logout();
+    } catch (err) {
+      console.warn("Logout error:", err);
+    } finally {
+      try {
+        localStorage.removeItem("concordia_token");
+        localStorage.removeItem("concordia_viewMode");
+        sessionStorage.clear();
+      } catch {}
+      queryClient.clear();
+      queryClient.setQueryData(["currentUser"], null);
+      window.location.href = "/";
+    }
   };
 
   return (
@@ -286,15 +302,15 @@ const DashboardLayout = ({ children }) => {
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-8 h-8 rounded-full bg-[#d97c38] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm border border-white/20">
-                  {getUserInitials(currentUser?.name, currentUser?.role)}
+                  {getUserInitials(displayName, displayRole)}
                 </div>
                 {!sidebarCollapsed && (
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium text-white truncate leading-tight">
-                      {currentUser?.name || "Super Admin"}
+                      {displayName}
                     </p>
                     <p className="text-[10px] text-white/70 truncate leading-tight">
-                      {currentUser?.designation || currentUser?.role || "Staff Member"}
+                      {displayRole}
                     </p>
                   </div>
                 )}
@@ -373,14 +389,14 @@ const DashboardLayout = ({ children }) => {
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#d97c38] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm border border-white/20">
-                      {getUserInitials(currentUser?.name, currentUser?.role)}
+                      {getUserInitials(displayName, displayRole)}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-white truncate">
-                        {currentUser?.name || "Super Admin"}
+                        {displayName}
                       </p>
                       <p className="text-[10px] text-white/70 truncate">
-                        {currentUser?.designation || currentUser?.role || "Staff Member"}
+                        {displayRole}
                       </p>
                     </div>
                   </div>

@@ -1399,7 +1399,11 @@ class FeeService {
         );
         if (inst) {
           inst.paidAmount = (inst.paidAmount || 0) + payAmount + advanceDeducted;
-          if (inst.paidAmount >= inst.amount) {
+          const challanDiscount = Number(challan.discountAmount || challan.discount || 0);
+          if (challanDiscount > 0) {
+            inst.discount = challanDiscount;
+          }
+          if (challan.status === 'PAID' || inst.paidAmount + challanDiscount >= inst.amount) {
             inst.status = 'PAID';
           } else if (inst.paidAmount > 0) {
             inst.status = 'PARTIAL';
@@ -2441,10 +2445,14 @@ class FeeService {
         }
 
         // 1. Traceable Arrears (N-level chains across prior unpaid installments)
-        const priorUnpaidChallans = await FeeChallan.find({
+        const allStudentChallans = await FeeChallan.find({
           studentId: student._id,
-          status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
+          status: { $ne: 'VOID' }
         }).sort({ dueDate: 1, installmentNumber: 1, createdAt: 1 });
+
+        const priorUnpaidChallans = allStudentChallans.filter(c =>
+          ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status)
+        );
 
         const eligiblePriors = priorUnpaidChallans.filter(p =>
           (p.month || '').trim().toLowerCase() !== (monthName || '').trim().toLowerCase() &&
@@ -2480,17 +2488,31 @@ class FeeService {
         const priorUnbilledInsts = (student.installments || []).filter(inst => {
           if (inst.installmentNumber >= installmentNumber) return false;
           if (inst.month && monthName && inst.month.trim().toLowerCase() === monthName.trim().toLowerCase()) return false;
-          const isPaid = ['PAID', 'SETTLED', 'SUPERSEDED'].includes(inst.status);
-          const hasChallan = priorUnpaidChallans.some(c =>
+
+          const existingChallan = allStudentChallans.find(c =>
             (c.installmentNumber && c.installmentNumber === inst.installmentNumber) ||
             (c.installmentId && c.installmentId.toString() === inst._id?.toString()) ||
-            (c.month && inst.month && c.month.toLowerCase() === inst.month.toLowerCase())
+            (c.month && inst.month && c.month.trim().toLowerCase() === inst.month.trim().toLowerCase())
           );
-          return !isPaid && !hasChallan;
+
+          if (existingChallan) {
+            if (['PAID', 'SETTLED', 'SUPERSEDED'].includes(existingChallan.status)) {
+              if (inst.status !== 'PAID' && existingChallan.status === 'PAID') {
+                inst.status = 'PAID';
+              }
+              return false;
+            }
+            // If it's unpaid (PENDING/PARTIAL/OVERDUE), it's already captured in eligiblePriors
+            return false;
+          }
+
+          const isPaid = ['PAID', 'SETTLED', 'SUPERSEDED'].includes(inst.status);
+          return !isPaid;
         });
 
         for (const unbilled of priorUnbilledInsts) {
-          const unbilledTarget = Number(unbilled.pendingAmount ?? unbilled.amount ?? unbilled.basePayable ?? 0);
+          const unbilledDiscount = Number(unbilled.discount || 0);
+          const unbilledTarget = Math.max(0, Number(unbilled.pendingAmount ?? unbilled.amount ?? unbilled.basePayable ?? 0) - unbilledDiscount);
           const unbilledPaid = Number(unbilled.paidAmount || 0);
           const unbilledRem = Math.max(0, unbilledTarget - unbilledPaid);
           if (unbilledRem > 0) {
@@ -2703,11 +2725,19 @@ class FeeService {
           }
         });
       } catch (err) {
+        let cleanReason = err.message || 'Failed to generate challan';
+        if (cleanReason.includes('arrearAllocations') || cleanReason.includes('sourceChallan')) {
+          cleanReason = 'Unable to resolve prior arrear records for this student. Please check previous challan statuses.';
+        } else if (cleanReason.includes('duplicate key') || cleanReason.includes('E11000')) {
+          cleanReason = 'A challan for this month or with this challan number already exists.';
+        } else if (cleanReason.includes('validation failed')) {
+          cleanReason = 'Challan data validation failed. Please check student installment plan and fee settings.';
+        }
         results.push({
           studentId: student._id.toString(),
           studentName: `${student.fName} ${student.lName || ''}`.trim(),
           status: 'BLOCKED',
-          reason: err.message || 'Failed to generate challan'
+          reason: cleanReason
         });
       }
     }
@@ -2735,10 +2765,53 @@ class FeeService {
   // Payment Receipts
   async getChallanReceipts(challanId) {
     if (!challanId) return [];
-    return FeePaymentReceipt.find({ challanId })
-      .populate('recordedBy', 'name role')
+    const receipts = await FeePaymentReceipt.find({ challanId })
+      .populate('recordedBy', 'name role email')
       .populate('walletId', 'name type')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (receipts && receipts.length > 0) {
+      return receipts;
+    }
+
+    // Fallback 1: WalletTransaction
+    const walletTxs = await WalletTransaction.find({ challanId })
+      .populate('destinationWallet', 'name type')
+      .populate('performedBy', 'name role email')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (walletTxs && walletTxs.length > 0) {
+      return walletTxs.map(tx => ({
+        _id: tx._id,
+        receiptNo: tx.referenceNo || `TX-${tx._id.toString().slice(-6)}`,
+        amountPaid: tx.amount,
+        paidDate: tx.createdAt || tx.date,
+        paymentMode: tx.paymentMode || 'Cash',
+        walletId: tx.destinationWallet,
+        recordedBy: tx.performedBy || { name: tx.performedByName || 'Super Admin' },
+        remarks: tx.description || ''
+      }));
+    }
+
+    // Fallback 2: Check challan itself if direct payment was recorded
+    const challan = await FeeChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role').lean() ||
+                    await ExtraChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role').lean();
+    if (challan && Number(challan.paidAmount) > 0) {
+      return [{
+        _id: challan._id,
+        receiptNo: challan.challanNo ? `REC-${challan.challanNo}` : `REC-${challan._id.toString().slice(-6)}`,
+        amountPaid: Number(challan.paidAmount),
+        paidDate: challan.paidDate || challan.updatedAt,
+        paymentMode: challan.paymentMode || challan.paidBy || 'Cash',
+        walletId: challan.walletId || (challan.walletName ? { name: challan.walletName } : null),
+        recordedBy: challan.receivedBy || { name: challan.receivedByName || challan.paidBy || 'Super Admin' },
+        remarks: challan.remarks || ''
+      }];
+    }
+
+    return [];
   }
 
   // Student Installments with Linked Challans and Payment Transactions

@@ -18,6 +18,7 @@ import {
   createStudent,
   updateStudent,
   deleteStudent,
+  getStudents,
   getProgramNames,
   promoteStudents,
   demoteStudents,
@@ -49,6 +50,58 @@ const extractId = (val) => {
   if (!val) return "";
   if (typeof val === "object") return (val._id || val.id || "").toString();
   return val.toString();
+};
+
+export const findDuplicateStudent = (data, studentsList = [], currentStudentId = null) => {
+  if (!data || !Array.isArray(studentsList) || studentsList.length === 0) return null;
+
+  const getVal = (key) => {
+    if (typeof data.get === "function") {
+      const v = data.get(key);
+      return v !== null && v !== undefined ? String(v) : "";
+    }
+    const v = data[key];
+    return v !== null && v !== undefined ? String(v) : "";
+  };
+
+  const clean = (str) =>
+    String(str || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+  const cleanCnic = (val) => String(val || "").replace(/\D/g, "");
+
+  const fName = getVal("fName");
+  const lName = getVal("lName");
+  const studentFullName = clean(`${fName} ${lName}`);
+  const fatherName = clean(getVal("fatherOrguardian") || getVal("fatherName"));
+  const parentCnic = cleanCnic(getVal("parentCNIC") || getVal("fatherCnic") || getVal("guardianCnic"));
+
+  if (!studentFullName || !fatherName) return null;
+
+  const currentIdStr = currentStudentId ? String(currentStudentId) : null;
+
+  // ponytail: O(N) client-side scan over minimal student records ({_id, fName, lName, fatherOrguardian, parentCNIC, rollNumber}). If student body exceeds ~10k, replace with a dedicated backend check endpoint (/student/check-duplicate).
+  return (
+    studentsList.find((s) => {
+      const sId = (s.id || s._id)?.toString();
+      if (currentIdStr && sId === currentIdStr) return false;
+
+      const sFullName = clean(`${s.fName || ""} ${s.lName || ""}`);
+      if (sFullName !== studentFullName) return false;
+
+      const sFatherName = clean(s.fatherOrguardian || s.fatherName);
+      if (sFatherName !== fatherName) return false;
+
+      const sCnic = cleanCnic(s.parentCNIC || s.fatherCnic || s.guardianCnic);
+      return parentCnic === sCnic;
+    }) || null
+  );
+};
+
+export const isDuplicateStudent = (data, studentsList = [], currentStudentId = null) => {
+  return Boolean(findDuplicateStudent(data, studentsList, currentStudentId));
 };
 
 const Students = () => {
@@ -164,6 +217,25 @@ const Students = () => {
     );
   }, [allHostelRegistrationsRaw]);
 
+  const [isValidatingDuplicate, setIsValidatingDuplicate] = useState(false);
+
+  const { data: rawValidationStudents } = useQuery({
+    queryKey: ["students", "duplicate-validation-pool"],
+    queryFn: () =>
+      getStudents({
+        status: "all",
+        limit: 0,
+        fields: "fName lName fatherOrguardian parentCNIC rollNumber",
+      }),
+    enabled: formOpen,
+    staleTime: 60 * 1000,
+  });
+
+  const validationStudentsPool = useMemo(() => {
+    if (Array.isArray(rawValidationStudents)) return rawValidationStudents;
+    return rawValidationStudents?.students || [];
+  }, [rawValidationStudents]);
+
   // Handle openStudentId from router state (e.g. from Hostel)
   useEffect(() => {
     if (location.state?.openStudentId) {
@@ -228,6 +300,44 @@ const Students = () => {
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const handleFormSubmit = async (data) => {
+    const studentId = editingStudent?.id || editingStudent?._id;
+
+    let pool = validationStudentsPool;
+    if (!pool || pool.length === 0) {
+      setIsValidatingDuplicate(true);
+      try {
+        const fresh = await getStudents({
+          status: "all",
+          limit: 0,
+          fields: "fName lName fatherOrguardian parentCNIC rollNumber",
+        });
+        pool = Array.isArray(fresh) ? fresh : fresh?.students || [];
+      } catch (err) {
+        console.warn("Could not fetch students for duplicate check:", err);
+      } finally {
+        setIsValidatingDuplicate(false);
+      }
+    }
+
+    const duplicate = findDuplicateStudent(data, pool, studentId);
+    if (duplicate) {
+      const rollInfo = duplicate.rollNumber ? ` (Roll No: ${duplicate.rollNumber})` : "";
+      toast({
+        title: "Duplicate Student",
+        description: `A student with the same name, father name, and father CNIC already exists${rollInfo}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (studentId) {
+      updateMut.mutate({ id: studentId, data });
+    } else {
+      createMut.mutate(data);
+    }
+  };
 
   const bulkPromotionMut = useMutation({
     mutationFn: async ({
@@ -555,15 +665,8 @@ const Students = () => {
             setEditingLoading(false);
             setEditingStudent(null);
           }}
-          onSubmit={(data) => {
-            const studentId = editingStudent?.id || editingStudent?._id;
-            if (studentId) {
-              updateMut.mutate({ id: studentId, data });
-            } else {
-              createMut.mutate(data);
-            }
-          }}
-          isSubmitting={createMut.isPending || updateMut.isPending}
+          onSubmit={handleFormSubmit}
+          isSubmitting={createMut.isPending || updateMut.isPending || isValidatingDuplicate}
         />
 
         {/* Student Profile Dialog */}

@@ -2515,7 +2515,7 @@ export const createFeeChallan = async (data) => {
   }
 };
 
-export const getFeeChallans = async (filters = {}) => {
+export const getFeeChallans = async (filters = {}, options = {}) => {
   try {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
@@ -2527,9 +2527,13 @@ export const getFeeChallans = async (filters = {}) => {
     const url = `${base_url}/fee-management/challan/get/all${params.toString() ? '?' + params.toString() : ''}`;
     const response = await axios.get(url, {
       withCredentials: true,
+      signal: options?.signal,
     });
     return response.data;
   } catch (error) {
+    if (axios.isCancel(error) || error?.name === 'CanceledError' || error?.name === 'AbortError') {
+      return { data: [], meta: {} };
+    }
     const message = error.response?.data?.message || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
@@ -2641,7 +2645,7 @@ export const getStudentArrears = async (studentId) => {
   }
 };
 
-export const getInstallmentPlans = async (filters = {}) => {
+export const getInstallmentPlans = async (filters = {}, options = {}) => {
   try {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
@@ -2653,9 +2657,13 @@ export const getInstallmentPlans = async (filters = {}) => {
     const url = `${base_url}/fee-management/installment-plans${params.toString() ? '?' + params.toString() : ''}`;
     const response = await axios.get(url, {
       withCredentials: true,
+      signal: options?.signal,
     });
     return response.data;
   } catch (error) {
+    if (axios.isCancel(error) || error?.name === 'CanceledError' || error?.name === 'AbortError') {
+      return null;
+    }
     const message = error.response?.data?.message || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getStudentAcademicPath } from "../students/studentFinancialUtils";
+import { findDuplicateStudent, isDuplicateStudent } from "../Students";
 
 const extractId = (val) => {
   if (!val) return "";
@@ -213,4 +214,133 @@ describe("Students.jsx Logic and Fixes", () => {
       expect(getStudentAcademicPath(student)).toBe("A-Levels / Year 1 / Alpha");
     });
   });
+
+  describe("Duplicate Student Validation (create & update)", () => {
+    const existingStudents = [
+      {
+        _id: "s1",
+        fName: "Muhammad",
+        lName: "Ali",
+        fatherOrguardian: "Tariq Mahmood",
+        parentCNIC: "35201-1234567-1",
+        rollNumber: "FSC-101",
+      },
+      {
+        _id: "s2",
+        fName: "Sara",
+        lName: "Khan",
+        fatherOrguardian: "Imran Khan",
+        parentCNIC: "35202-9876543-2",
+        rollNumber: "ICS-202",
+      },
+      {
+        _id: "s3",
+        fName: "Zain",
+        lName: "Abbas",
+        fatherOrguardian: "Abbas Ali",
+        parentCNIC: "",
+        rollNumber: "FA-303",
+      },
+    ];
+
+    it("detects exact duplicate on create (FormData)", () => {
+      const formData = new FormData();
+      formData.append("fName", "Muhammad");
+      formData.append("lName", "Ali");
+      formData.append("fatherOrguardian", "Tariq Mahmood");
+      formData.append("parentCNIC", "35201-1234567-1");
+
+      const match = findDuplicateStudent(formData, existingStudents);
+      expect(match).not.toBeNull();
+      expect(match._id).toBe("s1");
+      expect(match.rollNumber).toBe("FSC-101");
+      expect(isDuplicateStudent(formData, existingStudents)).toBe(true);
+    });
+
+    it("detects duplicate case-insensitively and regardless of CNIC hyphens / spaces", () => {
+      const payload = {
+        fName: "  muhammad ",
+        lName: "   ALI ",
+        fatherOrguardian: "tariq   mahmood",
+        parentCNIC: "3520112345671", // Clean digits without hyphens
+      };
+
+      expect(isDuplicateStudent(payload, existingStudents)).toBe(true);
+    });
+
+    it("does not flag student as duplicate if Father CNIC is different", () => {
+      const payload = {
+        fName: "Muhammad",
+        lName: "Ali",
+        fatherOrguardian: "Tariq Mahmood",
+        parentCNIC: "35201-7777777-7", // Different father CNIC
+      };
+
+      expect(isDuplicateStudent(payload, existingStudents)).toBe(false);
+    });
+
+    it("does not flag student as duplicate if student name or father name is different", () => {
+      const payload = {
+        fName: "Muhammad",
+        lName: "Ahmed", // Different last name
+        fatherOrguardian: "Tariq Mahmood",
+        parentCNIC: "35201-1234567-1",
+      };
+
+      expect(isDuplicateStudent(payload, existingStudents)).toBe(false);
+    });
+
+    it("allows updating the student itself without self-triggering duplicate error", () => {
+      const payload = {
+        fName: "Muhammad",
+        lName: "Ali",
+        fatherOrguardian: "Tariq Mahmood",
+        parentCNIC: "35201-1234567-1",
+      };
+
+      // Updating student s1 itself should NOT be considered duplicate
+      expect(isDuplicateStudent(payload, existingStudents, "s1")).toBe(false);
+    });
+
+    it("flags duplicate on update if updated data matches another student's details", () => {
+      const payload = {
+        fName: "Sara",
+        lName: "Khan",
+        fatherOrguardian: "Imran Khan",
+        parentCNIC: "35202-9876543-2",
+      };
+
+      // Student s1 is being updated to match student s2
+      const match = findDuplicateStudent(payload, existingStudents, "s1");
+      expect(match).not.toBeNull();
+      expect(match._id).toBe("s2");
+      expect(isDuplicateStudent(payload, existingStudents, "s1")).toBe(true);
+    });
+
+    it("detects duplicate when both existing and new entry have empty CNIC", () => {
+      const payload = {
+        fName: "Zain",
+        lName: "Abbas",
+        fatherOrguardian: "Abbas Ali",
+        parentCNIC: "",
+      };
+
+      const match = findDuplicateStudent(payload, existingStudents);
+      expect(match).not.toBeNull();
+      expect(match._id).toBe("s3");
+      expect(isDuplicateStudent(payload, existingStudents)).toBe(true);
+    });
+
+    it("does not flag duplicate if one has CNIC and the other has empty CNIC", () => {
+      const payload = {
+        fName: "Zain",
+        lName: "Abbas",
+        fatherOrguardian: "Abbas Ali",
+        parentCNIC: "35201-5555555-5",
+      };
+
+      expect(isDuplicateStudent(payload, existingStudents)).toBe(false);
+    });
+  });
 });
+

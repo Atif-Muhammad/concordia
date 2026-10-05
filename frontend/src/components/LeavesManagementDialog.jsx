@@ -41,7 +41,6 @@ import {
     getStaffLeaveBalance,
     toggleLockStaffLeave,
     updateStaffLeaveStatus,
-    applyTeacherLeave,
     userWho,
     refreshTokens,
 } from "../../config/apis";
@@ -436,423 +435,11 @@ const LeaveHistoryDialog = ({ open, onOpenChange, record }) => {
     );
 };
 
-// Put Application Dialog for self leave application (Exact form from TeacherLeaves.jsx)
-const PutApplicationDialog = ({ open, onOpenChange, currentUser, staffList, onSuccess }) => {
-    const { toast } = useToast();
-    const [selectedRange, setSelectedRange] = useState(undefined);
-    const [formData, setFormData] = useState({
-        type: "CASUAL",
-        reason: "",
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // Resolve staff record for current user
-    const myStaffRecord = useMemo(() => {
-        if (!currentUser) return null;
-        const targetId = currentUser.refId || currentUser.staffDbId || currentUser.id || currentUser._id;
-        const byId = (staffList || []).find((s) => {
-            const sId = s.id || s._id;
-            return String(sId) === String(targetId) || (s.staffId && String(s.staffId) === String(currentUser.staffId));
-        });
-        if (byId) return byId;
-        if (currentUser.email) {
-            const byEmail = (staffList || []).find(
-                (s) => s.email && s.email.toLowerCase() === currentUser.email.toLowerCase()
-            );
-            if (byEmail) return byEmail;
-        }
-        return null;
-    }, [currentUser, staffList]);
-
-    const myStaffId = myStaffRecord?.id || myStaffRecord?._id || currentUser?.refId || currentUser?.staffDbId || "";
-    const staffName = myStaffRecord?.name || currentUser?.name || "Staff Member";
-
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const { data: leaveBalance, isLoading: isBalanceLoading } = useQuery({
-        queryKey: ["staffLeaveBalanceSelf", myStaffId, currentMonth],
-        queryFn: () => getStaffLeaveBalance(myStaffId, currentMonth),
-        enabled: !!myStaffId && open,
-    });
-
-    useEffect(() => {
-        if (!open) {
-            setSelectedRange(undefined);
-            setFormData({ type: "CASUAL", reason: "" });
-        }
-    }, [open]);
-
-    // Calculate days count from sequence
-    const calculatedDays = useMemo(() => {
-        if (!selectedRange?.from) return 0;
-        if (!selectedRange.to) return 1;
-        const start = new Date(selectedRange.from);
-        const end = new Date(selectedRange.to);
-        start.setHours(0, 0, 0, 0);
-        end.setHours(0, 0, 0, 0);
-        const diff = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
-        return Math.max(1, diff);
-    }, [selectedRange]);
-
-    // Quick preset ranges
-    const handleQuickPreset = (presetKey) => {
-        const today = new Date();
-        today.setHours(12, 0, 0, 0);
-
-        if (presetKey === "today") {
-            setSelectedRange({ from: today, to: undefined });
-        } else if (presetKey === "tomorrow") {
-            const tomorrow = new Date(today);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            setSelectedRange({ from: tomorrow, to: undefined });
-        } else if (presetKey === "next3days") {
-            const start = new Date(today);
-            start.setDate(start.getDate() + 1);
-            const end = new Date(start);
-            end.setDate(end.getDate() + 2);
-            setSelectedRange({ from: start, to: end });
-        } else if (presetKey === "thisweek") {
-            const start = new Date(today);
-            const end = new Date(today);
-            end.setDate(end.getDate() + 4);
-            setSelectedRange({ from: start, to: end });
-        }
-    };
-
-    const isPresetActive = (presetKey) => {
-        if (!selectedRange?.from) return false;
-        const today = new Date();
-        today.setHours(12, 0, 0, 0);
-        const fromStr = format(selectedRange.from, "yyyy-MM-dd");
-        const toStr = selectedRange.to ? format(selectedRange.to, "yyyy-MM-dd") : fromStr;
-
-        if (presetKey === "today") {
-            const todayStr = format(today, "yyyy-MM-dd");
-            return fromStr === todayStr && toStr === todayStr;
-        }
-        if (presetKey === "tomorrow") {
-            const tm = new Date(today);
-            tm.setDate(tm.getDate() + 1);
-            const tmStr = format(tm, "yyyy-MM-dd");
-            return fromStr === tmStr && toStr === tmStr;
-        }
-        if (presetKey === "next3days") {
-            const start = new Date(today);
-            start.setDate(start.getDate() + 1);
-            const end = new Date(start);
-            end.setDate(end.getDate() + 2);
-            return fromStr === format(start, "yyyy-MM-dd") && toStr === format(end, "yyyy-MM-dd");
-        }
-        if (presetKey === "thisweek") {
-            const start = new Date(today);
-            const end = new Date(today);
-            end.setDate(end.getDate() + 4);
-            return fromStr === format(start, "yyyy-MM-dd") && toStr === format(end, "yyyy-MM-dd");
-        }
-        return false;
-    };
-
-    const presets = [
-        { key: "today", label: "Today (1d)" },
-        { key: "tomorrow", label: "Tomorrow (1d)" },
-        { key: "next3days", label: "Next 3 Days (3d)" },
-        { key: "thisweek", label: "Next 5 Days (5d)" },
-    ];
-
-    const activeBalance = leaveBalance ? (leaveBalance[formData.type] || leaveBalance[formData.type.toLowerCase()]) : null;
-    const activeRemaining = activeBalance ? (activeBalance.remaining ?? activeBalance.balance ?? ((activeBalance.allowed ?? 0) - (activeBalance.taken ?? activeBalance.used ?? 0))) : null;
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!selectedRange?.from) {
-            toast({
-                title: "Select Dates",
-                description: "Please select one or more dates on the calendar.",
-                variant: "destructive",
-            });
-            return;
-        }
-
-        const startDate = format(selectedRange.from, "yyyy-MM-dd");
-        const endDate = selectedRange.to ? format(selectedRange.to, "yyyy-MM-dd") : startDate;
-
-        if (!formData.reason.trim()) {
-            toast({
-                title: "Reason Required",
-                description: "Please provide a reason for your leave request.",
-                variant: "destructive",
-            });
-            return;
-        }
-
-        setIsSubmitting(true);
-        try {
-            await applyTeacherLeave({
-                staffId: myStaffId || undefined,
-                startDate,
-                endDate,
-                days: calculatedDays || 1,
-                type: formData.type,
-                reason: formData.reason.trim(),
-            });
-
-            toast({
-                title: "Application Submitted",
-                description: "Your leave application has been submitted successfully.",
-            });
-            setSelectedRange(undefined);
-            setFormData({ type: "CASUAL", reason: "" });
-            onOpenChange(false);
-            if (onSuccess) onSuccess();
-        } catch (error) {
-            toast({
-                title: "Submission Error",
-                description: error.message || "Failed to submit leave application.",
-                variant: "destructive",
-            });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
-                <DialogHeader>
-                    <div className="flex items-center justify-between">
-                        <DialogTitle className="flex items-center gap-2 text-foreground">
-                            <FileText className="h-5 w-5 text-primary" />
-                            Put Leave Application
-                        </DialogTitle>
-                        {staffName && (
-                            <Badge variant="outline" className="border-primary/30 text-primary text-xs font-medium">
-                                <User className="h-3 w-3 mr-1" />
-                                {staffName}
-                                {myStaffRecord?.empDepartment ? ` · ${myStaffRecord.empDepartment}` : ""}
-                            </Badge>
-                        )}
-                    </div>
-                    <DialogDescription>
-                        Submit a leave application for yourself. This will be routed to HR & Administration for review.
-                    </DialogDescription>
-                </DialogHeader>
-
-                {/* Leave Balances Summary Cards */}
-                <div className="grid grid-cols-3 gap-2.5 pt-1">
-                    {[
-                        { key: "CASUAL", label: "Casual Leave" },
-                        { key: "SICK", label: "Sick Leave" },
-                        { key: "ANNUAL", label: "Annual Leave" },
-                    ].map(({ key, label }) => {
-                        const b = leaveBalance ? (leaveBalance[key] || leaveBalance[key.toLowerCase()]) : null;
-                        const taken = b ? (b.taken ?? b.used ?? 0) : 0;
-                        const allowed = b ? (b.allowed ?? 0) : 0;
-                        const remaining = b ? (b.remaining ?? b.balance ?? (allowed - taken)) : 0;
-
-                        return (
-                            <div key={key} className="rounded-lg border border-primary/20 bg-muted/40 p-2.5 space-y-1 text-xs">
-                                <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-muted-foreground uppercase text-[10px] tracking-wider">{label}</span>
-                                    <Badge variant="outline" className="border-primary/30 text-primary bg-primary/5 text-[10px] font-bold px-1.5 py-0">
-                                        {remaining > 0 ? `${remaining} Left` : "0 Left"}
-                                    </Badge>
-                                </div>
-                                <div className="flex items-baseline justify-between text-[11px] text-muted-foreground pt-0.5 border-t border-border/50">
-                                    <span>Used / Quota</span>
-                                    <span className="font-semibold text-foreground">
-                                        {isBalanceLoading ? "..." : `${taken} / ${allowed}`}
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-                    {/* Leave Type */}
-                    <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="selfLeaveType" className="text-xs font-medium">
-                                Leave Type <span className="text-primary">*</span>
-                            </Label>
-                            {activeRemaining !== null && (
-                                <span className="text-[11px] text-muted-foreground">
-                                    Remaining quota: <span className="font-semibold text-primary">{activeRemaining} days</span>
-                                </span>
-                            )}
-                        </div>
-                        <Select
-                            value={formData.type}
-                            onValueChange={(val) => setFormData({ ...formData, type: val })}
-                        >
-                            <SelectTrigger id="selfLeaveType" className="border-primary/20 focus:ring-primary text-xs">
-                                <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="CASUAL">Casual Leave</SelectItem>
-                                <SelectItem value="SICK">Sick Leave</SelectItem>
-                                <SelectItem value="ANNUAL">Annual Leave</SelectItem>
-                                <SelectItem value="OTHER">Other Leave</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {/* Sequence Calendar */}
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-xs font-medium flex items-center gap-1.5 text-foreground">
-                                <CalendarIcon className="h-3.5 w-3.5 text-primary" />
-                                Select Dates <span className="text-primary">*</span>
-                            </Label>
-                            {selectedRange?.from && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedRange(undefined)}
-                                    className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                                >
-                                    Reset Calendar
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Quick Preset Buttons */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            {presets.map(({ key, label }) => {
-                                const active = isPresetActive(key);
-                                return (
-                                    <button
-                                        key={key}
-                                        type="button"
-                                        onClick={() => handleQuickPreset(key)}
-                                        className={cn(
-                                            "h-6.5 px-2.5 text-[11px] rounded-md border font-medium transition-all shadow-2xs cursor-pointer select-none",
-                                            active
-                                                ? "bg-primary text-white border-primary shadow-xs font-semibold"
-                                                : "bg-background text-foreground border-primary/30 hover:bg-primary hover:text-white hover:border-primary hover:shadow-xs"
-                                        )}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {/* Single Interactive Range Calendar */}
-                        <div className="rounded-lg border border-primary/20 bg-background/60 p-1.5 shadow-xs flex flex-col items-center">
-                            <Calendar
-                                mode="range"
-                                selected={selectedRange}
-                                onSelect={(range) => setSelectedRange(range)}
-                                className="rounded-md w-full flex justify-center"
-                                classNames={{
-                                    day_selected:
-                                        "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground font-semibold",
-                                    day_range_start: "day-range-start rounded-l-md bg-primary text-primary-foreground font-semibold",
-                                    day_range_end: "day-range-end rounded-r-md bg-primary text-primary-foreground font-semibold",
-                                    day_range_middle: "aria-selected:bg-primary/15 aria-selected:text-primary rounded-none font-medium",
-                                }}
-                            />
-                        </div>
-
-                        {/* Sequence Selection Summary Banner */}
-                        {selectedRange?.from ? (
-                            <div className="rounded-md bg-primary/10 border border-primary/20 p-2.5 flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
-                                    <div>
-                                        <span className="font-semibold text-foreground">
-                                            {format(selectedRange.from, "MMM d, yyyy")}
-                                            {selectedRange.to && format(selectedRange.to, "yyyy-MM-dd") !== format(selectedRange.from, "yyyy-MM-dd")
-                                                ? ` → ${format(selectedRange.to, "MMM d, yyyy")}`
-                                                : " (Single Day)"}
-                                        </span>
-                                        <span className="text-muted-foreground ml-1.5">
-                                            ({calculatedDays} {calculatedDays === 1 ? "day requested" : "consecutive days"})
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <Badge className="bg-primary text-primary-foreground font-bold shadow-xs">
-                                        {calculatedDays} {calculatedDays === 1 ? "Day" : "Days"}
-                                    </Badge>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedRange(undefined)}
-                                        className="h-5 px-1.5 text-[11px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="rounded-md border border-dashed border-primary/30 p-2 text-center text-xs text-muted-foreground">
-                                Click a date for 1 day, or click a 2nd date to select a sequence of dates.
-                            </div>
-                        )}
-
-                        {/* Excess warning if requested days exceed balance */}
-                        {activeRemaining !== null && calculatedDays > activeRemaining && (
-                            <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-500/10 p-2 rounded border border-amber-500/20">
-                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                <span>
-                                    Requested {calculatedDays} days exceeds your {formData.type.toLowerCase()} quota ({activeRemaining} left).
-                                </span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Reason */}
-                    <div className="space-y-1.5">
-                        <Label htmlFor="selfLeaveReason" className="text-xs font-medium">
-                            Reason for Leave <span className="text-primary">*</span>
-                        </Label>
-                        <Textarea
-                            id="selfLeaveReason"
-                            placeholder="Provide a clear description of the reason for your leave..."
-                            value={formData.reason}
-                            onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                            rows={3}
-                            className="border-primary/20 focus-visible:ring-primary text-xs"
-                        />
-                    </div>
-
-                    <DialogFooter className="pt-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onOpenChange(false)}
-                            disabled={isSubmitting}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="submit"
-                            size="sm"
-                            disabled={isSubmitting || !selectedRange?.from}
-                            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
-                        >
-                            {isSubmitting ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Submitting Request...
-                                </>
-                            ) : (
-                                `Submit Leave Application ${calculatedDays > 0 ? `(${calculatedDays} ${calculatedDays === 1 ? "Day" : "Days"})` : ""}`
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
 const LeavesManagementDialog = () => {
-    const { canCreate, canUpdate, canDelete } = usePermissions("HR & Payroll", "leaves");
+    const { canCreate, canUpdate, canDelete, canApprove } = usePermissions("HR & Payroll", "leaves");
     const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
     const [activeTab, setActiveTab] = useState("teacher");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
-    const [putApplicationOpen, setPutApplicationOpen] = useState(false);
     const [selectedLeaveRecord, setSelectedLeaveRecord] = useState(null);
     const [leaveFormData, setLeaveFormData] = useState({
         personId: "",
@@ -957,6 +544,10 @@ const LeavesManagementDialog = () => {
     };
 
     const handleStatusChange = async (leaveId, status) => {
+        if (!canApprove) {
+            toast({ title: "You do not have permission to approve or reject leaves", variant: "destructive" });
+            return;
+        }
         setActionLoading(leaveId);
         try {
             await updateStaffLeaveStatus(leaveId, status);
@@ -1122,14 +713,6 @@ const LeavesManagementDialog = () => {
                     </Select>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end sm:ml-auto">
-                    <Button
-                        type="button"
-                        onClick={() => setPutApplicationOpen(true)}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold h-8 sm:h-9 px-2.5 sm:px-3 shadow-2xs"
-                    >
-                        <FileText className="mr-1 sm:mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                        Put Application
-                    </Button>
                     {canCreate && (
                         <Button
                             type="button"
@@ -1239,7 +822,7 @@ const LeavesManagementDialog = () => {
                                                     const isOwnRecord = myStaffId && rowStaffId && String(myStaffId) === String(rowStaffId);
                                                     const canSelfCancel = isOwnRecord && row.status === "PENDING" && !row.locked;
 
-                                                    if (!canUpdate && !canDelete && !canSelfCancel) return null;
+                                                    if (!canUpdate && !canDelete && !canApprove && !canSelfCancel) return null;
 
                                                     return (
                                                         <DropdownMenu>
@@ -1250,17 +833,19 @@ const LeavesManagementDialog = () => {
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
                                                                 {canUpdate && (
+                                                                    <DropdownMenuItem
+                                                                        disabled={row.locked || actionLoading === (row.leaveId || row.id)}
+                                                                        onClick={() => {
+                                                                            setEditingRecord(row);
+                                                                            setEditDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                                                                    </DropdownMenuItem>
+                                                                )}
+                                                                {canApprove && (
                                                                     <>
-                                                                        <DropdownMenuItem
-                                                                            disabled={row.locked || actionLoading === (row.leaveId || row.id)}
-                                                                            onClick={() => {
-                                                                                setEditingRecord(row);
-                                                                                setEditDialogOpen(true);
-                                                                            }}
-                                                                        >
-                                                                            <Pencil className="h-4 w-4 mr-2" /> Edit
-                                                                        </DropdownMenuItem>
-                                                                        <DropdownMenuSeparator />
+                                                                        {canUpdate && <DropdownMenuSeparator />}
                                                                         {row.status !== "APPROVED" && (
                                                                             <DropdownMenuItem
                                                                                 disabled={row.locked || actionLoading === (row.leaveId || row.id)}
@@ -1277,6 +862,11 @@ const LeavesManagementDialog = () => {
                                                                                 Reject
                                                                             </DropdownMenuItem>
                                                                         )}
+                                                                    </>
+                                                                )}
+                                                                {canUpdate && (
+                                                                    <>
+                                                                        {(canUpdate || canApprove) && <DropdownMenuSeparator />}
                                                                         <DropdownMenuItem
                                                                             onClick={() => handleToggleLock(row.leaveId || row.id, !row.locked)}
                                                                         >
@@ -1290,7 +880,7 @@ const LeavesManagementDialog = () => {
                                                                 )}
                                                                 {(canDelete || canSelfCancel) && (
                                                                     <>
-                                                                        {canUpdate && <DropdownMenuSeparator />}
+                                                                        {(canUpdate || canApprove) && <DropdownMenuSeparator />}
                                                                         <DropdownMenuItem
                                                                             disabled={row.locked || deletingId === (row.leaveId || row.id)}
                                                                             className="text-destructive focus:text-destructive"
@@ -1541,21 +1131,6 @@ const LeavesManagementDialog = () => {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Put Application Dialog (Self Leave Application for all staff) */}
-            <PutApplicationDialog
-                open={putApplicationOpen}
-                onOpenChange={setPutApplicationOpen}
-                currentUser={currentUser}
-                staffList={staffList}
-                onSuccess={() => {
-                    queryClient.invalidateQueries(["leaveSheet", month, activeTab]);
-                    queryClient.invalidateQueries(["leaveBalance"]);
-                    queryClient.invalidateQueries(["staffLeaveBalanceSelf"]);
-                    queryClient.invalidateQueries(["teacherLeaves"]);
-                    queryClient.invalidateQueries(["teacherLeaveBalance"]);
-                    refetch();
-                }}
-            />
             {/* Mobile Leave Record Details Dialog */}
             <Dialog open={!!selectedLeaveRecord} onOpenChange={(open) => !open && setSelectedLeaveRecord(null)}>
                 <DialogContent className="max-w-md w-full">
@@ -1622,9 +1197,9 @@ const LeavesManagementDialog = () => {
                                     History
                                 </Button>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {canUpdate && !selectedLeaveRecord.locked && (
+                                    {!selectedLeaveRecord.locked && (
                                         <>
-                                            {selectedLeaveRecord.status !== "APPROVED" && (
+                                            {canApprove && selectedLeaveRecord.status !== "APPROVED" && (
                                                 <Button
                                                     size="sm"
                                                     className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white"
@@ -1637,7 +1212,7 @@ const LeavesManagementDialog = () => {
                                                     Approve
                                                 </Button>
                                             )}
-                                            {selectedLeaveRecord.status !== "REJECTED" && (
+                                            {canApprove && selectedLeaveRecord.status !== "REJECTED" && (
                                                 <Button
                                                     size="sm"
                                                     variant="destructive"
@@ -1651,20 +1226,22 @@ const LeavesManagementDialog = () => {
                                                     Reject
                                                 </Button>
                                             )}
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 text-xs"
-                                                onClick={() => {
-                                                    const r = selectedLeaveRecord;
-                                                    setSelectedLeaveRecord(null);
-                                                    setEditingRecord(r);
-                                                    setEditDialogOpen(true);
-                                                }}
-                                            >
-                                                <Pencil className="h-3.5 w-3.5 mr-1" />
-                                                Edit
-                                            </Button>
+                                            {canUpdate && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 text-xs"
+                                                    onClick={() => {
+                                                        const r = selectedLeaveRecord;
+                                                        setSelectedLeaveRecord(null);
+                                                        setEditingRecord(r);
+                                                        setEditDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                                                    Edit
+                                                </Button>
+                                            )}
                                         </>
                                     )}
                                     {canDelete && !selectedLeaveRecord.locked && (

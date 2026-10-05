@@ -195,6 +195,7 @@ class AuthService {
 
       if (staff) {
         const userObj = user.toObject();
+        userObj.name = staff.name || userObj.name;
         userObj.staffId = staff.staffId;
         userObj.designation = staff.designation;
         userObj.empDepartment = staff.empDepartment;

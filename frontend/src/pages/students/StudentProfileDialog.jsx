@@ -333,10 +333,23 @@ export const StudentProfileDialog = ({
         (sum, i) => sum + Number(i.basePayable || 0),
         0
       );
+      const isInstPaid = (i) => {
+        if (["PAID", "SETTLED"].includes(i.status)) return true;
+        const targetInstId = (i.id || i._id || "").toString();
+        const ch = session.challans.find((c) => {
+          const cInstId = (c.installment?.id || c.installment?._id || c.installmentId || "").toString();
+          return (targetInstId && cInstId && targetInstId === cInstId) ||
+                 (c.installmentNumber && i.installmentNumber && Number(c.installmentNumber) === Number(i.installmentNumber));
+        });
+        if (ch && ["PAID", "SETTLED"].includes(ch.status)) return true;
+        const plan = Number(i.basePayable ?? i.amount ?? 0);
+        const paid = Number(ch?.paidAmount ?? i.paidAmount ?? 0);
+        const disc = Number(ch?.discount ?? ch?.discountAmount ?? i.discount ?? 0);
+        return plan > 0 && (paid + disc >= plan);
+      };
+
       const totalInstallments = allClassInsts.length;
-      const paidInstallments = allClassInsts.filter((i) =>
-        ["PAID", "SETTLED"].includes(i.status)
-      ).length;
+      const paidInstallments = allClassInsts.filter(isInstPaid).length;
 
       const paidThisSession = activeInsts.reduce(
         (sum, i) => sum + Number(i.paidAmount || 0),
@@ -407,7 +420,7 @@ export const StudentProfileDialog = ({
       }, 0);
       const tuitionPaidThisSession = Math.max(0, paidThisSession - headsPlusFinesPaid);
 
-      const unpaidActiveInsts = activeInsts.filter((i) => i.status !== "PAID");
+      const unpaidActiveInsts = activeInsts.filter((i) => !isInstPaid(i));
       const remainingDues = Math.max(0, sessionFee - paidThisSession);
       const remainingExtras = unpaidActiveInsts.reduce(
         (sum, i) => sum + Number(i.lateFeeFine || 0) + Number(i.extraFine || 0),
@@ -1894,16 +1907,27 @@ export const StudentProfileDialog = ({
                                   return false;
                                 });
 
-                                const rawStatus = (inst.status || matchingChallan?.status || "PENDING").toUpperCase();
-                                const planAmount = Number(inst.basePayable ?? inst.amount ?? matchingChallan?.totalAmount ?? matchingChallan?.amount ?? 0);
-                                const paidAmount = Number(inst.paidAmount ?? matchingChallan?.paidAmount ?? 0);
+                                const challanStatus = (matchingChallan?.status || "").toUpperCase();
+                                const instStatus = (inst.status || "").toUpperCase();
+                                const rawStatus = challanStatus || instStatus || "PENDING";
+                                const planAmount = Number(inst.basePayable ?? inst.amount ?? matchingChallan?.basePayable ?? matchingChallan?.amount ?? matchingChallan?.totalAmount ?? 0);
+                                const paidAmount = Number(matchingChallan?.paidAmount ?? inst.paidAmount ?? 0);
+                                const discountAmount = Number(matchingChallan?.discount ?? matchingChallan?.discountAmount ?? inst.discount ?? 0);
 
                                 let status = "UNPAID";
-                                if (rawStatus === "PAID" || (planAmount > 0 && paidAmount >= planAmount)) {
+                                if (
+                                  challanStatus === "PAID" ||
+                                  instStatus === "PAID" ||
+                                  (planAmount > 0 && paidAmount + discountAmount >= planAmount)
+                                ) {
                                   status = "PAID";
-                                } else if (rawStatus === "SETTLED") {
+                                } else if (challanStatus === "SETTLED" || instStatus === "SETTLED") {
                                   status = "SETTLED";
-                                } else if (rawStatus === "PARTIAL" || (paidAmount > 0 && paidAmount < planAmount)) {
+                                } else if (
+                                  challanStatus === "PARTIAL" ||
+                                  instStatus === "PARTIAL" ||
+                                  (paidAmount > 0 && paidAmount + discountAmount < planAmount)
+                                ) {
                                   status = "PARTIAL";
                                 } else if (rawStatus === "OVERDUE") {
                                   status = "OVERDUE";
@@ -1947,9 +1971,16 @@ export const StudentProfileDialog = ({
                                     </TableCell>
                                     <TableCell className="py-2.5 px-3 text-sm text-right">
                                       {status === "PAID" && (
-                                        <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
-                                          PAID
-                                        </Badge>
+                                        <div className="flex flex-col items-end gap-0.5">
+                                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                            PAID
+                                          </Badge>
+                                          {discountAmount > 0 && (
+                                            <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                                              Paid: PKR {paidAmount.toLocaleString()} (Disc: PKR {discountAmount.toLocaleString()})
+                                            </span>
+                                          )}
+                                        </div>
                                       )}
                                       {status === "SETTLED" && (
                                         <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
@@ -1963,6 +1994,7 @@ export const StudentProfileDialog = ({
                                           </Badge>
                                           <span className="text-[10px] text-orange-700 font-semibold font-mono">
                                             Paid: PKR {paidAmount.toLocaleString()}
+                                            {discountAmount > 0 && ` (Disc: PKR ${discountAmount.toLocaleString()})`}
                                           </span>
                                         </div>
                                       )}

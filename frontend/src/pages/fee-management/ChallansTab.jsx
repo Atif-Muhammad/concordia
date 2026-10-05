@@ -63,12 +63,27 @@ import {
   getDefaultFeeChallanTemplate,
   getSections,
   getFeeHeads,
+  getChallanReceipts,
 } from "@/services/api";
 
 const extractId = (val) => {
   if (!val) return "";
   if (typeof val === "object") return (val._id || val.id || "").toString();
   return val.toString();
+};
+
+export const formatUserFriendlyErrorMessage = (reason) => {
+  if (!reason || typeof reason !== "string") return "";
+  if (reason.includes("arrearAllocations") || reason.includes("sourceChallan")) {
+    return "Unable to resolve prior arrear records for this student. Please check previous challan statuses.";
+  }
+  if (reason.includes("duplicate key") || reason.includes("E11000")) {
+    return "A challan for this month or with this challan number already exists.";
+  }
+  if (reason.includes("validation failed")) {
+    return "Challan data validation failed. Please check student installment plan and fee settings.";
+  }
+  return reason;
 };
 import {
   formatAmount,
@@ -86,6 +101,7 @@ import {
   htmlIncludesChallanNumber,
   setCachedTemplate,
   getCachedTemplate,
+  format12HourDateTime,
 } from "./feeFinancialUtils";
 import { openManagedPrintWindow, renderAndPrintChallans } from "@/lib/managedPrint";
 import { PaymentDialog } from "./PaymentDialog";
@@ -148,6 +164,65 @@ export const ChallansTab = ({
   const [editingChallan, setEditingChallan] = useState(null);
   const [printingChallanId, setPrintingChallanId] = useState(null);
 
+  const historyChallanId = selectedChallanForHistory?.id || selectedChallanForHistory?._id;
+  const { data: historyReceiptsData = [], isLoading: isHistoryReceiptsLoading } = useQuery({
+    queryKey: ['challanReceipts', historyChallanId],
+    queryFn: () => getChallanReceipts(historyChallanId),
+    enabled: !!historyChallanId && historyDialogOpen,
+  });
+
+  const historyTransactions = useMemo(() => {
+    if (!selectedChallanForHistory) return [];
+
+    if (Array.isArray(historyReceiptsData) && historyReceiptsData.length > 0) {
+      return historyReceiptsData.map((r, idx) => ({
+        id: r._id || r.id || idx,
+        receiptNo: r.receiptNo || '-',
+        amount: Number(r.amountPaid ?? r.amount ?? 0),
+        date: r.paidDate || r.createdAt || selectedChallanForHistory?.paidDate,
+        time: r.paidTime || selectedChallanForHistory?.paidTime,
+        receivedBy: r.recordedBy?.name || r.receivedByName || selectedChallanForHistory?.receivedByName || selectedChallanForHistory?.paidBy || 'Super Admin',
+        paymentMode: r.paymentMode || selectedChallanForHistory?.paymentMode || 'Cash',
+        depositAccount: r.walletId?.name || r.walletName || selectedChallanForHistory?.walletName || selectedChallanForHistory?.walletId?.name || (r.walletId?.type ? `Account (${r.walletId.type})` : '-'),
+        remarks: r.remarks || '-',
+      }));
+    }
+
+    const hist = typeof selectedChallanForHistory?.paymentHistory === 'string'
+      ? JSON.parse(selectedChallanForHistory.paymentHistory)
+      : (selectedChallanForHistory?.paymentHistory || []);
+
+    if (Array.isArray(hist) && hist.length > 0) {
+      return hist.map((entry, idx) => ({
+        id: entry.id || idx,
+        receiptNo: entry.receiptNo || `REC-${idx + 1}`,
+        amount: Number(entry.amount || 0),
+        date: entry.date || entry.paidDate || selectedChallanForHistory?.paidDate,
+        time: entry.paidTime || entry.time || selectedChallanForHistory?.paidTime,
+        receivedBy: entry.recordedBy?.name || entry.receivedBy || entry.paidBy || selectedChallanForHistory?.receivedByName || selectedChallanForHistory?.paidBy || 'Super Admin',
+        paymentMode: entry.method || entry.paymentMode || selectedChallanForHistory?.paymentMode || 'Cash',
+        depositAccount: entry.walletName || entry.depositAccount || selectedChallanForHistory?.walletName || selectedChallanForHistory?.walletId?.name || '-',
+        remarks: entry.remarks || '-',
+      }));
+    }
+
+    if (Number(selectedChallanForHistory?.paidAmount || 0) > 0) {
+      return [{
+        id: selectedChallanForHistory.id || selectedChallanForHistory._id,
+        receiptNo: selectedChallanForHistory.challanNo ? `REC-${selectedChallanForHistory.challanNo}` : '-',
+        amount: Number(selectedChallanForHistory.paidAmount),
+        date: selectedChallanForHistory.paidDate || selectedChallanForHistory.updatedAt,
+        time: selectedChallanForHistory.paidTime,
+        receivedBy: selectedChallanForHistory.receivedByName || selectedChallanForHistory.paidBy || 'Super Admin',
+        paymentMode: selectedChallanForHistory.paymentMode || selectedChallanForHistory.paidBy || 'Cash',
+        depositAccount: selectedChallanForHistory.walletName || selectedChallanForHistory.walletId?.name || '-',
+        remarks: selectedChallanForHistory.remarks || '-',
+      }];
+    }
+
+    return [];
+  }, [historyReceiptsData, selectedChallanForHistory]);
+
   // Summary query
   const { data: installmentSummary = {} } = useQuery({
     queryKey: ['installmentSummary', challanSessionFilter],
@@ -159,7 +234,7 @@ export const ChallansTab = ({
   // Main Challans Query
   const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
     queryKey: ['feeChallans', challanSearch, challanFilter, challanSessionFilter, selectedInstallment, selectedMonth, selectedProgram, selectedClass, selectedSection, page, limit],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       let monthName = "";
       let yr = "";
       if (selectedMonth) {
@@ -182,7 +257,7 @@ export const ChallansTab = ({
         page,
         limit,
         type: 'INSTALLMENT',
-      });
+      }, { signal });
     },
     keepPreviousData: true,
   });
@@ -302,12 +377,15 @@ export const ChallansTab = ({
 
   // Bulk Student Fetcher for Monthly Generation
   useEffect(() => {
+    if (!generateDialogOpen) return;
+
+    const controller = new AbortController();
+
     const fetchBulkStudentsData = async () => {
-      if (!generateDialogOpen) return;
       setGenerationErrors({});
       setGenerateResults(null);
-
       setIsFetchingBulkStudents(true);
+
       try {
         const studentList = await getInstallmentPlans({
           ...(generateForm.programId && generateForm.programId !== "all" ? { programId: generateForm.programId } : {}),
@@ -315,7 +393,9 @@ export const ChallansTab = ({
           ...(generateForm.sectionId && generateForm.sectionId !== "all" ? { sectionId: generateForm.sectionId } : {}),
           ...(generateForm.sessionId && generateForm.sessionId !== "all" ? { sessionId: generateForm.sessionId } : {}),
           ...(generateForm.month ? { month: generateForm.month } : {}),
-        });
+        }, { signal: controller.signal });
+
+        if (controller.signal.aborted || !studentList) return;
 
         const [selY, sm] = (generateForm.month || '').split('-').map(Number);
         const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -358,15 +438,17 @@ export const ChallansTab = ({
           return true;
         });
 
+        if (controller.signal.aborted) return;
+
         setBulkStudents(eligibleStudents);
         setSelectedBulkStudents(eligibleStudents.map(s => s.id));
 
-        if (filtered.length > 0 && generateForm.month) {
+        if (eligibleStudents.length > 0 && generateForm.month) {
           const [selYear, selMonth] = generateForm.month.split('-').map(Number);
           const mNameMatch = new Date(selYear, selMonth - 1, 1).toLocaleString('default', { month: 'long' });
           const mSession = (selMonth >= 4) ? `${selYear}-${selYear + 1}` : `${selYear - 1}-${selYear}`;
 
-          const firstWithInst = filtered.find(s => 
+          const firstWithInst = eligibleStudents.find(s => 
             (s.feeInstallments || []).some(inst => 
               (inst.month === mNameMatch && (inst.session === mSession || !inst.session) && (inst.dueDate ? new Date(inst.dueDate).getFullYear() === selYear : true)) || inst.month === generateForm.month
             )
@@ -390,13 +472,20 @@ export const ChallansTab = ({
           }
         }
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error("Failed to fetch bulk students:", error);
       } finally {
-        setIsFetchingBulkStudents(false);
+        if (!controller.signal.aborted) {
+          setIsFetchingBulkStudents(false);
+        }
       }
     };
 
     fetchBulkStudentsData();
+
+    return () => {
+      controller.abort();
+    };
   }, [generateDialogOpen, generateForm.month, generateForm.sessionId, generateForm.programId, generateForm.classId, generateForm.sectionId]);
 
   // Bulk Generate Challans Mutation
@@ -449,7 +538,7 @@ export const ChallansTab = ({
           studentId: r.studentId,
           studentName: studentFullName,
           status: r.status,
-          reason: r.reason || r.error || r.message || '',
+          reason: formatUserFriendlyErrorMessage(r.reason || r.error || r.message || ''),
           challanNumber,
           challan: challanObj,
         };
@@ -473,7 +562,7 @@ export const ChallansTab = ({
     },
     onError: (error) => {
       setIsGenerating(false);
-      toast({ title: error.message || "Generation failed", variant: "destructive" });
+      toast({ title: formatUserFriendlyErrorMessage(error.message) || "Generation failed", variant: "destructive" });
     },
   });
 
@@ -2754,47 +2843,74 @@ export const ChallansTab = ({
 
       {/* Transaction History Dialog */}
       <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Transaction History - {selectedChallanForHistory?.challanNumber}</DialogTitle>
+            <DialogTitle className="flex items-center justify-between pr-6">
+              <span>Transaction History - {selectedChallanForHistory?.challanNumber || selectedChallanForHistory?.challanNo}</span>
+              {historyTransactions.length > 0 && (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
+                  {historyTransactions.length} Transaction{historyTransactions.length > 1 ? 's' : ''}
+                </Badge>
+              )}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead className="text-sm px-3 py-2 w-[120px]">Date</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Received</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Discount</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Method</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(() => {
-                    if (!selectedChallanForHistory?.paymentHistory) {
-                      return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
-                    }
-                    const hist = typeof selectedChallanForHistory.paymentHistory === 'string' 
-                      ? JSON.parse(selectedChallanForHistory.paymentHistory) 
-                      : selectedChallanForHistory.paymentHistory;
-                    
-                    if (!Array.isArray(hist) || hist.length === 0) {
-                      return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
-                    }
-                    
-                    return hist.map((entry, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className="text-sm px-3 py-2 text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-sm px-3 py-2 font-bold text-success">PKR {formatAmount(entry.amount)}</TableCell>
-                        <TableCell className="text-sm px-3 py-2 font-bold text-orange-600">PKR {formatAmount(entry.discount || 0)}</TableCell>
-                        <TableCell className="text-sm px-3 py-2 text-xs">{entry.method || 'Cash'}</TableCell>
-                        <TableCell className="text-sm px-3 py-2 text-xs italic">{entry.remarks || '-'}</TableCell>
+              {isHistoryReceiptsLoading ? (
+                <div className="py-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  Loading payment transactions...
+                </div>
+              ) : historyTransactions.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground italic">
+                  No payment transactions recorded for this challan yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow className="h-8">
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Receipt #</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Date & Time (12h)</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px] text-right">Amount Paid</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Received By</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Payment Mode</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Deposit Account</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Remarks</TableHead>
                       </TableRow>
-                    ));
-                  })()}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {historyTransactions.map((tx, idx) => (
+                        <TableRow key={tx.id || idx} className="h-9 hover:bg-muted/30">
+                          <TableCell className="px-3 py-2 text-xs font-mono text-slate-600 font-medium whitespace-nowrap">
+                            {tx.receiptNo}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">
+                            {format12HourDateTime(tx.date, tx.time)}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs font-bold font-mono text-emerald-700 text-right whitespace-nowrap">
+                            PKR {formatAmount(tx.amount)}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs font-medium text-slate-800 whitespace-nowrap">
+                            {tx.receivedBy}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">
+                            <Badge variant="outline" className="text-[10px] uppercase font-semibold bg-slate-50">
+                              {tx.paymentMode}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 font-medium whitespace-nowrap">
+                            {tx.depositAccount}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-[11px] italic text-muted-foreground max-w-[200px] truncate" title={tx.remarks !== '-' ? tx.remarks : ''}>
+                            {tx.remarks}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
             <div className="flex justify-end pt-2">
               <Button onClick={() => setHistoryDialogOpen(false)}>Close</Button>

@@ -66,8 +66,8 @@ const ChallanFeeHeadSchema = new mongoose.Schema({
 
 // ArrearAllocation subdocument
 const ArrearAllocationSchema = new mongoose.Schema({
-  sourceChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeChallan', required: true },
-  sourceChallanNo: { type: String, required: true },
+  sourceChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeChallan', required: false },
+  sourceChallanNo: { type: String, required: false },
   sourceInstallmentNumber: { type: Number },
   sourceMonth: { type: String },
   originalDueAmount: { type: Number, required: true, default: 0 },

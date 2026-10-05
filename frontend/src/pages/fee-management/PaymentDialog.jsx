@@ -559,8 +559,9 @@ export const PaymentDialog = ({
                   type="text"
                   placeholder="Staff or Admin name"
                   value={challanForm.receivedByName !== undefined && challanForm.receivedByName !== "" ? challanForm.receivedByName : currentUserName}
-                  onChange={(e) => setChallanForm({ ...challanForm, receivedByName: e.target.value })}
-                  className="h-8 text-xs"
+                  readOnly
+                  disabled
+                  className="h-8 text-xs bg-muted cursor-not-allowed text-muted-foreground opacity-90 select-none"
                 />
               </div>
               <div className="space-y-1">

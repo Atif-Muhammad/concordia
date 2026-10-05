@@ -195,7 +195,17 @@ export const NAV_MODULES = [
   },
 ];
 
-export const MODULE_BY_LABEL = Object.fromEntries(NAV_MODULES.map((module) => [module.label, module]));
+export const LEAVE_APPLICATION_MODULE = {
+  icon: CalendarDays,
+  label: "Leave Application",
+  path: "/leave-application",
+  componentKey: "TeacherLeaves",
+  description: "Apply for leave and track your leave history",
+};
+
+export const MODULE_BY_LABEL = Object.fromEntries(
+  [...NAV_MODULES, LEAVE_APPLICATION_MODULE].map((module) => [module.label, module])
+);
 
 export const getSubmoduleSegment = (subModule) => subModule.segment || subModule.id;
 
@@ -252,9 +262,20 @@ export const hasModuleAccess = (user, moduleLabel) => {
   if (user?.role === "SUPER_ADMIN" || user?.role === "Super Admin" || user?.permissions?.all === true) return true;
   // Personalized Staff Dashboard is accessible to all staff
   if (moduleLabel === "Dashboard") return true;
+  // Personal leave application is accessible to all staff members
+  if (moduleLabel === "Leave Application" || moduleLabel === "Leave Applications") return true;
   const role = user?.role;
-  const isTeacher = role === "Teacher" || role === "TEACHER";
-  if (isTeacher && ["Attendance", "Examination", "Complaints"].includes(moduleLabel)) return true;
+  const isTeacher = role === "Teacher" || role === "TEACHER" || isTeachingOnly(user);
+  if (isTeacher && [
+    "Attendance",
+    "Examination",
+    "Complaints",
+    "Leave Applications",
+    "Teacher Dashboard",
+    "My Classes",
+    "My Students",
+    "Timetable",
+  ].includes(moduleLabel)) return true;
   if (role === "Staff" && moduleLabel === "Complaints") return true;
   return hasExplicitModuleAccess(user, moduleLabel);
 };
@@ -485,11 +506,12 @@ export const TEACHER_NAV_MODULES = [
 // Dual-role staff can toggle between "staff" and "teacher" views.
 const VIEW_MODE_KEY = "concordia_viewMode";
 
-export const getViewMode = () => {
+export const getViewMode = (user) => {
+  if (isTeachingOnly(user)) return "teacher";
   try {
-    return localStorage.getItem(VIEW_MODE_KEY) || "staff";
+    return localStorage.getItem(VIEW_MODE_KEY) || (isTeachingOnly(user) ? "teacher" : "staff");
   } catch {
-    return "staff";
+    return isTeachingOnly(user) ? "teacher" : "staff";
   }
 };
 
@@ -520,19 +542,36 @@ export const isTeachingOnly = (user) => {
   );
 };
 
+export const isNonTeachingOnly = (user) => {
+  if (!user) return false;
+  if (user.role === "SUPER_ADMIN" || user.role === "Super Admin" || user.permissions?.all === true) return false;
+  if (isDualRole(user)) return false;
+  if (isTeachingOnly(user)) return false;
+  return true;
+};
+
+const complaintsIndex = NAV_MODULES.findIndex((m) => m.label === "Complaints");
+export const NON_TEACHING_NAV_MODULES = complaintsIndex !== -1
+  ? [
+      ...NAV_MODULES.slice(0, complaintsIndex + 1),
+      LEAVE_APPLICATION_MODULE,
+      ...NAV_MODULES.slice(complaintsIndex + 1),
+    ]
+  : [...NAV_MODULES, LEAVE_APPLICATION_MODULE];
+
 export const getEffectiveNavModules = (user) => {
   if (!user) return [];
-  if (user.role === "SUPER_ADMIN") return NAV_MODULES;
+  if (user.role === "SUPER_ADMIN" || user.role === "Super Admin" || user.permissions?.all === true) return NAV_MODULES;
 
   // If dual role, respect view mode toggle
   if (isDualRole(user)) {
-    const mode = getViewMode();
+    const mode = getViewMode(user);
     return mode === "teacher" ? TEACHER_NAV_MODULES : NAV_MODULES;
   }
 
   // Teaching-only staff always see teacher portal
   if (isTeachingOnly(user)) return TEACHER_NAV_MODULES;
 
-  // Non-teaching, supporting staff, or any other role
-  return NAV_MODULES;
+  // Non-teaching, supporting staff, or any other staff role
+  return NON_TEACHING_NAV_MODULES;
 };

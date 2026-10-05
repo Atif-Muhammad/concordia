@@ -1029,6 +1029,24 @@ class HrService {
     const leave = await Leave.findById(id);
     if (!leave) throw new Error('Leave record not found');
 
+    if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'Super Admin') {
+      const dbUser = await User.findById(user.id || user._id);
+      let staffMember = null;
+      if (dbUser?.refId) staffMember = await Staff.findById(dbUser.refId);
+      if (!staffMember && dbUser?.email) {
+        staffMember = await Staff.findOne({ $or: [{ email: dbUser.email }, { staffId: dbUser.email }] });
+      }
+      const permissions = staffMember?.permissions || dbUser?.permissions;
+      const actions = permissions?.actions || permissions?.crud;
+      const hrLeaves = actions?.['HR & Payroll']?.leaves || actions?.['hr-payroll']?.leaves || actions?.hrPayroll?.leaves;
+      const canApprove = permissions?.all === true || Boolean(hrLeaves?.approvals || hrLeaves?.approve);
+      if (!canApprove) {
+        const err = new Error('You do not have permission to approve or reject leaves');
+        err.status = 403;
+        throw err;
+      }
+    }
+
     leave.status = status;
     leave.actionAudit.push({
       action: `STATUS_${status}`,

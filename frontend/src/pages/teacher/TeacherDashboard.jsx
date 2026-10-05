@@ -25,7 +25,8 @@ import {
   ChevronRight,
   ArrowRight,
   Pencil,
-  FileText
+  FileText,
+  CalendarDays
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -361,7 +362,12 @@ export default function TeacherDashboard() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2.5 shrink-0 self-end md:self-auto">
+              <div className="flex items-center gap-2 shrink-0 self-end md:self-auto flex-wrap">
+                <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium border-primary/40 hover:bg-primary/10 text-foreground">
+                  <Link to="/teacher/leaves">
+                    <CalendarDays className="w-3.5 h-3.5 text-primary" /> Leave Applications
+                  </Link>
+                </Button>
                 <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium border-primary/40 hover:bg-primary/10 text-foreground">
                   <Link to="/teacher/attendance">
                     <Calendar className="w-3.5 h-3.5 text-primary" /> Mark Attendance
@@ -590,16 +596,19 @@ export default function TeacherDashboard() {
                         </p>
                       </div>
                     </div>
-                    <div className="sm:col-span-1">
+                    <div className="sm:col-span-1 flex flex-col gap-2">
+                      <Button asChild size="sm" className="w-full text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-2xs h-8">
+                        <Link to="/teacher/leaves">
+                          <FileText className="w-3.5 h-3.5 mr-1" /> Apply for Leave
+                        </Link>
+                      </Button>
                       <button
                         type="button"
                         onClick={() => setActiveTab("payroll")}
-                        className="w-full flex flex-col items-center justify-center p-3 rounded-lg border bg-primary/10 hover:bg-primary/15 border-primary/30 transition-colors text-primary group cursor-pointer"
+                        className="w-full flex items-center justify-center gap-1 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        <Calendar className="w-5 h-5 mb-1 text-primary group-hover:scale-105 transition-transform" />
-                        <span className="text-[11px] font-semibold flex items-center gap-1 text-center">
-                          View Detailed Policy <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                        </span>
+                        <span>View Detailed Policy</span>
+                        <ArrowRight className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -741,6 +750,11 @@ export default function TeacherDashboard() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2.5 flex-wrap">
+                    <Button asChild size="sm" variant="outline" className="h-8 px-2.5 gap-1.5 text-xs font-medium border-primary/30 text-primary hover:bg-primary/10">
+                      <Link to="/teacher/leaves">
+                        <FileText className="w-3.5 h-3.5 text-primary" /> Apply for Leave
+                      </Link>
+                    </Button>
                     <div className="flex items-center gap-1 border rounded-lg p-0.5 bg-muted/40">
                       <Button
                         type="button"

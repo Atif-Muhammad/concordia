@@ -246,7 +246,7 @@ export default function TeacherLeaves() {
     },
   });
 
-  const staffIdStr = currentUser?.refId || currentUser?.staffDbId || '';
+  const staffIdStr = currentUser?.refId || currentUser?.staffDbId || currentUser?.id || currentUser?._id || '';
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   // Leave balance query

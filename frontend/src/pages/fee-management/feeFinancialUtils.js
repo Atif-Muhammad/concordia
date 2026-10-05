@@ -76,6 +76,37 @@ export const safeFormatDate = (dateVal, fmt = "dd MMM yyyy") => {
   return isNaN(d.getTime()) ? "N/A" : format(d, fmt);
 };
 
+export const format12HourDateTime = (dateVal, timeVal) => {
+  if (!dateVal && !timeVal) return "-";
+  try {
+    const d = dateVal ? new Date(dateVal) : new Date();
+    if (isNaN(d.getTime())) return String(timeVal || dateVal || "-");
+
+    if (timeVal && typeof timeVal === "string") {
+      const trimmed = timeVal.trim();
+      const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+      if (match12) {
+        const h = parseInt(match12[1], 10);
+        const m = match12[2];
+        const ampm = match12[3].toUpperCase();
+        return `${format(d, "dd MMM yyyy")}, ${String(h).padStart(2, "0")}:${m} ${ampm}`;
+      }
+      const match24 = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+      if (match24) {
+        let h = parseInt(match24[1], 10);
+        const m = match24[2];
+        const ampm = h >= 12 ? "PM" : "AM";
+        h = h % 12 || 12;
+        return `${format(d, "dd MMM yyyy")}, ${String(h).padStart(2, "0")}:${m} ${ampm}`;
+      }
+    }
+
+    return format(d, "dd MMM yyyy, hh:mm a");
+  } catch (e) {
+    return String(dateVal || "-");
+  }
+};
+
 export const calculateLateFee = (dueDate, finePerDay) => {
   if (!dueDate || !finePerDay || finePerDay <= 0) return 0;
   const now = new Date();

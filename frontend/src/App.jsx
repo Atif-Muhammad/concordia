@@ -172,6 +172,33 @@ function PermissionRoute({ children, moduleName }) {
   return <>{children}</>;
 }
 
+function TeacherRoute({ children }) {
+  const { data: currentUser, isLoading } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: async () => {
+      try {
+        return await userWho();
+      } catch (error) {
+        if (error.response?.status === 401) {
+          try {
+            await refreshTokens();
+            return await userWho();
+          } catch {
+            return null;
+          }
+        }
+        return null;
+      }
+    },
+    retry: false,
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  if (!currentUser) return <Navigate to="/" replace />;
+
+  return children;
+}
+
 function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
@@ -182,6 +209,7 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<RootRoutes />} />
+              <Route path="/login" element={<Navigate to="/" replace />} />
               {NAV_MODULES.map((module) => {
                 const Page = pageComponents[module.componentKey];
                 if (!Page) return null;
@@ -205,10 +233,23 @@ function App() {
                   <Route
                     key={module.label}
                     path={`${module.path}${module.subModules?.length ? "/*" : ""}`}
-                    element={<Page />}
+                    element={
+                      <TeacherRoute>
+                        <Page />
+                      </TeacherRoute>
+                    }
                   />
                 );
               })}
+              {/* Personal Leave Application route for non-teaching staff & direct access */}
+              <Route
+                path="/leave-application"
+                element={
+                  <TeacherRoute>
+                    <TeacherLeaves />
+                  </TeacherRoute>
+                }
+              />
               {/* Teacher profile redirect to dashboard */}
               <Route path="/teacher/profile" element={<Navigate to="/teacher/dashboard" replace />} />
               {/* Legacy /boarding URL redirect to /hostel */}

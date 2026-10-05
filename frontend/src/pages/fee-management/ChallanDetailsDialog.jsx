@@ -11,7 +11,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
-import { getDefaultFeeChallanTemplate } from "@/services/api";
+import { getDefaultFeeChallanTemplate, getChallanReceipts } from "@/services/api";
 import {
   formatAmount,
   getStatusColor,
@@ -28,6 +28,7 @@ import {
   getCachedTemplate,
   normalizeChallan,
   safeFormatDate,
+  format12HourDateTime,
 } from "./feeFinancialUtils";
 
 export const ChallanDetailsDialog = ({
@@ -69,9 +70,68 @@ export const ChallanDetailsDialog = ({
     staleTime: 5 * 60 * 1000,
   });
 
-  if (!challan) return null;
+  const challanId = challan?.id || challan?._id;
+  const { data: receiptsData = [], isLoading: isReceiptsLoading } = useQuery({
+    queryKey: ["challanReceipts", challanId],
+    queryFn: () => getChallanReceipts(challanId),
+    enabled: !!challanId && open,
+  });
 
   const currentChallan = effectiveChallan || challan;
+
+  const transactions = useMemo(() => {
+    if (!currentChallan) return [];
+
+    if (Array.isArray(receiptsData) && receiptsData.length > 0) {
+      return receiptsData.map((r, idx) => ({
+        id: r._id || r.id || idx,
+        receiptNo: r.receiptNo || '-',
+        amount: Number(r.amountPaid ?? r.amount ?? 0),
+        date: r.paidDate || r.createdAt || currentChallan?.paidDate,
+        time: r.paidTime || currentChallan?.paidTime,
+        receivedBy: r.recordedBy?.name || r.receivedByName || currentChallan?.receivedByName || currentChallan?.paidBy || 'Super Admin',
+        paymentMode: r.paymentMode || currentChallan?.paymentMode || 'Cash',
+        depositAccount: r.walletId?.name || r.walletName || currentChallan?.walletName || currentChallan?.walletId?.name || (r.walletId?.type ? `Account (${r.walletId.type})` : '-'),
+        remarks: r.remarks || '-',
+      }));
+    }
+
+    const hist = typeof currentChallan?.paymentHistory === 'string'
+      ? JSON.parse(currentChallan.paymentHistory)
+      : (currentChallan?.paymentHistory || []);
+
+    if (Array.isArray(hist) && hist.length > 0) {
+      return hist.map((entry, idx) => ({
+        id: entry.id || idx,
+        receiptNo: entry.receiptNo || `REC-${idx + 1}`,
+        amount: Number(entry.amount || 0),
+        date: entry.date || entry.paidDate || currentChallan?.paidDate,
+        time: entry.paidTime || entry.time || currentChallan?.paidTime,
+        receivedBy: entry.recordedBy?.name || entry.receivedBy || entry.recordedBy || entry.paidBy || currentChallan?.receivedByName || currentChallan?.paidBy || 'Super Admin',
+        paymentMode: entry.method || entry.paymentMode || currentChallan?.paymentMode || 'Cash',
+        depositAccount: entry.walletName || entry.depositAccount || currentChallan?.walletName || currentChallan?.walletId?.name || '-',
+        remarks: entry.remarks || '-',
+      }));
+    }
+
+    if (Number(currentChallan?.paidAmount || 0) > 0) {
+      return [{
+        id: currentChallan.id || currentChallan._id,
+        receiptNo: currentChallan.challanNo ? `REC-${currentChallan.challanNo}` : '-',
+        amount: Number(currentChallan.paidAmount),
+        date: currentChallan.paidDate || currentChallan.updatedAt,
+        time: currentChallan.paidTime,
+        receivedBy: currentChallan.receivedByName || currentChallan.paidBy || 'Super Admin',
+        paymentMode: currentChallan.paymentMode || currentChallan.paidBy || 'Cash',
+        depositAccount: currentChallan.walletName || currentChallan.walletId?.name || '-',
+        remarks: currentChallan.remarks || '-',
+      }];
+    }
+
+    return [];
+  }, [receiptsData, currentChallan]);
+
+  if (!challan) return null;
 
   const student = currentChallan?.student || (currentChallan?.studentId && typeof currentChallan.studentId === 'object' ? currentChallan.studentId : null) || currentChallan?.installment?.student || {};
   const studentName = `${student.fName || ''} ${student.lName || ''}`.trim() || currentChallan?.studentName || "N/A";
@@ -959,49 +1019,77 @@ export const ChallanDetailsDialog = ({
             </div>
           </div>
 
-          {/* Enhanced Payment Breakdown Section */}
-          {(() => {
-            const history = typeof currentChallan.paymentHistory === 'string'
-              ? JSON.parse(currentChallan.paymentHistory)
-              : (currentChallan.paymentHistory || []);
-
-            if (!Array.isArray(history) || history.length === 0) return null;
-
-            return (
-              <Card className="shadow-soft border-border overflow-hidden">
-                <CardHeader className="pb-2 bg-primary/5">
-                  <CardTitle className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
-                    <History className="w-3.5 h-3.5" />
-                    Detailed Payment Breakdown (History)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
+          {/* Payment Transactions Breakdown Section */}
+          <Card className="shadow-sm border-border overflow-hidden">
+            <CardHeader className="pb-2.5 bg-slate-50/70 border-b flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-600" />
+                Payment Transactions
+              </CardTitle>
+              {transactions.length > 0 && (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
+                  {transactions.length} Transaction{transactions.length > 1 ? 's' : ''}
+                </Badge>
+              )}
+            </CardHeader>
+            <CardContent className="p-0">
+              {isReceiptsLoading ? (
+                <div className="py-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  Loading payment transactions...
+                </div>
+              ) : transactions.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground italic">
+                  No payment transactions recorded for this challan yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader className="bg-muted/30">
+                    <TableHeader className="bg-muted/40">
                       <TableRow className="h-8">
-                        <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Date</TableHead>
-                        <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Amount</TableHead>
-                        <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Discount</TableHead>
-                        <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Method</TableHead>
-                        <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Remarks</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Receipt #</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Date & Time</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px] text-right">Amount Paid</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Received By</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Payment Mode</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Deposit Account</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Remarks</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {history.map((entry, idx) => (
-                        <TableRow key={idx} className="h-9 hover:bg-muted/20">
-                          <TableCell className="text-sm px-3 py-2 text-xs py-1">{safeFormatDate(entry.date)}</TableCell>
-                          <TableCell className="text-sm px-3 py-2 text-xs font-bold text-success py-1">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
-                          <TableCell className="text-sm px-3 py-2 text-xs font-bold text-orange-600 py-1">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-sm px-3 py-2 text-xs py-1">{entry.method || 'Cash'}</TableCell>
-                          <TableCell className="text-sm px-3 py-2 text-[10px] italic py-1 text-muted-foreground">{entry.remarks || '-'}</TableCell>
+                      {transactions.map((tx, idx) => (
+                        <TableRow key={tx.id || idx} className="h-9 hover:bg-muted/30">
+                          <TableCell className="px-3 py-2 text-xs font-mono text-slate-600 font-medium whitespace-nowrap">
+                            {tx.receiptNo}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">
+                            {format12HourDateTime(tx.date, tx.time)}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs font-bold font-mono text-emerald-700 text-right whitespace-nowrap">
+                            PKR {formatAmount(tx.amount)}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs font-medium text-slate-800 whitespace-nowrap">
+                            {tx.receivedBy}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">
+                            <Badge variant="outline" className="text-[10px] uppercase font-semibold bg-slate-50">
+                              {tx.paymentMode}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 font-medium whitespace-nowrap">
+                            {tx.depositAccount}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-[11px] italic text-muted-foreground max-w-[200px] truncate" title={tx.remarks !== '-' ? tx.remarks : ''}>
+                            {tx.remarks}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                </CardContent>
-              </Card>
-            );
-          })()}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Print Preview Divider */}
           <div className="relative py-4">

@@ -254,6 +254,11 @@ const isReadOnlySubmodule = (moduleLabel, subKey) => {
 const isFinanceClosingSubmodule = (moduleLabel, subKey) => {
     return moduleLabel === "Finance" && subKey === "closing";
 };
+
+export const isApprovalSubmodule = (moduleLabel, subKey) => {
+    return (moduleLabel === "Finance" && subKey === "expense") ||
+           (moduleLabel === "HR & Payroll" && subKey === "leaves");
+};
 const DEFAULT_STEP_LABELS = ["Basic Info", "Employment", "Roles", "Account", "Role Details"];
 
 function StepIndicator({ currentStep, completedSteps, onStepClick, stepLabels }) {
@@ -1572,7 +1577,7 @@ export default function StaffDirectoryTab() {
                 if (childIds.length > 0) {
                     childIds.forEach((subId) => {
                         const isFeeChallan = mod.label === "Fee Management" && (subId === "challans" || subId === "extra-challans");
-                        const isFinanceExpense = mod.label === "Finance" && subId === "expense";
+                        const isApprovalAction = isApprovalSubmodule(mod.label, subId);
                         const isFinanceClosing = isFinanceClosingSubmodule(mod.label, subId);
 
                         const isReadOnly = isReadOnlySubmodule(mod.label, subId);
@@ -1587,7 +1592,7 @@ export default function StaffDirectoryTab() {
                                     payFee: Boolean(modSavedActions[subId].payFee ?? modSavedActions[subId].pay),
                                     pay: Boolean(modSavedActions[subId].payFee ?? modSavedActions[subId].pay),
                                 } : {}),
-                                ...(isFinanceExpense ? {
+                                ...(isApprovalAction ? {
                                     approvals: Boolean(modSavedActions[subId].approvals ?? modSavedActions[subId].approve),
                                     approve: Boolean(modSavedActions[subId].approvals ?? modSavedActions[subId].approve),
                                 } : {}),
@@ -1611,7 +1616,7 @@ export default function StaffDirectoryTab() {
                                     update: false,
                                     delete: false,
                                     ...(isFeeChallan ? { payFee: false, pay: false } : {}),
-                                    ...(isFinanceExpense ? { approvals: false, approve: false } : {}),
+                                    ...(isApprovalAction ? { approvals: false, approve: false } : {}),
                                     ...(isFinanceClosing ? { closing: false, close: false } : {}),
                                 };
                             }
@@ -1787,7 +1792,7 @@ export default function StaffDirectoryTab() {
         const mod = formData.actions?.[moduleLabel];
         const current = mod?.[subModuleKey] || {};
         const isFeeChallan = moduleLabel === "Fee Management" && (subModuleKey === "challans" || subModuleKey === "extra-challans");
-        const isFinanceExpense = moduleLabel === "Finance" && subModuleKey === "expense";
+        const isApprovalAction = isApprovalSubmodule(moduleLabel, subModuleKey);
 
         return {
             read: Boolean(current.read),
@@ -1798,7 +1803,7 @@ export default function StaffDirectoryTab() {
                 payFee: Boolean(current.payFee ?? current.pay),
                 pay: Boolean(current.payFee ?? current.pay),
             } : {}),
-            ...(isFinanceExpense ? {
+            ...(isApprovalAction ? {
                 approvals: Boolean(current.approvals ?? current.approve),
                 approve: Boolean(current.approvals ?? current.approve),
             } : {}),
@@ -1895,7 +1900,7 @@ export default function StaffDirectoryTab() {
     const handleToggleSubmoduleAll = (moduleLabel, subModuleKey) => {
         const cur = getSubmoduleActions(moduleLabel, subModuleKey);
         const isFeeChallan = moduleLabel === "Fee Management" && (subModuleKey === "challans" || subModuleKey === "extra-challans");
-        const isFinanceExpense = moduleLabel === "Finance" && subModuleKey === "expense";
+        const isApprovalAction = isApprovalSubmodule(moduleLabel, subModuleKey);
         const isFinanceClosing = isFinanceClosingSubmodule(moduleLabel, subModuleKey);
         const isReadOnly = isReadOnlySubmodule(moduleLabel, subModuleKey);
 
@@ -1905,7 +1910,7 @@ export default function StaffDirectoryTab() {
             ? Boolean(cur.read && (cur.closing || cur.close))
             : (cur.read && cur.create && cur.update && cur.delete
                 && (!isFeeChallan || (cur.payFee && cur.pay))
-                && (!isFinanceExpense || (cur.approvals && cur.approve)));
+                && (!isApprovalAction || (cur.approvals && cur.approve)));
         const target = !allChecked;
 
         const next = {
@@ -1914,7 +1919,7 @@ export default function StaffDirectoryTab() {
             update: (isReadOnly || isFinanceClosing) ? false : target,
             delete: (isReadOnly || isFinanceClosing) ? false : target,
             ...(isFeeChallan ? { payFee: target, pay: target } : {}),
-            ...(isFinanceExpense ? { approvals: target, approve: target } : {}),
+            ...(isApprovalAction ? { approvals: target, approve: target } : {}),
             ...(isFinanceClosing ? { closing: target, close: target } : {}),
         };
 
@@ -1976,7 +1981,7 @@ export default function StaffDirectoryTab() {
         const newModActions = {};
         keys.forEach((key) => {
             const isFeeChallan = module.label === "Fee Management" && (key === "challans" || key === "extra-challans");
-            const isFinanceExpense = module.label === "Finance" && key === "expense";
+            const isApprovalAction = isApprovalSubmodule(module.label, key);
             const isFinanceClosing = isFinanceClosingSubmodule(module.label, key);
             const isReadOnly = isReadOnlySubmodule(module.label, key);
 
@@ -1987,7 +1992,7 @@ export default function StaffDirectoryTab() {
                     update: (!isReadOnly && !isFinanceClosing),
                     delete: (!isReadOnly && !isFinanceClosing),
                     ...(isFeeChallan ? { payFee: true, pay: true } : {}),
-                    ...(isFinanceExpense ? { approvals: true, approve: true } : {}),
+                    ...(isApprovalAction ? { approvals: true, approve: true } : {}),
                     ...(isFinanceClosing ? { closing: true, close: true } : {}),
                 };
             } else if (mode === "read") {
@@ -1997,7 +2002,7 @@ export default function StaffDirectoryTab() {
                     update: false,
                     delete: false,
                     ...(isFeeChallan ? { payFee: false, pay: false } : {}),
-                    ...(isFinanceExpense ? { approvals: false, approve: false } : {}),
+                    ...(isApprovalAction ? { approvals: false, approve: false } : {}),
                     ...(isFinanceClosing ? { closing: false, close: false } : {}),
                 };
             } else {
@@ -2007,7 +2012,7 @@ export default function StaffDirectoryTab() {
                     update: false,
                     delete: false,
                     ...(isFeeChallan ? { payFee: false, pay: false } : {}),
-                    ...(isFinanceExpense ? { approvals: false, approve: false } : {}),
+                    ...(isApprovalAction ? { approvals: false, approve: false } : {}),
                     ...(isFinanceClosing ? { closing: false, close: false } : {}),
                 };
             }
@@ -2055,7 +2060,7 @@ export default function StaffDirectoryTab() {
                 nextSubModules[mod.label] = childIds;
                 childIds.forEach((subId) => {
                     const isFeeChallan = mod.label === "Fee Management" && (subId === "challans" || subId === "extra-challans");
-                    const isFinanceExpense = mod.label === "Finance" && subId === "expense";
+                    const isApprovalAction = isApprovalSubmodule(mod.label, subId);
                     const isFinanceClosing = isFinanceClosingSubmodule(mod.label, subId);
                     const isReadOnly = isReadOnlySubmodule(mod.label, subId);
 
@@ -2065,7 +2070,7 @@ export default function StaffDirectoryTab() {
                         update: (!isReadOnly && !isFinanceClosing),
                         delete: (!isReadOnly && !isFinanceClosing),
                         ...(isFeeChallan ? { payFee: true, pay: true } : {}),
-                        ...(isFinanceExpense ? { approvals: true, approve: true } : {}),
+                        ...(isApprovalAction ? { approvals: true, approve: true } : {}),
                         ...(isFinanceClosing ? { closing: true, close: true } : {}),
                     };
                 });
@@ -3493,10 +3498,10 @@ export default function StaffDirectoryTab() {
                                                             return Boolean(a && a.read && (a.closing || a.close));
                                                         }
                                                         const isFeeChallan = module.label === "Fee Management" && (cid === "challans" || cid === "extra-challans");
-                                                        const isFinanceExpense = module.label === "Finance" && cid === "expense";
+                                                        const isApprovalAction = isApprovalSubmodule(module.label, cid);
                                                         return a && a.read && a.create && a.update && a.delete
                                                             && (!isFeeChallan || (a.payFee || a.pay))
-                                                            && (!isFinanceExpense || (a.approvals || a.approve));
+                                                            && (!isApprovalAction || (a.approvals || a.approve));
                                                     }));
                                                 const isModuleActive = activeSubs > 0;
 
@@ -3653,7 +3658,7 @@ export default function StaffDirectoryTab() {
                                                                         const subKey = subModule.id;
                                                                         const actions = getSubmoduleActions(module.label, subKey);
                                                                         const isFeeChallan = module.label === "Fee Management" && (subKey === "challans" || subKey === "extra-challans");
-                                                                        const isFinanceExpense = module.label === "Finance" && subKey === "expense";
+                                                                        const isApprovalAction = isApprovalSubmodule(module.label, subKey);
                                                                         const isFinanceClosing = isFinanceClosingSubmodule(module.label, subKey);
                                                                         const isReadOnly = isReadOnlySubmodule(module.label, subKey);
                                                                         const isAll = isReadOnly
@@ -3662,7 +3667,7 @@ export default function StaffDirectoryTab() {
                                                                             ? Boolean(actions.read && (actions.closing || actions.close))
                                                                             : (actions.read && actions.create && actions.update && actions.delete
                                                                                 && (!isFeeChallan || (actions.payFee || actions.pay))
-                                                                                && (!isFinanceExpense || (actions.approvals || actions.approve)));
+                                                                                && (!isApprovalAction || (actions.approvals || actions.approve)));
 
                                                                         return (
                                                                             <div
@@ -3737,7 +3742,7 @@ export default function StaffDirectoryTab() {
                                                                                             <span>Pay Fee</span>
                                                                                         </label>
                                                                                     )}
-                                                                                    {isFinanceExpense && (
+                                                                                    {isApprovalSubmodule(module.label, subKey) && (
                                                                                         <label className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer select-none transition-colors border ${
                                                                                             Boolean(actions.approvals || actions.approve) ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800" : "bg-background text-muted-foreground border-border hover:bg-muted/50"
                                                                                         }`}>

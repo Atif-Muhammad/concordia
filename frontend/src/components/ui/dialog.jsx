@@ -24,6 +24,18 @@ const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { AlertTriangle } from "lucide-react";
+
 /**
  * Full-height right-side drawer.
  *
@@ -31,7 +43,16 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
  * were written for the old centered modal. We strip those here so they don't
  * fight the drawer layout.
  */
-const DialogContent = React.forwardRef(({ className, bodyClassName, children, ...props }, ref) => {
+const DialogContent = React.forwardRef(({
+  className,
+  bodyClassName,
+  children,
+  skipDirtyConfirmation = false,
+  onPointerDownOutside,
+  onInteractOutside,
+  onEscapeKeyDown,
+  ...props
+}, ref) => {
   // Remove modal-era classes that break the drawer
   const stripped = (className || "")
     .replace(/max-w-\S+/g, "")
@@ -40,11 +61,76 @@ const DialogContent = React.forwardRef(({ className, bodyClassName, children, ..
     .replace(/overflow-auto/g, "")
     .trim();
 
+  const contentNodeRef = React.useRef(null);
+  const hiddenCloseRef = React.useRef(null);
+  const isDirtyRef = React.useRef(false);
+  const [showConfirmClose, setShowConfirmClose] = React.useState(false);
+
+  // Check if any form fields have been filled with text or modified
+  const hasPartiallyFilledData = React.useCallback(() => {
+    if (!contentNodeRef.current) return false;
+    const inputs = contentNodeRef.current.querySelectorAll(
+      "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled])"
+    );
+    for (const input of inputs) {
+      if (input.type === "checkbox" || input.type === "radio") {
+        if (input.checked && !input.defaultChecked) return true;
+      } else if (input.value && input.value.trim().length > 0) {
+        return true;
+      }
+    }
+    const selects = contentNodeRef.current.querySelectorAll("select:not([disabled])");
+    for (const select of selects) {
+      if (select.value && select.value !== "" && select.value !== "none") {
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const isFormDirty = React.useCallback(() => {
+    if (skipDirtyConfirmation) return false;
+    return isDirtyRef.current || hasPartiallyFilledData();
+  }, [skipDirtyConfirmation, hasPartiallyFilledData]);
+
+  const handleRef = React.useCallback((node) => {
+    contentNodeRef.current = node;
+    if (typeof ref === "function") {
+      ref(node);
+    } else if (ref) {
+      ref.current = node;
+    }
+  }, [ref]);
+
+  const handleAttemptClose = React.useCallback((e) => {
+    if (showConfirmClose) {
+      if (e?.preventDefault) e.preventDefault();
+      return;
+    }
+
+    // Ignore clicks inside portaled popovers / selects (Radix portals, daypickers)
+    if (e?.target && e.target instanceof Element) {
+      const isPortal =
+        e.target.closest("[data-radix-portal]") ||
+        e.target.closest("[data-radix-popper-content-wrapper]") ||
+        e.target.closest('[role="listbox"]') ||
+        e.target.closest('[role="menu"]') ||
+        e.target.closest(".rdp");
+      if (isPortal) return;
+    }
+
+    if (isFormDirty()) {
+      if (e?.preventDefault) e.preventDefault();
+      if (e?.stopPropagation) e.stopPropagation();
+      setShowConfirmClose(true);
+    }
+  }, [showConfirmClose, isFormDirty]);
+
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Content
-        ref={ref}
+        ref={handleRef}
         className={cn(
           // Full-height right panel
           "fixed top-0 right-0 z-50",
@@ -58,14 +144,59 @@ const DialogContent = React.forwardRef(({ className, bodyClassName, children, ..
           "shadow-[-2px_0_16px_rgba(0,0,0,0.07)]",
           stripped
         )}
+        onPointerDownOutside={(e) => {
+          onPointerDownOutside?.(e);
+          if (!e.defaultPrevented) {
+            handleAttemptClose(e);
+          }
+        }}
+        onInteractOutside={(e) => {
+          onInteractOutside?.(e);
+          if (!e.defaultPrevented) {
+            handleAttemptClose(e);
+          }
+        }}
+        onEscapeKeyDown={(e) => {
+          onEscapeKeyDown?.(e);
+          if (!e.defaultPrevented) {
+            handleAttemptClose(e);
+          }
+        }}
+        onInput={(e) => {
+          isDirtyRef.current = true;
+          props.onInput?.(e);
+        }}
+        onChange={(e) => {
+          isDirtyRef.current = true;
+          props.onChange?.(e);
+        }}
+        onSubmit={(e) => {
+          isDirtyRef.current = false;
+          props.onSubmit?.(e);
+        }}
         {...props}
         style={{ height: '100dvh', minHeight: '100vh', maxHeight: '100dvh', ...props.style }}
       >
-        {/* Close button */}
-        <DialogPrimitive.Close className="absolute right-3 top-3 z-20 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-1 focus:ring-ring">
+        {/* Close button with dirty check */}
+        <button
+          type="button"
+          onClick={(e) => {
+            if (isFormDirty()) {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowConfirmClose(true);
+            } else {
+              hiddenCloseRef.current?.click();
+            }
+          }}
+          className="absolute right-3 top-3 z-20 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+        >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        </button>
+
+        {/* Hidden native Radix close button */}
+        <DialogPrimitive.Close ref={hiddenCloseRef} className="hidden" tabIndex={-1} aria-hidden="true" />
 
         {/*
           Inject horizontal padding on the body content.
@@ -105,6 +236,47 @@ const DialogContent = React.forwardRef(({ className, bodyClassName, children, ..
             </>
           );
         })()}
+
+        {/* Unsaved changes confirmation dialog */}
+        <AlertDialog open={showConfirmClose} onOpenChange={setShowConfirmClose}>
+          <AlertDialogContent className="z-[70] max-w-sm sm:max-w-md bg-background border border-border shadow-2xl p-6">
+            <AlertDialogHeader className="mb-2">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <AlertDialogTitle className="text-base font-bold text-foreground">
+                    Unsaved Changes
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    You have unsaved changes in this form. If you close now, all the filled data will be lost.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="mt-5 flex flex-row justify-end gap-2">
+              <AlertDialogCancel
+                onClick={() => setShowConfirmClose(false)}
+                className="text-xs h-9 px-4 font-medium"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  isDirtyRef.current = false;
+                  setShowConfirmClose(false);
+                  setTimeout(() => {
+                    hiddenCloseRef.current?.click();
+                  }, 0);
+                }}
+                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground text-xs font-semibold h-9 px-4"
+              >
+                Confirm Close
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogPrimitive.Content>
     </DialogPortal>
   );

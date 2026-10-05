@@ -1,37 +1,29 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
-import { Loader2, User, Mail, Phone, MapPin, Briefcase } from 'lucide-react';
+import { Loader2, User, Mail, Phone, MapPin, AlertCircle } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { userWho, refreshTokens } from '../../../config/apis';
+import { getCurrentUser, getTeacherProfile } from '../../../config/apis';
+import { resolveFileUrl } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-const base_url = 'http://localhost:3003/api';
 
 export default function TeacherProfile() {
   const { data: currentUser, isLoading: isUserLoading } = useQuery({
     queryKey: ['currentUser'],
-    queryFn: async () => {
-      try {
-        const res = await userWho();
-        return res;
-      } catch (error) {
-        if (error.response?.status === 401) {
-          await refreshTokens();
-          return userWho();
-        }
-        throw error;
-      }
-    },
+    queryFn: getCurrentUser,
   });
 
+  const resolvedStaffId =
+    currentUser?.staffDbId ||
+    currentUser?.refId ||
+    currentUser?.user?.staffDbId ||
+    currentUser?.user?.refId ||
+    currentUser?.id ||
+    currentUser?._id;
+
   const { data: staffData, isLoading: isStaffLoading } = useQuery({
-    queryKey: ['staffProfile', currentUser?.refId],
-    queryFn: async () => {
-      const { data } = await axios.get(`${base_url}/staff/get/single?id=${currentUser?.refId}`, { withCredentials: true });
-      return data;
-    },
-    enabled: !!currentUser?.refId,
+    queryKey: ['staffProfile', resolvedStaffId, currentUser?.email],
+    queryFn: () => getTeacherProfile(resolvedStaffId, currentUser?.email),
+    enabled: !!(resolvedStaffId || currentUser?.email),
   });
 
   if (isUserLoading || isStaffLoading) {
@@ -44,7 +36,7 @@ export default function TeacherProfile() {
     );
   }
 
-  const profile = staffData?.data;
+  const profile = staffData?.data || staffData;
 
   return (
     <DashboardLayout>
@@ -57,17 +49,28 @@ export default function TeacherProfile() {
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="col-span-1">
               <CardHeader className="text-center pb-2">
-                <div className="mx-auto bg-muted rounded-full w-24 h-24 flex items-center justify-center mb-4">
-                  <User className="h-12 w-12 text-muted-foreground" />
+                <div className="mx-auto bg-muted rounded-full w-24 h-24 flex items-center justify-center mb-4 overflow-hidden border-2 border-primary/20">
+                  {profile.photo_url || profile.photo ? (
+                    <img
+                      src={resolveFileUrl(profile.photo_url || profile.photo)}
+                      alt={profile.name || "Profile"}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <User className="h-12 w-12 text-muted-foreground" />
+                  )}
                 </div>
-                <CardTitle>{profile.firstName} {profile.lastName}</CardTitle>
-                <p className="text-sm text-muted-foreground">{profile.designation}</p>
+                <CardTitle>{profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Staff Member'}</CardTitle>
+                <p className="text-sm text-muted-foreground">{profile.designation || 'Staff'}</p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4 pt-4">
                   <div className="flex items-center text-sm">
                     <Mail className="mr-2 h-4 w-4 text-muted-foreground" />
-                    {profile.email || 'N/A'}
+                    {profile.email || currentUser?.email || 'N/A'}
                   </div>
                   <div className="flex items-center text-sm">
                     <Phone className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -93,36 +96,38 @@ export default function TeacherProfile() {
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">Department</h4>
-                    <p className="text-base font-medium">{profile.department || 'N/A'}</p>
+                    <p className="text-base font-medium">{profile.departmentId?.name || profile.department || profile.empDepartment || 'N/A'}</p>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">Joining Date</h4>
                     <p className="text-base font-medium">
-                      {profile.joiningDate ? new Date(profile.joiningDate).toLocaleDateString() : 'N/A'}
+                      {(profile.joinDate || profile.joiningDate) ? new Date(profile.joinDate || profile.joiningDate).toLocaleDateString() : 'N/A'}
                     </p>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">Employment Type</h4>
-                    <p className="text-base font-medium">{profile.employmentType || 'Full Time'}</p>
+                    <p className="text-base font-medium">{profile.staffType || profile.employmentType || 'Permanent'}</p>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">Qualification</h4>
-                    <p className="text-base font-medium">{profile.qualification || 'N/A'}</p>
+                    <p className="text-base font-medium">{profile.highestDegree || profile.qualification || 'N/A'}</p>
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-1">Experience</h4>
-                    <p className="text-base font-medium">{profile.experience || 'N/A'}</p>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-1">Specialization</h4>
+                    <p className="text-base font-medium">{profile.specialization || profile.experience || 'N/A'}</p>
                   </div>
                 </div>
 
-                {profile.payrollInfo && (
+                {(profile.basicPay !== undefined || profile.payrollInfo) && (
                   <div className="pt-4 border-t">
                     <h3 className="text-lg font-medium mb-4">Payroll Summary</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <h4 className="text-sm font-medium text-muted-foreground mb-1">Basic Salary</h4>
                         <p className="text-base font-medium">
-                          {profile.payrollInfo.basicSalary ? `PKR ${profile.payrollInfo.basicSalary.toLocaleString()}` : 'N/A'}
+                          {profile.basicPay !== undefined && profile.basicPay !== null
+                            ? `PKR ${Number(profile.basicPay).toLocaleString()}`
+                            : (profile.payrollInfo?.basicSalary ? `PKR ${Number(profile.payrollInfo.basicSalary).toLocaleString()}` : 'N/A')}
                         </p>
                       </div>
                     </div>

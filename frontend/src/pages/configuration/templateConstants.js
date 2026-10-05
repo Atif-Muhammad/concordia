@@ -552,153 +552,163 @@ export const teacherIdCardDesignTemplate = `
 export const studentIdCardDesignTemplate = `
 <!DOCTYPE html>
 <html>
+
 <head>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&family=Playfair+Display:wght@700&family=UnifrakturMaguntia&display=swap');
-  body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
-</style>
+  <meta charset="UTF-8" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=UnifrakturMaguntia&display=swap"
+    rel="stylesheet">
 </head>
-<body>
-<!-- FRONT SIDE -->
-<div style="width: 322px; height: 530px; position: relative; background-color: #ffe4c4; overflow: hidden; border: 1px solid #ccc; font-family: 'Roboto', sans-serif; display: flex; flex-direction: column;">
-  <!-- Sunburst Background -->
-  <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: repeating-conic-gradient(#ffe4c4 0% 10%, #fff0db 10% 20%); animation: rotate 20s linear infinite; z-index: 0; opacity: 0.6;"></div>
-  
-  <div style="position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; align-items: center; padding: 20px 15px 0 15px;">
-    <!-- Headers -->
-    <div style="display: flex; justify-content: space-between; width: 100%; align-items: flex-start; margin-bottom: 5px;">
-       <div style="display: flex; align-items: center; gap: 5px;">
-           <img src="{{logoUrl}}" style="height: 45px; object-fit: contain;">
-       </div>
-       <div>
-           <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" style="height: 40px; object-fit: contain;">
-       </div>
-    </div>
 
-    <!-- College Name -->
-    <div style="text-align: center; margin-bottom: 25px;">
-        <h1 style="margin: 0; font-family: 'Times New Roman', serif; font-weight: 900; font-size: 26px; color: #000; line-height: 1.1;">CONCORDIA COLLEGE<br>PESHAWAR CAMPUS</h1>
-        <div style="font-family: 'UnifrakturMaguntia', cursive; font-size: 20px; color: #000; margin-top: 5px;">A Project of Beaconhouse</div>
-    </div>
+<body style="margin:0; padding:0; background:#eee;">
+  <div style="display:flex; gap:24px; font-family:'Cinzel', serif;">
 
-    <!-- Photo -->
-    <div style="width: 170px; height: 170px; border-radius: 50%; border: 6px solid #f29200; overflow: hidden; background: #fff; margin-bottom: 25px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-             {{studentPhoto}}
+    <!-- ================= FRONT ================= -->
+    <div style="
+  width:322px;
+  height:530px;
+  background:url('https://beams.hayatfoundation.org.pk/id_card_bg.jpg') center/cover no-repeat;
+  position:relative;
+  padding:14px 16px 88px;
+  box-sizing:border-box;
+">
+
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between;">
+        <img src="https://beams.hayatfoundation.org.pk/logo_full.png" style="height:40px">
+        <img src="https://beams.hayatfoundation.org.pk/beaconhouse_logo.png" style="height:32px">
+      </div>
+
+      <!-- Title -->
+      <div style="text-align:center; margin-top:8px;">
+        <div style="font-size:18px; font-weight:700; line-height:1.2;">
+          CONCORDIA COLLEGE<br>PESHAWAR CAMPUS
         </div>
-    </div>
 
-    <!-- Name & Details -->
-    <div style="text-align: center; width: 100%;">
-        <div style="color: #4a3b2b; font-size: 28px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase;">{{name}}</div>
-        
-        <div style="width: 90%; height: 2px; background-color: #000; margin: 5px auto 15px auto;"></div>
-        
-        <div style="color: #4a3b2b; font-size: 18px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase;">ADMISSION NO: {{admissionNo}}</div>
-        <div style="color: #4a3b2b; font-size: 18px; font-weight: 900; text-transform: uppercase;">{{classGroup}}</div>
-    </div>
-
-    <div style="flex: 1;"></div>
-
-    <!-- Footer Dates -->
-    <div style="display: flex; justify-content: space-between; width: 100%; padding: 0 5px; margin-bottom: 10px; box-sizing: border-box;">
-        <div style="text-align: left;">
-            <div style="font-size: 16px; font-weight: 900; text-decoration: underline; color: #4a3b2b;">Issued</div>
-            <div style="font-size: 14px; color: #4a3b2b;">{{issueDate}}</div>
+        <div style="display:flex; justify-content:center; align-items:center; gap:4px; font-size:12px; margin-top:3px;">
+          A Project of
+          <span style="font-family:'UnifrakturMaguntia'; font-size:14px;">Beaconhouse</span>
         </div>
-        <div style="text-align: right;">
-             <div style="font-size: 16px; font-weight: 900; text-decoration: underline; color: #4a3b2b;">Expiry</div>
-            <div style="font-size: 14px; color: #4a3b2b;">{{expiryDate}}</div>
+      </div>
+
+      <!-- Photo -->
+      <div style="display:flex; justify-content:center; margin-top:22px;">
+        <div style="
+      width:145px;
+      height:145px;
+      border-radius:50%;
+      border:4px solid #f59c1a;
+      overflow:hidden;
+      background:#fff;
+    ">
+          <img src="{{studentPhoto}}" style="width:100%; height:100%; object-fit:cover;">
         </div>
+      </div>
+
+      <!-- Student Info -->
+      <div style="text-align:center; margin-top:16px;">
+        <div style="font-size:20px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase;">
+          {{name}}
+        </div>
+
+        <div style="width:80%; margin:6px auto; border-bottom:1.5px solid #000;"></div>
+
+        <div style="font-size:13px; font-weight:600; text-transform:uppercase;">
+          Admission No: {{admissionNo}}
+        </div>
+
+        <div style="font-size:13px; font-weight:600; margin-top:4px;">
+          {{classGroup}}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div
+        style="position:absolute; bottom: 0; left:0; display: flex; flex-direction: column; justify-content: space-between; width:100%;">
+        <div style="display: flex; justify-content: space-between;">
+          <div style="padding:6px 14px; font-size:11px; font-weight:600;">
+            <span style="text-decoration:underline;">Issued</span><br>
+            {{issueDate}}
+          </div>
+          <div style="padding:6px 14px; font-size:11px; font-weight:600;">
+            <span style="text-decoration:underline;">Expiry</span><br>
+            {{expiryDate}}
+          </div>
+        </div>
+
+        <div style="
+      background:#f59c1a;
+      text-align:center;
+      padding:7px 0;
+      font-size:16px;
+      font-weight:700;
+      letter-spacing:1px;
+    ">
+          STUDENT
+        </div>
+      </div>
     </div>
+
+    <!-- ================= BACK ================= -->
+    <div style="
+  width:322px;
+  height:530px;
+  background:url('https://beams.hayatfoundation.org.pk/id_card_bg.jpg') center/cover no-repeat;
+  position:relative;
+  padding:16px 18px 90px;
+  box-sizing:border-box;
+">
+
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between;">
+        <img src="https://beams.hayatfoundation.org.pk/logo_full.png" style="height:38px">
+        <img src="https://beams.hayatfoundation.org.pk/beaconhouse_logo.png" style="height:32px">
+      </div>
+
+      <div style="
+    margin-top:16px;
+    font-size:14px;
+    font-weight:700;
+    color:#f59c1a;
+    border-bottom:1.5px solid #f59c1a;
+    display:inline-block;
+  ">
+        PERSONAL INFORMATION
+      </div>
+
+      <!-- Info -->
+      <div style="margin-top:12px; font-size:12px; font-weight:600; line-height:1.7;">
+        <div><b>Father Name:</b> {{fatherName}}</div>
+        <div><b>Contact:</b> {{phone}}</div>
+        <div><b>Date of Birth:</b> {{dob}}</div>
+        <div><b>Address:</b> {{address}}</div>
+      </div>
+
+      <div style="border-bottom:1.5px solid #000; margin:16px 0;"></div>
+
+      <!-- Disclaimer -->
+      <div style="font-size:10.8px; font-weight:600; line-height:1.5;">
+        This card is the Property of Concordia College Peshawar.<br>
+        Non-transferable & valid for Concordia College Peshawar Campus ONLY.<br><br>
+
+        If Found Please return to:<br>
+        Concordia College Peshawar<br>
+        Address: 60-C University Road, University Town,<br>
+        Peshawar, KPK, Pakistan<br><br>
+
+        Tel: 091-5619915<br>
+        WhatsApp: 0332-8581222
+      </div>
+
+      <!-- QR Code -->
+      <div style="position:absolute; bottom:10px; left:0; width:100%; display:flex; justify-content:center; align-items:center;">
+        {{qrCode}}
+      </div>
+
+    </div>
+
   </div>
-
-  <!-- Bottom Strip -->
-  <div style="background-color: #f29200; height: 45px; width: 100%; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2;">
-      <span style="color: #4a3b2b; font-family: 'Times New Roman', serif; font-size: 24px; font-weight: 900; text-decoration: underline; text-transform: uppercase; letter-spacing: 1px;">STUDENT</span>
-  </div>
-</div>
-
-<!-- BACK SIDE -->
-<div style="width: 322px; height: 530px; position: relative; background-color: #ffe4c4; overflow: hidden; border: 1px solid #ccc; font-family: 'Roboto', sans-serif; display: flex; flex-direction: column; margin-top: 20px;">
-   <!-- Sunburst Background -->
-  <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: repeating-conic-gradient(#ffe4c4 0% 10%, #fff0db 10% 20%); z-index: 0; opacity: 0.6;"></div>
-
-  <div style="position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; padding: 20px;">
-      <!-- Headers -->
-      <div style="display: flex; justify-content: space-between; width: 100%; align-items: flex-start; margin-bottom: 20px;">
-        <div style="display: flex; align-items: center; gap: 5px;">
-           <img src="{{logoUrl}}" style="height: 45px; object-fit: contain;">
-        </div>
-        <div>
-           <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" style="height: 40px; object-fit: contain;">
-        </div>
-      </div>
-
-      <!-- Personal Info Section -->
-      <h2 style="color: #f29200; font-size: 20px; font-weight: 900; text-decoration: underline; text-transform: uppercase; margin: 0 0 15px 0;">PERSONAL INFORMATION</h2>
-      
-      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #4a3b2b; font-weight: 900;">
-          <div style="display: flex;">
-              <span style="width: 140px;">Father Name :</span>
-              <span>{{fatherName}}</span>
-          </div>
-          <div style="display: flex;">
-              <span style="width: 140px;">Contact Number :</span>
-              <span>{{phone}}</span>
-          </div>
-           <div style="display: flex;">
-              <span style="width: 140px;">Father Contact :</span>
-              <span>{{fatherContact}}</span>
-          </div>
-           <div style="display: flex;">
-              <span style="width: 140px;">Date of Birth :</span>
-              <span>{{dob}}</span>
-          </div>
-           <div style="display: flex;">
-              <span style="width: 140px;">Address :</span>
-              <span style="flex: 1; line-height: 1.2;">{{address}}</span>
-          </div>
-      </div>
-
-      <div style="margin-top: 30px;">
-           <h2 style="color: #f29200; font-size: 20px; font-weight: 900; text-decoration: underline; text-transform: uppercase; margin: 0 0 15px 0;">STUDENT CONDUCT REMINDER</h2>
-           
-           <div style="font-size: 13px; color: #4a3b2b; font-weight: 900; line-height: 1.4;">
-               <div style="margin-bottom: 5px;">By using this ID, you agree to:</div>
-               <ul style="margin: 0; padding-left: 20px; list-style-type: none;">
-                   <li style="margin-bottom: 4px;">Follow campus rules</li>
-                   <li style="margin-bottom: 4px;">Protect your ID from misuse</li>
-                   <li style="margin-bottom: 4px;">Represent your College with integrity</li>
-               </ul>
-           </div>
-      </div>
-
-      <div style="margin-top: auto;">
-          <div style="color: #4a3b2b; font-weight: 900; font-size: 12px; line-height: 1.4; margin-bottom: 15px;">
-              <div>This card is the Property of Concordia College Peshawar.</div>
-              <div>This Card is non-transferable and is valid for Concordia College Peshawar Campus ONLY.</div>
-          </div>
-
-          <div style="color: #4a3b2b; font-weight: 900; font-size: 13px; margin-bottom: 15px;">
-              If Found Please return to:
-          </div>
-
-          <div style="color: #4a3b2b; font-weight: 900; font-size: 13px; margin-bottom: 15px;">
-              <div>Concordia College Peshawar</div>
-               <div style="line-height: 1.3;">Address: 60-C University Road, University Town,<br>Peshawar, KPK, Pakistan</div>
-          </div>
-
-           <div style="color: #4a3b2b; font-weight: 900; font-size: 13px; display: flex; gap: 10px; align-items: center;">
-              <span>Telephone: 091-5619915</span>
-              <span>WhatsApp: 0332-8581222</span>
-          </div>
-
-          <!-- Barcode Placeholder -->
-          <div style="margin-top: 10px; height: 40px; background: repeating-linear-gradient(90deg, #000 0px, #000 2px, transparent 2px, transparent 4px); width: 100%;"></div>
-      </div>
-  </div>
-</div>
 </body>
+
 </html>
 `;

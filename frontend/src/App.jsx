@@ -31,6 +31,7 @@ import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
 import Complaints from "./pages/Complaints";
 import NotFound from "./pages/NotFound";
+import StudentVerifyPage from "./pages/students/StudentVerifyPage";
 // Teacher portal pages
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import TeacherClasses from "./pages/teacher/TeacherClasses";
@@ -257,6 +258,9 @@ function App() {
               <Route path="/boarding/*" element={<Navigate to="/hostel" replace />} />
               {/* Legacy /students sub-routes redirect to /students */}
               <Route path="/students/*" element={<Navigate to="/students" replace />} />
+              {/* Public Student ID Card QR Verification */}
+              <Route path="/student/verify/:id" element={<StudentVerifyPage />} />
+              <Route path="/verify/:id" element={<StudentVerifyPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

@@ -15,6 +15,7 @@ router.get('/attendance/:studentId', studentController.getAttendance);
 router.get('/attendance-report/:studentId', studentController.getAttendance);
 router.get('/results/:studentId', studentController.getResults);
 router.get('/result-report/:studentId', studentController.getResults);
+router.get('/verify/:studentId', studentController.verifyStudent);
 router.get('/:studentId', studentController.getStudentById);
 
 router.post('/create', authMiddleware, checkPermission('Students', '_root', 'create'), upload.single('photo'), studentController.createStudent);

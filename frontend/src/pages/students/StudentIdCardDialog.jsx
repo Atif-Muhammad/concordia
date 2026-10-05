@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import QRCode from "qrcode";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -37,10 +38,45 @@ export const StudentIdCardDialog = ({
   const activeStudent = fullStudentData || student;
   const isLoading = open && (templateLoading || (!!studentId && studentLoading && !fullStudentData));
 
-  const generateIdCardHtml = (template, s) => {
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+    const targetId = activeStudent?._id || activeStudent?.id;
+    if (!targetId) {
+      setQrCodeDataUrl("");
+      return;
+    }
+    const verifyUrl = `https://beams.hayatfoundation.org.pk/student/verify/${targetId}`;
+
+    QRCode.toDataURL(verifyUrl, {
+      width: 160,
+      margin: 1,
+      color: {
+        dark: "#000000",
+        light: "#ffffff",
+      },
+    })
+      .then((url) => {
+        if (isMounted) setQrCodeDataUrl(url);
+      })
+      .catch((err) => {
+        console.error("Failed to generate student QR code:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeStudent]);
+
+  const generateIdCardHtml = (template, s, qrDataUrl) => {
     if (!template || !s) return "";
     let html = template;
     const logoUrl = "/logo.png";
+
+    const qrImgTag = qrDataUrl
+      ? `<img src="${qrDataUrl}" alt="Student QR Code" style="width: 80px; height: 80px; object-fit: contain; background: #fff; padding: 2px; border-radius: 4px;" />`
+      : "";
 
     const replacements = {
       "{{logoUrl}}": logoUrl,
@@ -55,19 +91,31 @@ export const StudentIdCardDialog = ({
       "{{fatherContact}}": s.parentOrGuardianPhone || "",
       "{{dob}}": s.dob ? new Date(s.dob).toLocaleDateString() : "",
       "{{address}}": s.address || "",
+      "{{qrCode}}": qrImgTag,
+      "{{barcode}}": qrImgTag,
     };
 
     for (const [key, value] of Object.entries(replacements)) {
       html = html.replace(new RegExp(key, "g"), value);
     }
+
+    // Also replace legacy fake barcode div if present in stored template
+    const legacyBarcodePattern = /<div style="[^"]*margin-top:\s*10px[^"]*repeating-linear-gradient[^"]*"><\/div>/gi;
+    if (legacyBarcodePattern.test(html)) {
+      html = html.replace(
+        legacyBarcodePattern,
+        `<div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; width: 100%;">${qrImgTag}</div>`
+      );
+    }
+
     return html;
   };
 
   const templateHtml = templateData?.htmlContent || "";
   const generatedIdCard = useMemo(() => {
     if (!templateHtml || !activeStudent) return "";
-    return generateIdCardHtml(templateHtml, activeStudent);
-  }, [templateHtml, activeStudent, academicPath]);
+    return generateIdCardHtml(templateHtml, activeStudent, qrCodeDataUrl);
+  }, [templateHtml, activeStudent, academicPath, qrCodeDataUrl]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -59,6 +59,18 @@ class StudentController {
     }
   }
 
+  async verifyStudent(req, res, next) {
+    try {
+      const student = await studentService.verifyStudent(req.params.studentId);
+      if (!student) {
+        return res.status(404).json({ message: 'Student not found or invalid QR code' });
+      }
+      res.json(student);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async search(req, res, next) {
     try {
       const students = await studentService.getStudents(req.query);

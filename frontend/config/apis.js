@@ -55,6 +55,22 @@ export const refreshTokens = async () => {
   }
 };
 
+export const getCurrentUser = async () => {
+  try {
+    return await userWho();
+  } catch (error) {
+    if (error.response?.status === 401 || error.status === 401) {
+      try {
+        await refreshTokens();
+        return await userWho();
+      } catch {
+        return null;
+      }
+    }
+    throw error;
+  }
+};
+
 export const logout = async () => {
   try {
     localStorage.removeItem("concordia_token");
@@ -202,6 +218,39 @@ export const getStaffById = async (id) => {
       "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
+};
+
+export const getTeacherProfile = async (staffId, email) => {
+  if (staffId) {
+    try {
+      const res = await getStaffById(staffId);
+      if (res) return res;
+    } catch (e) {
+      console.warn("Could not fetch staff by id, falling back to email search", e);
+    }
+  }
+  if (email) {
+    try {
+      const staffList = await getAllStaff({ search: email });
+      if (Array.isArray(staffList) && staffList.length > 0) {
+        const matched =
+          staffList.find(
+            (s) => s.email?.toLowerCase() === email.toLowerCase()
+          ) || staffList[0];
+        if (matched?._id || matched?.id) {
+          try {
+            return await getStaffById(matched._id || matched.id);
+          } catch {
+            return matched;
+          }
+        }
+        return matched;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
 };
 
 export const createStaffAPI = async (data) => {
@@ -1622,6 +1671,20 @@ export const getStudentById = async (studentId) => {
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const verifyStudentPublic = async (studentId) => {
+  try {
+    const response = await axios.get(`${base_url}/student/verify/${studentId}`);
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Student verification failed";
 
     throw { message, status: error.response?.status || 500 };
   }

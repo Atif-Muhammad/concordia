@@ -191,6 +191,32 @@ class StudentService {
       .populate('academicRecords.sessionId');
   }
 
+  async verifyStudent(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const student = await Student.findById(id)
+      .populate('programId', 'name code')
+      .populate('classId', 'name')
+      .populate('sectionId', 'name')
+      .populate('sessionId', 'name')
+      .lean();
+
+    if (!student) return null;
+
+    return {
+      id: student._id.toString(),
+      name: `${student.fName || ''} ${student.lName || ''}`.trim(),
+      fatherName: student.fatherOrguardian || '',
+      rollNumber: student.rollNumber || '',
+      photo_url: student.photo_url || '',
+      program: student.programId?.name || '',
+      class: student.classId?.name || '',
+      section: student.sectionId?.name || '',
+      session: student.sessionId?.name || student.session || '',
+      status: student.status || 'Active',
+      admissionDate: student.admissionDate || null,
+    };
+  }
+
   async createStudent(data) {
     // Generate initial fee challans from installments if defined
     const student = await Student.create(data);

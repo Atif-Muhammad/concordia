@@ -1803,11 +1803,11 @@ export const ChallansTab = ({
                           const autoFine = (!isSettledOrVoid && challan.dueDate)
                             ? calculateLateFee(challan.dueDate, lateFeeRatePerDay || challan.installment?.lateFeeRatePerDay || 0)
                             : 0;
-                          const effectiveFine = existingFine > 0 ? existingFine : autoFine;
+                          const effectiveFine = Math.max(existingFine, autoFine);
                           return (
                             <span>
                               PKR {formatAmount(effectiveFine)}
-                              {autoFine > 0 && existingFine === 0 && (
+                              {autoFine > 0 && effectiveFine > existingFine && (
                                 <span className="ml-1 text-[10px] text-red-500 font-normal italic">(Overdue)</span>
                               )}
                             </span>
@@ -1840,11 +1840,12 @@ export const ChallansTab = ({
                           const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveRate > 0)
                             ? calculateLateFee(challan.dueDate, effectiveRate)
                             : 0;
-                          const effectiveFine = existingFine > 0 ? existingFine : autoFine;
+                          const effectiveFine = Math.max(existingFine, autoFine);
 
                           const grossTotal = getChallanGrossTotal(challan);
                           const fineIncluded = existingFine > 0 && Number(challan.lateFeeAmount || challan.snapshotLateFee || 0) > 0;
-                          const totalWithFine = fineIncluded ? grossTotal : (grossTotal + effectiveFine);
+                          const additionalFine = fineIncluded ? Math.max(0, effectiveFine - existingFine) : effectiveFine;
+                          const totalWithFine = grossTotal + additionalFine;
 
                           const advanceApplied = Number(challan.advanceApplied || challan.advanceAmount || 0);
                           const directPaid = Number(challan.directPaidAmount ?? challan.paidAmount ?? 0);

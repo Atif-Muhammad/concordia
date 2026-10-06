@@ -135,7 +135,7 @@ export const normalizeChallan = (c) => {
     c.isExtra === true ||
     c.challanType === 'FEE_HEADS_ONLY' ||
     c.type === 'EXTRA' ||
-    (!c.installmentNumber && !c.installmentId && !c.installment && (Array.isArray(c.heads) || Array.isArray(c.challanHeads)))
+    (!c.installmentNumber && !c.installmentId && !c.installment && ((Array.isArray(c.heads) && c.heads.length > 0) || (Array.isArray(c.challanHeads) && c.challanHeads.length > 0)))
   );
 
   let basePayable = 0;
@@ -959,7 +959,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     challan.isExtra === true ||
     challan.challanType === 'FEE_HEADS_ONLY' ||
     challan.type === 'EXTRA' ||
-    (!challan.installmentNumber && !challan.installmentId && !challan.installment && (Array.isArray(challan.heads) || Array.isArray(challan.challanHeads)))
+    (!challan.installmentNumber && !challan.installmentId && !challan.installment && ((Array.isArray(challan.heads) && challan.heads.length > 0) || (Array.isArray(challan.challanHeads) && challan.challanHeads.length > 0)))
   );
 
   const tuitionOnly = isExtraChallan ? 0 : Number(challan.snapshotBaseAmount ?? challan.amount ?? 0);
@@ -970,11 +970,13 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     : Number(challan.absenteeFineAmount ?? challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? 0);
 
   const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
-  const configuredRate = isExtraChallan ? extraChallanLateFee : (lateFeeRatePerDay || options.feeSettings?.lateFeeRatePerDay || 0);
+  const configuredRate = isExtraChallan
+    ? (extraChallanLateFee || options.feeSettings?.extraChallanLateFee || 0)
+    : (lateFeeRatePerDay || options.feeSettings?.lateFeeRatePerDay || 0);
   const effectiveLateFeeRate = Number(
-    challan.installment?.lateFeeRatePerDay ??
-    challan.lateFeeRatePerDay ??
-    (configuredRate !== undefined && configuredRate !== null ? configuredRate : 0)
+    (Number(challan.installment?.lateFeeRatePerDay) > 0 ? challan.installment.lateFeeRatePerDay : null) ??
+    (Number(challan.lateFeeRatePerDay) > 0 ? challan.lateFeeRatePerDay : null) ??
+    (configuredRate || 0)
   );
   const existingFine = Number(
     challan.snapshotLateFee ??
@@ -986,7 +988,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveLateFeeRate > 0)
     ? calculateLateFee(challan.dueDate, effectiveLateFeeRate)
     : 0;
-  const lateFee = existingFine > 0 ? existingFine : autoFine;
+  const lateFee = Math.max(existingFine, autoFine);
 
   const scholarship = Number(challan.snapshotDiscount) || Number(challan.discount) || Number(challan.installment?.discount) || 0;
   const originalArrears = isExtraChallan ? 0 : Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? getTotalArrears(challan) ?? 0);
@@ -1307,7 +1309,9 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   }
 
   html = html.replace(/\{\{arrears\}\}/g, totalArrears.toLocaleString());
-  const slipRate = challan.installment?.lateFeeRatePerDay ?? (configuredRate !== undefined && configuredRate !== null ? configuredRate : 0);
+  const slipRate = (Number(challan.installment?.lateFeeRatePerDay) > 0 ? challan.installment.lateFeeRatePerDay : null) ??
+    (Number(challan.lateFeeRatePerDay) > 0 ? challan.lateFeeRatePerDay : null) ??
+    (configuredRate || 0);
   const displayRate = effectiveLateFeeRate > 0 ? effectiveLateFeeRate : (slipRate || 0);
   html = html.replace(/\{\{lateFeeRatePerDay\}\}/g, displayRate.toString());
   html = html.replace(/\{\{bankName\}\}/g, options.bankName || options.feeSettings?.bankName || "United Bank Limited");
@@ -1398,29 +1402,22 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, getPaidChallanRowsHtml({ ...challan, remarks: latestRemarks }, feeChallans));
     html = html.replace(/\{\{lateFee\}\}/g, latestRemarks || (challan.status === 'PARTIAL' ? '-' : '-'));
   } else {
+    html = html.replace(
+      /<tr class="late-fee-row">[\s\S]*?<\/tr>/gi,
+      `<tr class="late-fee-row">
+        <td>Late Fee Fine after due date</td>
+        <td style="text-align: right;">Rs. ${displayRate} Per Day</td>
+      </tr>`
+    );
     if (lateFee > 0) {
-      html = html.replace(
-        /<tr class="late-fee-row">[\s\S]*?<\/tr>/gi,
-        `<tr class="late-fee-row" style="color: #b91c1c; font-weight: bold; background-color: #fef2f2;">
-          <td>Late Fee Fine (Overdue)</td>
-          <td style="text-align: right;">PKR ${lateFee.toLocaleString()} (Rs. ${displayRate}/day)</td>
-        </tr>`
-      );
       html = html.replace(/<td>Total Payable within due date<\/td>/gi,
         `<td style="${cellStyle}">Total Payable (Overdue)</td>`);
     } else {
-      html = html.replace(
-        /<tr class="late-fee-row">[\s\S]*?<\/tr>/gi,
-        `<tr class="late-fee-row">
-          <td>Late Fee Fine after due date</td>
-          <td style="text-align: right;">Rs. ${displayRate} Per Day</td>
-        </tr>`
-      );
       html = html.replace(/<td>Total Payable within due date<\/td>/gi,
         `<td style="${cellStyle}">Total Payable within due date</td>`);
     }
     html = html.replace(/\{\{totalPayable\}\}/g, remainingPayable.toLocaleString());
-    html = html.replace(/\{\{lateFee\}\}/g, lateFee > 0 ? lateFee.toLocaleString() : `Rs. ${displayRate} Per Day`);
+    html = html.replace(/\{\{lateFee\}\}/g, `Rs. ${displayRate} Per Day`);
   }
 
   const currentInstNo = Number(challan.installmentNumber || challan.installment?.installmentNumber || challan.installmentNo || 0);
@@ -1508,58 +1505,147 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     return `<td>${m}</td>`;
   }).join('');
 
-  const histTotals = displayHistory.map(i => {
-    if (!i) return '<td>—</td>';
-    const base = Number(i.basePayable ?? i.amount ?? 0);
-    const heads = Number(i.headsAmount ?? 0);
-    const arrears = Number(i.arrearsAmount ?? 0);
-    const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
-    const calculatedGross = base + heads + arrears + fine;
+  const resolveHistoryItem = (i) => {
+    if (!i) return null;
+    const instNum = Number(i.installmentNumber || i.installmentNo || 0);
+    const instMonth = (i.month || '').trim().toLowerCase();
+    const instId = i._id ? String(i._id) : (i.id ? String(i.id) : null);
+    const instChallanNo = String(i.challanNumber || i.challanNo || '');
 
-    let tot = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? (calculatedGross > 0 ? calculatedGross : i.snapshotTotalDue) ?? 0);
+    // 1. If i already is a full challan
+    let candidateChallan = (i.challanNo || i.challanNumber || i.grossAmount || i.challanHeads) ? i : null;
 
-    if (tot === 0 && Array.isArray(feeChallans)) {
-      const sib = feeChallans.find(c => {
-        if (!c) return false;
+    // 2. Check i.challans sub-array if i is installment
+    if (!candidateChallan && Array.isArray(i.challans) && i.challans.length > 0) {
+      candidateChallan = i.challans.find(c => c && c.status !== 'VOID') || i.challans[0];
+    }
+
+    // 3. Pool of all known challans
+    const pool = [
+      ...(Array.isArray(feeChallans) ? feeChallans : []),
+      ...(Array.isArray(student?.challans) ? student.challans : []),
+      ...(Array.isArray(challan?.previousChallans) ? challan.previousChallans : []),
+    ];
+
+    if (pool.length > 0) {
+      const found = pool.find(c => {
+        if (!c || c.status === 'VOID') return false;
         const cSid = c.studentId?._id?.toString() || (typeof c.studentId === 'string' ? c.studentId : null) || c.student?._id?.toString() || c.student?.id;
         const cRno = c.rollNumber || c.rollNo || c.student?.rollNumber;
-        const isMatch = (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
-                        (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
-        return isMatch && Number(c.installmentNumber || c.installmentNo || 0) === Number(i.installmentNumber || i.installmentNo || 0);
+        const isStudentMatch = (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
+                               (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
+        if (!isStudentMatch) return false;
+
+        if (instChallanNo && (String(c.challanNo) === instChallanNo || String(c.challanNumber) === instChallanNo)) return true;
+        if (instNum > 0 && Number(c.installmentNumber || c.installmentNo || 0) === instNum) return true;
+        if (instId && c.installmentId && String(c.installmentId) === instId) return true;
+        if (instMonth && c.month) {
+          const cm = c.month.trim().toLowerCase();
+          if (cm === instMonth || cm.includes(instMonth) || instMonth.includes(cm)) return true;
+        }
+        return false;
       });
-      if (sib) {
-        const sibBase = Number(sib.basePayable ?? sib.amount ?? 0);
-        const sibHeads = Number(sib.headsAmount ?? 0);
-        const sibArrears = Number(sib.arrearsAmount ?? 0);
-        const sibFine = Number(sib.lateFeeAmount ?? sib.fineAmount ?? 0);
-        const sibGross = sibBase + sibHeads + sibArrears + sibFine;
-        tot = Number(sib.grossAmount ?? sib.totalAmount ?? sib.netPayable ?? (sibGross > 0 ? sibGross : 0));
+
+      if (found) {
+        candidateChallan = found;
       }
     }
+
+    // 4. Look up arrearAllocation from current challan (captures previous arrears & originalDueAmount)
+    const arrearAlloc = (Array.isArray(challan?.arrearAllocations) ? challan.arrearAllocations : []).find(a => {
+      if (instNum > 0 && Number(a.sourceInstallmentNumber || 0) === instNum) return true;
+      if (candidateChallan && a.sourceChallanNo && String(a.sourceChallanNo) === String(candidateChallan.challanNo || candidateChallan.challanNumber)) return true;
+      if (instMonth && a.sourceMonth) {
+        const sm = a.sourceMonth.trim().toLowerCase();
+        if (sm === instMonth || sm.includes(instMonth) || instMonth.includes(sm)) return true;
+      }
+      return false;
+    });
+
+    return { candidateChallan, arrearAlloc };
+  };
+
+  const histTotals = displayHistory.map(i => {
+    if (!i) return '<td>—</td>';
+    const { candidateChallan, arrearAlloc } = resolveHistoryItem(i) || {};
+
+    let tot = 0;
+    if (candidateChallan) {
+      const cBase = Number(candidateChallan.basePayable ?? candidateChallan.amount ?? 0);
+      const cHeads = Number(candidateChallan.headsAmount ?? 0);
+      const cFine = Number(candidateChallan.lateFeeAmount ?? candidateChallan.fineAmount ?? 0);
+      const cDisc = Number(candidateChallan.discountAmount ?? candidateChallan.discount ?? 0);
+      const ownGross = cBase + cHeads + cFine - cDisc;
+      if (ownGross > 0) {
+        tot = ownGross;
+      } else {
+        const fullTotal = Number(candidateChallan.grossAmount ?? candidateChallan.totalAmount ?? candidateChallan.netPayable ?? 0);
+        const cArrears = Number(candidateChallan.arrearsAmount ?? 0);
+        tot = Math.max(0, fullTotal - cArrears);
+      }
+    }
+
+    if (tot === 0) {
+      const base = Number(i.basePayable ?? i.amount ?? 0);
+      const heads = Number(i.headsAmount ?? 0);
+      const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
+      const disc = Number(i.discountAmount ?? i.discount ?? 0);
+      const ownGross = base + heads + fine - disc;
+      if (ownGross > 0) {
+        tot = ownGross;
+      } else {
+        const fullTotal = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? i.snapshotTotalDue ?? 0);
+        const arrears = Number(i.arrearsAmount ?? 0);
+        tot = Math.max(0, fullTotal - arrears);
+      }
+    }
+
+    if (arrearAlloc && (!candidateChallan || Number(candidateChallan.arrearsAmount || 0) === 0)) {
+      const allocTotal = Number(arrearAlloc.originalDueAmount || arrearAlloc.amountCarriedForward || 0);
+      if (allocTotal > 0) {
+        tot = Math.max(tot, allocTotal);
+      }
+    }
+
     return `<td>${tot > 0 ? tot.toFixed(0) : '0'}</td>`;
   }).join('');
 
   const histPaid = displayHistory.map(i => {
     if (!i) return '<td>—</td>';
-    const base = Number(i.basePayable ?? i.amount ?? 0);
-    const heads = Number(i.headsAmount ?? 0);
-    const arrears = Number(i.arrearsAmount ?? 0);
-    const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
-    const calculatedGross = base + heads + arrears + fine;
-    const totalDue = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? (calculatedGross > 0 ? calculatedGross : i.snapshotTotalDue) ?? 0);
+    const { candidateChallan, arrearAlloc } = resolveHistoryItem(i) || {};
 
-    const directPaid = Number(i.paidAmount ?? i.directPaidAmount ?? i.amountReceived ?? 0);
-    const advancePaid = Number(i.advanceApplied ?? i.advanceAmount ?? 0);
-    const settledArrears = Number(i.settledViaArrearsAmount ?? i.settledAmount ?? 0);
-    const statusStr = String(i.status || '').toUpperCase();
-    const isSettledOrSuperseded = ['SETTLED', 'SUPERSEDED'].includes(statusStr) || Boolean(i.settledByChallanNo || i.settledByChallanNumber || i.supersededBy);
+    let itemTotal = 0;
+    if (candidateChallan) {
+      const cBase = Number(candidateChallan.basePayable ?? candidateChallan.amount ?? 0);
+      const cHeads = Number(candidateChallan.headsAmount ?? 0);
+      const cFine = Number(candidateChallan.lateFeeAmount ?? candidateChallan.fineAmount ?? 0);
+      const cDisc = Number(candidateChallan.discountAmount ?? candidateChallan.discount ?? 0);
+      const ownGross = cBase + cHeads + cFine - cDisc;
+      itemTotal = ownGross > 0 ? ownGross : Math.max(0, Number(candidateChallan.totalAmount || 0) - Number(candidateChallan.arrearsAmount || 0));
+    }
+    if (itemTotal === 0) {
+      const base = Number(i.basePayable ?? i.amount ?? 0);
+      const heads = Number(i.headsAmount ?? 0);
+      const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
+      const disc = Number(i.discountAmount ?? i.discount ?? 0);
+      const ownGross = base + heads + fine - disc;
+      itemTotal = ownGross > 0 ? ownGross : Math.max(0, Number(i.totalAmount ?? i.grossAmount ?? 0) - Number(i.arrearsAmount || 0));
+    }
+    if (itemTotal === 0 && arrearAlloc) {
+      itemTotal = Number(arrearAlloc.originalDueAmount || arrearAlloc.amountCarriedForward || 0);
+    }
+
+    const targetObj = candidateChallan || i;
+    const directPaid = Number(targetObj.paidAmount ?? targetObj.directPaidAmount ?? targetObj.amountReceived ?? 0);
+    const advancePaid = Number(targetObj.advanceApplied ?? targetObj.advanceAmount ?? 0);
+    const statusStr = String(targetObj.status || i.status || '').toUpperCase();
+    const settledArrears = Number(targetObj.settledViaArrearsAmount ?? targetObj.settledAmount ?? arrearAlloc?.amountSettled ?? 0);
 
     let paid = directPaid + advancePaid + settledArrears;
-    const subChallans = Array.isArray(i.challans) ? i.challans : [];
 
+    const subChallans = Array.isArray(i.challans) ? i.challans : [];
     if (subChallans.length > 0) {
-      const active = subChallans.filter(c => !['VOID', 'SUPERSEDED'].includes(String(c?.status || '').toUpperCase()));
-      const preferred = active.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase())) || active[0];
+      const preferred = subChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase())) || subChallans[0];
       if (preferred) {
         const pDirect = Number(preferred.amountReceived ?? preferred.paidAmount ?? preferred.directPaidAmount ?? 0);
         const pAdv = Number(preferred.advanceApplied ?? preferred.advanceAmount ?? 0);
@@ -1567,40 +1653,14 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         const pPaid = pDirect + pAdv + pSettled;
         if (pPaid > 0) {
           paid = Math.max(paid, pPaid);
-        } else if (['PAID', 'SETTLED'].includes(String(preferred.status || '').toUpperCase())) {
-          paid = Math.max(paid, totalDue);
         }
       }
     }
 
-    if (Array.isArray(feeChallans)) {
-      const sib = feeChallans.find(c => {
-        if (!c) return false;
-        const cSid = c.studentId?._id?.toString() || (typeof c.studentId === 'string' ? c.studentId : null) || c.student?._id?.toString() || c.student?.id;
-        const cRno = c.rollNumber || c.rollNo || c.student?.rollNumber;
-        const isMatch = (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
-                        (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
-        return isMatch && Number(c.installmentNumber || c.installmentNo || 0) === Number(i.installmentNumber || i.installmentNo || 0);
-      });
-      if (sib) {
-        const sDirect = Number(sib.paidAmount ?? sib.directPaidAmount ?? sib.amountReceived ?? 0);
-        const sAdv = Number(sib.advanceApplied ?? sib.advanceAmount ?? 0);
-        const sSettled = Number(sib.settledViaArrearsAmount ?? sib.settledAmount ?? 0);
-        const sStatus = String(sib.status || '').toUpperCase();
-        const sTotal = Number(sib.grossAmount ?? sib.totalAmount ?? sib.netPayable ?? totalDue);
-        const sPaidCombined = sDirect + sAdv + sSettled;
-        if (sPaidCombined > 0) {
-          paid = Math.max(paid, sPaidCombined);
-        } else if (sStatus === 'PAID' || sStatus === 'SETTLED' || sStatus === 'SUPERSEDED') {
-          paid = Math.max(paid, sTotal);
-        }
-      }
-    }
-
-    if (paid === 0) {
-      if (statusStr === 'PAID' || isSettledOrSuperseded) {
-        paid = totalDue;
-      }
+    if (['PAID', 'SETTLED'].includes(statusStr)) {
+      paid = itemTotal > 0 ? itemTotal : (paid > 0 ? paid : 0);
+    } else if (itemTotal > 0 && paid > itemTotal) {
+      paid = itemTotal;
     }
 
     return `<td>${paid > 0 ? paid.toFixed(0) : '0'}</td>`;

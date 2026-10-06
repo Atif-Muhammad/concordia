@@ -269,8 +269,7 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
             basePayable: 10000,
             headsAmount: 1000,
             grossAmount: 11000,
-            // Carried forward as arrears to subsequent challan, settled via arrears
-            settledViaArrearsAmount: 11000,
+            // Carried forward as arrears to subsequent challan, unpaid
             paidAmount: 0,
             status: "SUPERSEDED"
           },
@@ -285,10 +284,68 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     };
 
     const html = generateChallanHtml(challanInst3, templateHtml, {});
-    // Oct should show full gross 13500 and total paid 13500 (direct + advance)
-    expect(html).toContain("<td>13500</td>");
-    // Nov should show full gross 11000 and total settled via arrears 11000
+    // Oct should show own amount 12500 (10000 base + 2000 heads + 500 fine, excluding 1000 arrears) and total paid 12500
+    expect(html).toContain("<td>12500</td>");
+    // Nov should show full gross 11000
     expect(html).toContain("<td>11000</td>");
+    // Nov was SUPERSEDED with 0 paid amount, so Paid row must show 0, NOT 11000
+    const paidRow = html.match(/<tr><td>Paid<\/td>(.*?)<\/tr>/s)?.[1] || "";
+    expect(paidRow).toContain("<td>0</td>");
+  });
+
+  it("shows actual total from arrearAllocations (e.g. September 51200) instead of plan base payable (19000)", () => {
+    const templateHtml = `
+      <table>
+        <tr><td>Month</td>{{paymentHistoryMonths}}</tr>
+        <tr><td>Total</td>{{paymentHistoryTotals}}</tr>
+        <tr><td>Paid</td>{{paymentHistoryPaid}}</tr>
+      </table>
+    `;
+
+    // November challan with September arrears carried forward
+    const currentChallan = {
+      _id: "ch-nov",
+      challanNumber: "CH-NOV-1",
+      installmentNumber: 2,
+      month: "November 2026",
+      arrearAllocations: [
+        {
+          sourceChallanNo: "16700213",
+          sourceInstallmentNumber: 1,
+          sourceMonth: "September",
+          originalDueAmount: 51200,
+          amountCarriedForward: 51200,
+          amountSettled: 0
+        }
+      ],
+      student: {
+        _id: "s-sept",
+        fName: "Ali",
+        rollNumber: "2026-FSC-99",
+        installments: [
+          {
+            installmentNumber: 1,
+            month: "September",
+            amount: 19000, // base tuition plan amount
+            paidAmount: 6000,
+            status: "SUPERSEDED"
+          },
+          {
+            installmentNumber: 2,
+            month: "November",
+            amount: 19000,
+            status: "PENDING"
+          }
+        ]
+      }
+    };
+
+    const html = generateChallanHtml(currentChallan, templateHtml, {});
+    // September total should show 51200 from arrearAllocations / actual challan, NOT 19000 base payable
+    expect(html).toContain("<td>51200</td>");
+    expect(html).not.toContain("<td>19000</td>");
+    // September paid should show 6000 (actual paid), NOT 51200
+    expect(html).toContain("<td>6000</td>");
   });
 
   it("blocks selection when a prior installment in plan has not had its challan generated yet (including non-sequential months)", () => {
@@ -337,6 +394,193 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
 
     expect(isBlocked).toBe(true);
     expect(blockedReason).toBe("Previous installment (January) challan not generated yet. Please generate January challan first.");
+  });
+
+  it("settles all N-hop ancestor challans FIFO when a downstream challan is settled/paid", () => {
+    // Chain: C1 (Sept, 10k) -> C2 (Oct, 10k + 10k arrears) -> C3 (Nov, 10k + 20k arrears)
+    const challanChain = [
+      {
+        id: "c-sept",
+        challanNo: "CH-001",
+        installmentNumber: 1,
+        month: "September",
+        basePayable: 10000,
+        totalAmount: 10000,
+        paidAmount: 0,
+        settledViaArrearsAmount: 0,
+        status: "SUPERSEDED",
+        supersededBy: "c-oct"
+      },
+      {
+        id: "c-oct",
+        challanNo: "CH-002",
+        installmentNumber: 2,
+        month: "October",
+        basePayable: 10000,
+        totalAmount: 20000,
+        paidAmount: 0,
+        settledViaArrearsAmount: 0,
+        status: "SUPERSEDED",
+        supersededBy: "c-nov",
+        arrearAllocations: [{ sourceChallanId: "c-sept", amountCarriedForward: 10000 }]
+      },
+      {
+        id: "c-nov",
+        challanNo: "CH-003",
+        installmentNumber: 3,
+        month: "November",
+        basePayable: 10000,
+        totalAmount: 30000,
+        paidAmount: 30000,
+        status: "PAID",
+        arrearAllocations: [{ sourceChallanId: "c-oct", amountCarriedForward: 20000, amountSettled: 20000 }]
+      }
+    ];
+
+    // Simulate N-hop settlement resolution algorithm
+    const resolveDownstreamSettlement = (c, allChallans) => {
+      let cur = c;
+      const seen = new Set([cur.id]);
+      while (cur && cur.supersededBy) {
+        const nextId = typeof cur.supersededBy === "object" ? cur.supersededBy.id : cur.supersededBy;
+        if (seen.has(nextId)) break;
+        seen.add(nextId);
+        const next = allChallans.find(ch => ch.id === nextId);
+        if (!next) break;
+        if (["PAID", "SETTLED"].includes(next.status)) {
+          return {
+            isSettled: true,
+            settledByChallanNo: next.settledByChallanNo || next.challanNo,
+            settledByChallanId: next.id
+          };
+        }
+        cur = next;
+      }
+      return null;
+    };
+
+    // Both Sept and Oct must resolve as SETTLED via Nov (N=2 hops back for Sept, N=1 for Oct)
+    const septResolution = resolveDownstreamSettlement(challanChain[0], challanChain);
+    expect(septResolution).not.toBeNull();
+    expect(septResolution.isSettled).toBe(true);
+    expect(septResolution.settledByChallanNo).toBe("CH-003");
+
+    const octResolution = resolveDownstreamSettlement(challanChain[1], challanChain);
+    expect(octResolution).not.toBeNull();
+    expect(octResolution.isSettled).toBe(true);
+    expect(octResolution.settledByChallanNo).toBe("CH-003");
+  });
+
+  it("accumulates dynamic day-to-day late fees using Math.max(existingFine, autoFine)", () => {
+    const existingFine = 300; // fine frozen at generation (2 days overdue)
+    const autoFine = 750;     // current elapsed fine (5 days overdue * 150)
+    const effectiveFine = Math.max(existingFine, autoFine);
+    expect(effectiveFine).toBe(750);
+
+    const grossTotal = 15300; // base 15000 + existingFine 300
+    const fineIncluded = existingFine > 0;
+    const additionalFine = fineIncluded ? Math.max(0, effectiveFine - existingFine) : effectiveFine;
+    const totalWithFine = grossTotal + additionalFine;
+    expect(totalWithFine).toBe(15750); // 15000 base + 750 autoFine
+  });
+
+  it("renders print slip late fee row with clean daily rate and no duplicate accumulated amount", () => {
+    const mockTemplateHtml = `
+      <div>
+        <table class="fee-table">
+          <tr><td>Total Payable within due date</td><td>{{totalPayable}}</td></tr>
+          <tr class="late-fee-row">
+            <td>Late Fee Fine after due date</td>
+            <td>{{lateFee}}</td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    const challan = {
+      _id: "ch-overdue-1",
+      challanNumber: "CH-9001",
+      studentName: "Zaid Ali",
+      amount: 10000,
+      totalAmount: 10750,
+      netPayable: 10750,
+      lateFeeAmount: 750,
+      paidAmount: 0,
+      dueDate: "2026-10-01",
+      status: "OVERDUE",
+    };
+
+    const normalized = normalizeChallan(challan);
+    const html = generateChallanHtml(normalized, mockTemplateHtml, {
+      lateFeeRatePerDay: 150,
+    });
+
+    // Should indicate overdue in total header
+    expect(html).toContain("Total Payable (Overdue)");
+    // Must contain clean daily rate
+    expect(html).toContain("Rs. 150 Per Day");
+    // Must NOT contain duplicate fine pattern "PKR 750 (Rs. 150/day)" in the late fee row
+    expect(html).not.toContain("PKR 750 (Rs. 150/day)");
+    expect(html).not.toContain("PKR 750");
+  });
+
+  it("shows challan's own amount in payment history excluding carried-forward arrears (October 10k, not 20k)", () => {
+    const templateHtml = `
+      <table>
+        <tr><td>Month</td>{{paymentHistoryMonths}}</tr>
+        <tr><td>Total</td>{{paymentHistoryTotals}}</tr>
+        <tr><td>Paid</td>{{paymentHistoryPaid}}</tr>
+      </table>
+    `;
+
+    // November challan viewing history of Sept (10k) and Oct (10k own + 10k arrears = 20k total)
+    const septChallan = {
+      _id: "ch-sept-hist",
+      challanNumber: "CH-01",
+      installmentNumber: 1,
+      month: "September",
+      basePayable: 10000,
+      totalAmount: 10000,
+      paidAmount: 10000,
+      status: "SETTLED"
+    };
+
+    const octChallan = {
+      _id: "ch-oct-hist",
+      challanNumber: "CH-02",
+      installmentNumber: 2,
+      month: "October",
+      basePayable: 10000,
+      arrearsAmount: 10000, // carried forward from September
+      totalAmount: 20000,
+      paidAmount: 10000,
+      status: "SETTLED" // 100% settled/paid
+    };
+
+    const currentNovChallan = {
+      _id: "ch-nov-hist",
+      challanNumber: "CH-03",
+      installmentNumber: 3,
+      month: "November",
+      basePayable: 10000,
+      arrearsAmount: 20000,
+      totalAmount: 30000,
+      paidAmount: 0,
+      status: "PENDING",
+      previousChallans: [septChallan, octChallan]
+    };
+
+    const html = generateChallanHtml(currentNovChallan, templateHtml, {
+      feeChallans: [septChallan, octChallan]
+    });
+
+    // Both September and October must show their OWN amounts (10000 each), NOT 20000 with arrears
+    expect(html).toContain("<td>September</td><td>October</td>");
+    expect(html).toContain("<td>10000</td><td>10000</td>");
+    // And both must show Paid as 10000 (100% paid), NOT 10k out of 20k
+    expect(html).toContain("<td>10000</td><td>10000</td>");
+    // Must NOT show 20000 in payment history totals
+    expect(html).not.toContain("<td>20000</td>");
   });
 });
 

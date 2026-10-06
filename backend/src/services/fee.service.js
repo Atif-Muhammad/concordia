@@ -274,6 +274,9 @@ class FeeService {
     const challanIds = challans.map(c => c._id);
     const challanNos = challans.map(c => c.challanNo).filter(Boolean);
 
+    const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+    const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
+
     // Fetch receipts for these challans to resolve recorded staff/admin user (skip in report mode)
     const paymentReceipts = isReportMode ? [] : await FeePaymentReceipt.find({
       challanId: { $in: challanIds }
@@ -418,7 +421,24 @@ class FeeService {
         ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
         : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
-      const lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+      let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+      const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
+      if (!isSettledOrVoid && c.dueDate && defaultLateFeeRate > 0) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const due = new Date(c.dueDate);
+        due.setHours(0, 0, 0, 0);
+        if (now > due) {
+          const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+          const autoFine = diffDays * defaultLateFeeRate;
+          if (autoFine > lateFeeAmount) {
+            lateFeeAmount = autoFine;
+            if (c.status === 'PENDING') {
+              c.status = 'OVERDUE';
+            }
+          }
+        }
+      }
       const discountAmount = Number(c.discountAmount ?? c.discount ?? 0);
 
       const sId = c._id?.toString();
@@ -447,7 +467,41 @@ class FeeService {
       const directPaidAmount = Number(c.paidAmount || 0);
       const revInfo = reverseArrearMap[c._id?.toString()];
       let settledViaArrearsAmount = Number(c.settledViaArrearsAmount || (revInfo ? revInfo.settledAmount : 0) || 0);
-      const isSettled = c.status === 'SETTLED';
+      let isSettled = c.status === 'SETTLED';
+
+      // Multi-hop downstream reconciliation for SUPERSEDED challans
+      if (!isSettled && c.status === 'SUPERSEDED' && c.supersededBy) {
+        let cur = c.supersededBy;
+        const visitedIds = new Set([c._id.toString()]);
+        while (cur) {
+          const curId = (cur._id || cur).toString();
+          if (visitedIds.has(curId)) break;
+          visitedIds.add(curId);
+          if (['PAID', 'SETTLED'].includes(cur.status)) {
+            isSettled = true;
+            c.status = 'SETTLED';
+            if (settledViaArrearsAmount === 0 && directPaidAmount < netPayable) {
+              settledViaArrearsAmount = Math.max(0, netPayable - directPaidAmount);
+            }
+            if (!c.settledByChallanNo) c.settledByChallanNo = cur.settledByChallanNo || cur.challanNo;
+            if (!c.settledByChallanId) c.settledByChallanId = cur.settledByChallanId || cur._id;
+            FeeChallan.updateOne(
+              { _id: c._id, status: 'SUPERSEDED' },
+              { $set: { status: 'SETTLED', settledViaArrearsAmount, settledByChallanNo: c.settledByChallanNo, settledByChallanId: c.settledByChallanId } }
+            ).exec();
+            if (c.studentId) {
+              const sid = c.studentId._id || c.studentId;
+              Student.updateOne(
+                { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+                { $set: { 'installments.$.status': 'SETTLED', 'installments.$.pendingAmount': 0 } }
+              ).exec();
+            }
+            break;
+          }
+          cur = cur.supersededBy;
+        }
+      }
+
       if (isSettled && settledViaArrearsAmount === 0 && directPaidAmount < netPayable) {
         settledViaArrearsAmount = Math.max(0, netPayable - directPaidAmount);
       }
@@ -1268,31 +1322,83 @@ class FeeService {
             remPay -= settle;
             allocatedToArrears += settle;
 
-            // Track settlement on source challan
+            // Track settlement on source challan and all its ancestors (N-hop chain)
             if (alloc.sourceChallanId && settle > 0) {
-              const sourceChallan = await FeeChallan.findById(alloc.sourceChallanId);
-              if (sourceChallan) {
-                sourceChallan.settledViaArrearsAmount = (sourceChallan.settledViaArrearsAmount || 0) + settle;
-                sourceChallan.settledByChallanId = challan._id;
-                sourceChallan.settledByChallanNo = challan.challanNo;
-
-                // If this source challan is now fully settled via arrears:
-                if (alloc.amountSettled >= alloc.amountCarriedForward) {
-                  sourceChallan.status = 'SETTLED';
+              const collectAncestors = async (startChallanId) => {
+                const chain = [];
+                const visited = new Set();
+                const queue = [startChallanId.toString()];
+                while (queue.length > 0) {
+                  const currId = queue.shift();
+                  if (visited.has(currId)) continue;
+                  visited.add(currId);
+                  const ch = await FeeChallan.findById(currId);
+                  if (!ch) continue;
+                  chain.push(ch);
+                  if (Array.isArray(ch.arrearAllocations)) {
+                    for (const a of ch.arrearAllocations) {
+                      if (a.sourceChallanId && !visited.has(a.sourceChallanId.toString())) {
+                        queue.push(a.sourceChallanId.toString());
+                      }
+                    }
+                  }
+                  if (Array.isArray(ch.supersedes)) {
+                    for (const sid of ch.supersedes) {
+                      if (sid && !visited.has(sid.toString())) {
+                        queue.push(sid.toString());
+                      }
+                    }
+                  }
+                  const supersededPriors = await FeeChallan.find({ supersededBy: ch._id, _id: { $nin: Array.from(visited) } }).select('_id').lean();
+                  for (const sp of supersededPriors) {
+                    queue.push(sp._id.toString());
+                  }
                 }
-                await sourceChallan.save();
+                // Sort chronologically (oldest first for FIFO settlement)
+                chain.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+                return chain;
+              };
+
+              const ancestors = await collectAncestors(alloc.sourceChallanId);
+              let remSettleToDistribute = settle;
+
+              for (const anc of ancestors) {
+                const ancTarget = (anc.netPayable != null && !isNaN(Number(anc.netPayable)) && Number(anc.netPayable) > 0)
+                  ? Number(anc.netPayable)
+                  : (Number(anc.totalAmount) || Number(anc.basePayable) || Number(anc.amount) || 0);
+                const ancPaid = Number(anc.paidAmount || 0);
+                const ancAlreadySettled = Number(anc.settledViaArrearsAmount || 0);
+                const ownDue = Math.max(0, (Number(anc.basePayable ?? anc.amount ?? 0) + Number(anc.headsAmount || 0) + Number(anc.lateFeeAmount || 0)) - Number(anc.discountAmount || anc.discount || 0) - ancPaid - ancAlreadySettled);
+                const effectiveDue = ownDue > 0 ? ownDue : Math.max(0, ancTarget - ancPaid - ancAlreadySettled);
+
+                const ancAlloc = remSettleToDistribute > 0 ? Math.min(effectiveDue, remSettleToDistribute) : 0;
+                remSettleToDistribute -= ancAlloc;
+
+                anc.settledViaArrearsAmount = (anc.settledViaArrearsAmount || 0) + ancAlloc;
+                anc.settledByChallanId = challan._id;
+                anc.settledByChallanNo = challan.challanNo;
+
+                if (alloc.amountSettled >= alloc.amountCarriedForward || (anc.paidAmount + anc.settledViaArrearsAmount >= effectiveDue && effectiveDue > 0)) {
+                  anc.status = 'SETTLED';
+                }
+                await anc.save();
 
                 // Update installment on Student
-                if (sourceChallan.studentId) {
-                  const student = await Student.findById(sourceChallan.studentId);
+                if (anc.studentId) {
+                  const student = await Student.findById(anc.studentId);
                   if (student && Array.isArray(student.installments)) {
                     const inst = student.installments.find(i =>
-                      (sourceChallan.installmentId && i._id?.toString() === sourceChallan.installmentId.toString()) ||
-                      (sourceChallan.installmentNumber && i.installmentNumber === sourceChallan.installmentNumber)
+                      (anc.installmentId && i._id?.toString() === anc.installmentId.toString()) ||
+                      (anc.installmentNumber && i.installmentNumber === anc.installmentNumber) ||
+                      (anc.month && i.month && anc.month.trim().toLowerCase() === anc.month.trim().toLowerCase())
                     );
                     if (inst) {
-                      if (alloc.amountSettled >= alloc.amountCarriedForward) {
+                      if (anc.status === 'SETTLED') {
                         inst.status = 'SETTLED';
+                        inst.pendingAmount = 0;
+                      } else if (ancAlloc > 0) {
+                        inst.paidAmount = (Number(inst.paidAmount) || 0) + ancAlloc;
+                        inst.pendingAmount = Math.max(0, (Number(inst.amount) || 0) - inst.paidAmount);
                       }
                       await student.save();
                     }
@@ -2334,7 +2440,40 @@ class FeeService {
         );
 
         const isPaid = matchingChallans.some(c => c.status === 'PAID');
+        const isSettled = matchingChallans.some(c => c.status === 'SETTLED') || inst.status === 'SETTLED';
         const hasChallan = matchingChallans.length > 0;
+
+        let status = 'PENDING';
+        if (hasChallan) {
+          if (isPaid) {
+            status = 'PAID';
+          } else if (isSettled) {
+            status = 'SETTLED';
+          } else {
+            const firstCh = matchingChallans[0];
+            if (firstCh.status === 'SUPERSEDED') {
+              const chMap = new Map(studentChallans.map(sc => [sc._id.toString(), sc]));
+              let cur = firstCh.supersededBy;
+              const seen = new Set([firstCh._id.toString()]);
+              while (cur) {
+                const curId = (cur._id || cur).toString();
+                if (seen.has(curId)) break;
+                seen.add(curId);
+                const nextCh = chMap.get(curId) || cur;
+                if (['PAID', 'SETTLED'].includes(nextCh.status)) {
+                  status = 'SETTLED';
+                  break;
+                }
+                cur = nextCh.supersededBy;
+              }
+            }
+            if (status !== 'SETTLED') {
+              status = firstCh.status || 'PENDING';
+            }
+          }
+        } else {
+          status = isSettled ? 'SETTLED' : (Number(inst.paidAmount || 0) > 0 ? (inst.paidAmount >= inst.amount ? 'PAID' : 'PARTIAL') : (inst.status || 'PENDING'));
+        }
 
         return {
           ...inst,
@@ -2343,9 +2482,8 @@ class FeeService {
           programId: inst.programId || s.programId?._id,
           challans: matchingChallans,
           challanGenerated: hasChallan || false,
-          status: hasChallan 
-            ? (isPaid ? 'PAID' : (matchingChallans[0]?.status || 'PENDING')) 
-            : (Number(inst.paidAmount || 0) > 0 ? (inst.paidAmount >= inst.amount ? 'PAID' : 'PARTIAL') : 'PENDING')
+          pendingAmount: status === 'SETTLED' ? 0 : inst.pendingAmount,
+          status
         };
       });
 
@@ -2926,8 +3064,12 @@ class FeeService {
       .populate('walletId')
       .populate('challanHeads.headId')
       .populate('arrearAllocations.sourceChallanId')
+      .populate('supersededBy')
       .sort({ createdAt: 1, installmentNumber: 1 })
       .lean();
+
+    const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+    const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
 
     const challanIds = challans.map(c => c._id);
     const [receipts, reverseAllocChallans] = await Promise.all([
@@ -3006,14 +3148,67 @@ class FeeService {
 
       const baseAmount = Number(c.basePayable ?? c.amount ?? 0);
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
-      const lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+      let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+      const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
+      if (!isSettledOrVoid && c.dueDate && defaultLateFeeRate > 0) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const due = new Date(c.dueDate);
+        due.setHours(0, 0, 0, 0);
+        if (now > due) {
+          const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+          const autoFine = diffDays * defaultLateFeeRate;
+          if (autoFine > lateFeeAmount) {
+            lateFeeAmount = autoFine;
+            if (c.status === 'PENDING') {
+              c.status = 'OVERDUE';
+            }
+          }
+        }
+      }
       const discountAmount = Number(c.discountAmount ?? c.discount ?? 0);
       const totalAmount = Number(c.totalAmount ?? c.netPayable ?? c.grossAmount ?? c.amount ?? 0);
       const paidAmount = Number(c.paidAmount ?? 0);
 
       const revInfo = reverseArrearMap[cId];
       let settledViaArrearsAmount = Number(c.settledViaArrearsAmount || (revInfo ? revInfo.settledAmount : 0) || 0);
-      const isSettled = c.status === 'SETTLED';
+      let isSettled = c.status === 'SETTLED';
+
+      // Multi-hop downstream reconciliation for SUPERSEDED challans
+      if (!isSettled && c.status === 'SUPERSEDED') {
+        const challanMap = new Map(challans.map(ch => [ch._id.toString(), ch]));
+        let cur = c.supersededBy;
+        const visited = new Set([cId]);
+        while (cur) {
+          const curId = (cur._id || cur).toString();
+          if (visited.has(curId)) break;
+          visited.add(curId);
+          const nextCh = challanMap.get(curId) || cur;
+          if (['PAID', 'SETTLED'].includes(nextCh.status)) {
+            isSettled = true;
+            c.status = 'SETTLED';
+            if (settledViaArrearsAmount === 0 && paidAmount < totalAmount) {
+              settledViaArrearsAmount = Math.max(0, totalAmount - paidAmount);
+            }
+            if (!c.settledByChallanNo) c.settledByChallanNo = nextCh.settledByChallanNo || nextCh.challanNo;
+            if (!c.settledByChallanId) c.settledByChallanId = nextCh.settledByChallanId || nextCh._id;
+            FeeChallan.updateOne(
+              { _id: c._id, status: 'SUPERSEDED' },
+              { $set: { status: 'SETTLED', settledViaArrearsAmount, settledByChallanNo: c.settledByChallanNo, settledByChallanId: c.settledByChallanId } }
+            ).exec();
+            if (c.studentId) {
+              const sid = c.studentId._id || c.studentId;
+              Student.updateOne(
+                { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+                { $set: { 'installments.$.status': 'SETTLED', 'installments.$.pendingAmount': 0 } }
+              ).exec();
+            }
+            break;
+          }
+          cur = nextCh.supersededBy;
+        }
+      }
+
       if (isSettled && settledViaArrearsAmount === 0 && paidAmount < totalAmount) {
         settledViaArrearsAmount = Math.max(0, totalAmount - paidAmount);
       }

@@ -423,19 +423,26 @@ class FeeService {
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      if (!isSettledOrVoid && c.dueDate && defaultLateFeeRate > 0) {
+      const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
+      let fineUpdated = false;
+      const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
+
+      if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
         const now = new Date();
         now.setHours(0, 0, 0, 0);
         const due = new Date(c.dueDate);
         due.setHours(0, 0, 0, 0);
         if (now > due) {
           const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-          const autoFine = diffDays * defaultLateFeeRate;
+          const autoFine = diffDays * effectiveRate;
           if (autoFine > lateFeeAmount) {
             lateFeeAmount = autoFine;
+            c.lateFeeAmount = autoFine;
+            c.fineAmount = autoFine;
             if (c.status === 'PENDING') {
               c.status = 'OVERDUE';
             }
+            fineUpdated = true;
           }
         }
       }
@@ -459,11 +466,46 @@ class FeeService {
       const advanceFromMonth = c.advanceFromMonth || primarySource?.sourceMonth || primarySource?.month || '';
       const advanceFromChallanId = c.advanceFromChallanId || primarySource?.sourceChallanId || primarySource?.challanId || null;
 
-      const grossAmount = Number(c.grossAmount || (basePayable + headsAmount + arrearsAmount + lateFeeAmount));
+      const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
+      const grossAmount = (fineUpdated || isPendingOrPartial)
+        ? calculatedGross
+        : Number(c.grossAmount || calculatedGross);
       const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-      const netPayable = (c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
-        ? Number(c.netPayable)
-        : (Number(c.totalAmount) || calculatedNet);
+      const netPayable = (fineUpdated || isPendingOrPartial)
+        ? calculatedNet
+        : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
+            ? Number(c.netPayable)
+            : (Number(c.totalAmount) || calculatedNet));
+
+      if (fineUpdated && isPendingOrPartial) {
+        FeeChallan.updateOne(
+          { _id: c._id },
+          {
+            $set: {
+              lateFeeAmount,
+              fineAmount: lateFeeAmount,
+              grossAmount,
+              netPayable,
+              totalAmount: netPayable,
+              status: c.status
+            }
+          }
+        ).exec();
+        if (c.studentId) {
+          const sid = c.studentId._id || c.studentId;
+          Student.updateOne(
+            { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+            {
+              $set: {
+                'installments.$.status': c.status,
+                'installments.$.pendingAmount': Math.max(0, netPayable - Number(c.paidAmount || 0)),
+                'installments.$.totalAmount': netPayable
+              }
+            }
+          ).exec();
+        }
+      }
+
       const directPaidAmount = Number(c.paidAmount || 0);
       const revInfo = reverseArrearMap[c._id?.toString()];
       let settledViaArrearsAmount = Number(c.settledViaArrearsAmount || (revInfo ? revInfo.settledAmount : 0) || 0);
@@ -555,7 +597,7 @@ class FeeService {
         settledByChallanNumber: settledByChallanNo,
         settledByChallanId,
         remainingAmount,
-        totalAmount: (c.totalAmount != null && Number(c.totalAmount) > 0) ? Number(c.totalAmount) : netPayable,
+        totalAmount: (isSettled || c.status === 'PAID') ? Number(c.totalAmount || netPayable) : netPayable,
       };
     });
 
@@ -621,10 +663,82 @@ class FeeService {
       }
     }
 
+    const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
+    let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+    const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+    const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
+    const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
+    let fineUpdated = false;
+
+    if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const due = new Date(c.dueDate);
+      due.setHours(0, 0, 0, 0);
+      if (now > due) {
+        const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+        const autoFine = diffDays * effectiveRate;
+        if (autoFine > lateFeeAmount) {
+          lateFeeAmount = autoFine;
+          c.lateFeeAmount = autoFine;
+          c.fineAmount = autoFine;
+          if (c.status === 'PENDING') {
+            c.status = 'OVERDUE';
+          }
+          fineUpdated = true;
+        }
+      }
+    }
+
+    const basePayable = Number(c.basePayable ?? c.amount ?? 0);
+    const headsAmount = Number(c.headsAmount ?? (Array.isArray(c.challanHeads) && c.challanHeads.length > 0
+      ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
+      : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
+    const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+    const discountAmount = Number(c.discountAmount ?? c.discount ?? 0);
+    const advanceApplied = Number(c.advanceApplied || 0);
+
+    const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
+    const grossAmount = (fineUpdated || isPendingOrPartial)
+      ? calculatedGross
+      : Number(c.grossAmount || calculatedGross);
+    const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
+    const netPayable = (fineUpdated || isPendingOrPartial)
+      ? calculatedNet
+      : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
+          ? Number(c.netPayable)
+          : (Number(c.totalAmount) || calculatedNet));
+
+    if (fineUpdated && isPendingOrPartial) {
+      FeeChallan.updateOne(
+        { _id: c._id },
+        {
+          $set: {
+            lateFeeAmount,
+            fineAmount: lateFeeAmount,
+            grossAmount,
+            netPayable,
+            totalAmount: netPayable,
+            status: c.status
+          }
+        }
+      ).exec();
+      if (c.studentId) {
+        const sid = c.studentId._id || c.studentId;
+        Student.updateOne(
+          { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+          {
+            $set: {
+              'installments.$.status': c.status,
+              'installments.$.pendingAmount': Math.max(0, netPayable - Number(c.paidAmount || 0)),
+              'installments.$.totalAmount': netPayable
+            }
+          }
+        ).exec();
+      }
+    }
+
     const directPaidAmount = Number(c.paidAmount || 0);
-    const netPayable = (c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
-      ? Number(c.netPayable)
-      : (Number(c.totalAmount) || Number(c.amount) || 0);
     const isSettled = c.status === 'SETTLED';
     let settledViaArrearsAmount = Number(c.settledViaArrearsAmount || revSettled || 0);
     if (isSettled && settledViaArrearsAmount === 0 && directPaidAmount < netPayable) {
@@ -667,6 +781,10 @@ class FeeService {
       settledByChallanNo,
       settledByChallanNumber: settledByChallanNo,
       settledByChallanId,
+      grossAmount,
+      netPayable,
+      lateFeeAmount,
+      totalAmount: (isSettled || c.status === 'PAID') ? Number(c.totalAmount || netPayable) : netPayable,
       remainingAmount: isSettled ? 0 : Math.max(0, netPayable - totalSettledAmount)
     };
   }
@@ -3150,24 +3268,77 @@ class FeeService {
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      if (!isSettledOrVoid && c.dueDate && defaultLateFeeRate > 0) {
+      const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
+      let fineUpdated = false;
+      const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
+
+      if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
         const now = new Date();
         now.setHours(0, 0, 0, 0);
         const due = new Date(c.dueDate);
         due.setHours(0, 0, 0, 0);
         if (now > due) {
           const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-          const autoFine = diffDays * defaultLateFeeRate;
+          const autoFine = diffDays * effectiveRate;
           if (autoFine > lateFeeAmount) {
             lateFeeAmount = autoFine;
+            c.lateFeeAmount = autoFine;
+            c.fineAmount = autoFine;
             if (c.status === 'PENDING') {
               c.status = 'OVERDUE';
             }
+            fineUpdated = true;
           }
         }
       }
+      const headsAmount = Number(c.headsAmount ?? (Array.isArray(c.challanHeads) && c.challanHeads.length > 0
+        ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
+        : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
       const discountAmount = Number(c.discountAmount ?? c.discount ?? 0);
-      const totalAmount = Number(c.totalAmount ?? c.netPayable ?? c.grossAmount ?? c.amount ?? 0);
+      const advanceApplied = Number(c.advanceApplied || 0);
+
+      const calculatedGross = baseAmount + headsAmount + arrearsAmount + lateFeeAmount;
+      const grossAmount = (fineUpdated || isPendingOrPartial)
+        ? calculatedGross
+        : Number(c.grossAmount || calculatedGross);
+      const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
+      const netPayable = (fineUpdated || isPendingOrPartial)
+        ? calculatedNet
+        : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
+            ? Number(c.netPayable)
+            : (Number(c.totalAmount) || calculatedNet));
+      const totalAmount = (c.status === 'SETTLED' || c.status === 'PAID')
+        ? Number(c.totalAmount ?? netPayable)
+        : netPayable;
+
+      if (fineUpdated && isPendingOrPartial) {
+        FeeChallan.updateOne(
+          { _id: c._id },
+          {
+            $set: {
+              lateFeeAmount,
+              fineAmount: lateFeeAmount,
+              grossAmount,
+              netPayable,
+              totalAmount: netPayable,
+              status: c.status
+            }
+          }
+        ).exec();
+        if (c.studentId) {
+          const sid = c.studentId._id || c.studentId;
+          Student.updateOne(
+            { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+            {
+              $set: {
+                'installments.$.status': c.status,
+                'installments.$.pendingAmount': Math.max(0, netPayable - Number(c.paidAmount || 0)),
+                'installments.$.totalAmount': netPayable
+              }
+            }
+          ).exec();
+        }
+      }
       const paidAmount = Number(c.paidAmount ?? 0);
 
       const revInfo = reverseArrearMap[cId];

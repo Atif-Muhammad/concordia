@@ -165,7 +165,7 @@ export const generateChallanHtml = (challan, manualTemplate = null, { classesDat
   const headsTotal = Number(getSelectedHeadsTotal(challan) || challan.fineAmount || 0);
   const extraFine = Number(challan.snapshotExtraFine ?? challan.installment?.extraFine ?? challan.extraFine ?? 0);
   const absentiesFine = Number((challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? challan.absentiesFine) || 0);
-  const lateFee = Number(challan.snapshotLateFee ?? challan.lateFeeFine ?? 0);
+  const lateFee = Number(challan.snapshotLateFee ?? challan.lateFeeFine ?? challan.lateFeeAmount ?? 0);
   const scholarship = Number(challan.snapshotDiscount) || Number(challan.discount) || Number(challan.installment?.discount) || 0;
   const originalArrears = Number(challan.snapshotArrearsAmount ?? getTotalArrears(challan) ?? 0);
 
@@ -199,7 +199,7 @@ export const generateChallanHtml = (challan, manualTemplate = null, { classesDat
     }
   });
   if (lateFee > 0) {
-    headsRowsList.push(`<tr><td>Late Fee (Overdue)</td><td>${lateFee.toLocaleString()}</td></tr>`);
+    headsRowsList.push(`<tr><td>Late Fee Fine (Overdue)</td><td>${lateFee.toLocaleString()}</td></tr>`);
   }
   if (extraFine > 0) {
     headsRowsList.push(`<tr><td>Fine (Extra)</td><td>${extraFine.toLocaleString()}</td></tr>`);

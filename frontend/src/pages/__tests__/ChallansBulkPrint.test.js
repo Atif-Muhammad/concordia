@@ -582,5 +582,51 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     // Must NOT show 20000 in payment history totals
     expect(html).not.toContain("<td>20000</td>");
   });
+
+  it("itemizes Late Fee Fine (Overdue) in particulars and shows Total Payable (Overdue)", () => {
+    const templateHtml = `
+      <table>
+        <tbody>
+          {{feeHeadsRows}}
+          <tr class="total-row">
+            <td>Total Payable within due date</td>
+            <td>{{totalPayable}}</td>
+          </tr>
+          <tr class="late-fee-row">
+            <td>Late Fee Fine after due date</td>
+            <td>{{lateFee}}</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    const overdueChallan = {
+      _id: "ch-overdue-particulars",
+      challanNumber: "85025901",
+      amount: 4666,
+      basePayable: 4666,
+      dueDate: "2020-01-01", // definitely past
+      lateFeeAmount: 150,
+      lateFeeRatePerDay: 50,
+      status: "PENDING",
+      challanHeads: [
+        { name: "Allied & Functional Charges - 1st Year", amount: 6000 },
+        { name: "Prospectus Fee", amount: 1200 },
+      ],
+      paidAmount: 5800,
+    };
+
+    const normalized = normalizeChallan(overdueChallan);
+    const html = generateChallanHtml(normalized, templateHtml, {
+      lateFeeRatePerDay: 50,
+    });
+
+    expect(html).toContain("Late Fee Fine (Overdue)");
+    expect(html).toContain("Total Payable (Overdue)");
+    // Gross: 4666 + 6000 + 1200 + lateFee (150+)
+    // With 5800 paid, remaining payable reflects overdue total - 5800
+    expect(normalized.lateFeeAmount).toBeGreaterThanOrEqual(150);
+  });
 });
+
 

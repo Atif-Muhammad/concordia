@@ -1800,8 +1800,14 @@ export const ChallansTab = ({
                         {(() => {
                           const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
-                          const autoFine = (!isSettledOrVoid && challan.dueDate)
-                            ? calculateLateFee(challan.dueDate, lateFeeRatePerDay || challan.installment?.lateFeeRatePerDay || 0)
+                          const effectiveRate = Number(
+                            challan.installment?.lateFeeRatePerDay ??
+                            challan.lateFeeRatePerDay ??
+                            lateFeeRatePerDay ??
+                            0
+                          );
+                          const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveRate > 0)
+                            ? calculateLateFee(challan.dueDate, effectiveRate)
                             : 0;
                           const effectiveFine = Math.max(existingFine, autoFine);
                           return (

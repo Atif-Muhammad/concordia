@@ -1111,7 +1111,7 @@ export const ChallanDetailsDialog = ({
               className="w-full border rounded-xl p-8 bg-white shadow-inner overflow-x-auto"
               dangerouslySetInnerHTML={{
                 __html: generateChallanHtml(
-                  currentChallan,
+                  { ...currentChallan, lateFeeRatePerDay: currentChallan.lateFeeRatePerDay || lateFeeRatePerDay },
                   templateData?.htmlContent || getCachedTemplate(templateType),
                   { feeHeads, feeChallans, classes, programs, academicSessions, lateFeeRatePerDay }
                 )

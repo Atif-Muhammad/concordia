@@ -147,7 +147,7 @@ export const normalizeChallan = (c) => {
   const autoFine = (!isSettledOrVoid && c.dueDate && rateCandidate > 0)
     ? calculateLateFee(c.dueDate, rateCandidate)
     : 0;
-  const lateFeeFine = existingFine > 0 ? existingFine : autoFine;
+  const lateFeeFine = Math.max(existingFine, autoFine);
   const discount = Number(c.discountAmount ?? c.discount ?? 0);
   const advanceAllocations = Array.isArray(c.advanceAllocations) ? c.advanceAllocations : [];
   const allocSum = advanceAllocations.reduce((sum, a) => sum + Number(a.amountApplied ?? a.amount ?? 0), 0);
@@ -188,17 +188,20 @@ export const normalizeChallan = (c) => {
     arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0 ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : getTotalArrears(c)));
   }
 
+  const baseGross = basePayable + headsAmount + arrearsAmount;
   const grossAmount = isExtra
     ? (headsAmount + lateFeeFine)
-    : Number(c.grossAmount || (basePayable + headsAmount + arrearsAmount + lateFeeFine));
+    : (lateFeeFine > 0 ? (baseGross + lateFeeFine) : Number(c.grossAmount || baseGross));
 
   const calculatedNet = Math.max(0, grossAmount - discount - advanceApplied);
 
   const netPayable = isExtra
     ? calculatedNet
-    : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
-        ? Number(c.netPayable)
-        : (Number(c.totalAmount) || calculatedNet));
+    : ((!isSettledOrVoid && c.status !== 'PAID')
+        ? calculatedNet
+        : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
+            ? Number(c.netPayable)
+            : (Number(c.totalAmount) || calculatedNet)));
 
   const directPaidAmount = Number(c.directPaidAmount ?? c.amountReceived ?? c.paidAmount ?? 0);
   const isSettled = c.status === 'SETTLED';
@@ -214,7 +217,9 @@ export const normalizeChallan = (c) => {
 
   const totalAmount = isExtra
     ? netPayable
-    : (c.totalAmount != null ? Number(c.totalAmount) : netPayable);
+    : ((!isSettledOrVoid && c.status !== 'PAID')
+        ? netPayable
+        : (c.totalAmount != null ? Number(c.totalAmount) : netPayable));
 
   const headsList = Array.isArray(c.heads) ? c.heads : (Array.isArray(c.challanHeads) ? c.challanHeads : []);
   const challanHeadsList = Array.isArray(c.challanHeads) ? c.challanHeads : (Array.isArray(c.heads) ? c.heads : []);
@@ -1047,7 +1052,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     }
   });
   if (lateFee > 0) {
-    headsRowsList.push(`<tr><td>Late Fee (Overdue)</td><td>${lateFee.toLocaleString()}</td></tr>`);
+    headsRowsList.push(`<tr><td>Late Fee Fine (Overdue)</td><td>${lateFee.toLocaleString()}</td></tr>`);
   }
   if (extraFine > 0) {
     headsRowsList.push(`<tr><td>Fine (Extra)</td><td>${extraFine.toLocaleString()}</td></tr>`);
@@ -1410,10 +1415,10 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
       </tr>`
     );
     if (lateFee > 0) {
-      html = html.replace(/<td>Total Payable within due date<\/td>/gi,
+      html = html.replace(/<td[^>]*>Total Payable within due date<\/td>/gi,
         `<td style="${cellStyle}">Total Payable (Overdue)</td>`);
     } else {
-      html = html.replace(/<td>Total Payable within due date<\/td>/gi,
+      html = html.replace(/<td[^>]*>Total Payable within due date<\/td>/gi,
         `<td style="${cellStyle}">Total Payable within due date</td>`);
     }
     html = html.replace(/\{\{totalPayable\}\}/g, remainingPayable.toLocaleString());

@@ -643,6 +643,52 @@ class FeeService {
     if (!data.challanNo) {
       data.challanNo = await this.generate8DigitChallanNo();
     }
+
+    // Block generation if a prior installment in the student's plan has no associated challan
+    if (data.studentId && (data.installmentNumber || data.month)) {
+      const student = await Student.findById(data.studentId).lean();
+      if (student && Array.isArray(student.installments) && student.installments.length > 0) {
+        const sortedPlan = [...student.installments].sort((a, b) => {
+          const numA = Number(a.installmentNumber || 0);
+          const numB = Number(b.installmentNumber || 0);
+          if (numA && numB) return numA - numB;
+          return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
+        });
+
+        const mMonth = (data.month || '').trim().toLowerCase();
+        const instNum = Number(data.installmentNumber || 0);
+        const matchingIndex = sortedPlan.findIndex(i =>
+          (data.installmentId && i._id && String(i._id) === String(data.installmentId)) ||
+          (instNum && i.installmentNumber && Number(i.installmentNumber) === instNum) ||
+          (mMonth && i.month && (i.month || '').trim().toLowerCase() === mMonth)
+        );
+
+        if (matchingIndex > 0) {
+          const priorPlanInsts = sortedPlan.slice(0, matchingIndex);
+          const allStudentChallans = await FeeChallan.find({
+            studentId: student._id,
+            status: { $ne: 'VOID' }
+          }).lean();
+
+          const missingPriorInsts = priorPlanInsts.filter(pInst => {
+            const hasChallan = Boolean(
+              pInst.challanGenerated ||
+              allStudentChallans.some(c =>
+                (c.installmentNumber && pInst.installmentNumber && Number(c.installmentNumber) === Number(pInst.installmentNumber)) ||
+                (c.installmentId && pInst._id && String(c.installmentId) === String(pInst._id)) ||
+                (c.month && pInst.month && (c.month || '').trim().toLowerCase() === (pInst.month || '').trim().toLowerCase())
+              )
+            );
+            return !hasChallan;
+          });
+
+          if (missingPriorInsts.length > 0) {
+            const missingName = missingPriorInsts[0].month || (missingPriorInsts[0].installmentNumber ? `Inst #${missingPriorInsts[0].installmentNumber}` : 'earlier installment');
+            throw new Error(`Previous installment (${missingName}) challan not generated yet. Please generate ${missingName} challan first.`);
+          }
+        }
+      }
+    }
     if (data.studentId && data.month && data.absenteeCount === undefined) {
       try {
         const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(data.month);
@@ -2449,6 +2495,53 @@ class FeeService {
           studentId: student._id,
           status: { $ne: 'VOID' }
         }).sort({ dueDate: 1, installmentNumber: 1, createdAt: 1 });
+
+        // Check if any prior installment in the student's plan is missing an associated challan
+        const sortedPlan = [...(student.installments || [])].sort((a, b) => {
+          const numA = Number(a.installmentNumber || 0);
+          const numB = Number(b.installmentNumber || 0);
+          if (numA && numB) return numA - numB;
+          return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
+        });
+
+        const matchingIndex = sortedPlan.findIndex(i =>
+          (matchingInst._id && i._id && String(i._id) === String(matchingInst._id)) ||
+          (matchingInst.installmentNumber && i.installmentNumber && Number(i.installmentNumber) === Number(matchingInst.installmentNumber)) ||
+          (monthName && i.month && (i.month || '').trim().toLowerCase() === monthName.toLowerCase())
+        );
+
+        const priorPlanInsts = matchingIndex > 0
+          ? sortedPlan.slice(0, matchingIndex)
+          : sortedPlan.filter(inst => {
+              if (matchingInst.installmentNumber && inst.installmentNumber) {
+                return Number(inst.installmentNumber) < Number(matchingInst.installmentNumber);
+              }
+              return new Date(inst.dueDate || 0) < new Date(matchingInst.dueDate || 0);
+            });
+
+        const missingPriorInsts = priorPlanInsts.filter(pInst => {
+          const hasChallan = Boolean(
+            pInst.challanGenerated ||
+            allStudentChallans.some(c =>
+              (c.installmentNumber && pInst.installmentNumber && Number(c.installmentNumber) === Number(pInst.installmentNumber)) ||
+              (c.installmentId && pInst._id && String(c.installmentId) === String(pInst._id)) ||
+              (c.month && pInst.month && (c.month || '').trim().toLowerCase() === (pInst.month || '').trim().toLowerCase())
+            )
+          );
+          return !hasChallan;
+        });
+
+        if (missingPriorInsts.length > 0) {
+          const missingName = missingPriorInsts[0].month || (missingPriorInsts[0].installmentNumber ? `Inst #${missingPriorInsts[0].installmentNumber}` : 'earlier installment');
+          const fullName = `${student.fName || ''} ${student.lName || ''}`.trim();
+          results.push({
+            studentId: student._id.toString(),
+            studentName: fullName,
+            status: 'BLOCKED',
+            reason: `Previous installment (${missingName}) challan not generated yet. Please generate ${missingName} challan first.`
+          });
+          continue;
+        }
 
         const priorUnpaidChallans = allStudentChallans.filter(c =>
           ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status)

@@ -487,12 +487,79 @@ export const ChallansTab = ({
           if (hasActiveChallan) return false;
 
           return true;
+        }).map(s => {
+          const installments = s.feeInstallments || [];
+          const matchingInst = installments.find(inst => {
+            const nameMatch = (inst.month || '').trim().toLowerCase() === mName;
+            const yearMatch = inst.dueDate ? new Date(inst.dueDate).getFullYear() === selY : true;
+            if (generateForm.sessionId && generateForm.sessionId !== 'all') {
+              const byId = inst.sessionId?.toString() === generateForm.sessionId;
+              const byName = selectedSessionName && (inst.session || '') === selectedSessionName;
+              return nameMatch && yearMatch && (byId || byName);
+            }
+            return nameMatch && yearMatch;
+          });
+
+          // Sort plan installments by installmentNumber or dueDate
+          const sortedPlan = [...installments].sort((a, b) => {
+            const numA = Number(a.installmentNumber || 0);
+            const numB = Number(b.installmentNumber || 0);
+            if (numA && numB) return numA - numB;
+            return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
+          });
+
+          const matchingIndex = sortedPlan.findIndex(i =>
+            (matchingInst?._id && i._id && String(i._id) === String(matchingInst._id)) ||
+            (matchingInst?.installmentNumber && i.installmentNumber && Number(i.installmentNumber) === Number(matchingInst.installmentNumber)) ||
+            ((i.month || '').trim().toLowerCase() === mName)
+          );
+
+          const priorPlanInsts = matchingIndex > 0
+            ? sortedPlan.slice(0, matchingIndex)
+            : sortedPlan.filter(inst => {
+                if (matchingInst?.installmentNumber && inst.installmentNumber) {
+                  return Number(inst.installmentNumber) < Number(matchingInst.installmentNumber);
+                }
+                return new Date(inst.dueDate || 0) < new Date(matchingInst?.dueDate || 0);
+              });
+
+          const priorChallans = Array.isArray(s.challans) ? s.challans : [];
+          const missingPriorInsts = priorPlanInsts.filter(pInst => {
+            const hasChallan = Boolean(
+              pInst.challanGenerated ||
+              (Array.isArray(pInst.challans) && pInst.challans.some(c => c && c.status !== 'VOID')) ||
+              priorChallans.some(c =>
+                c.status !== 'VOID' &&
+                (
+                  (c.installmentNumber && pInst.installmentNumber && Number(c.installmentNumber) === Number(pInst.installmentNumber)) ||
+                  (c.installmentId && pInst._id && String(c.installmentId) === String(pInst._id)) ||
+                  (c.month && pInst.month && c.month.trim().toLowerCase() === pInst.month.trim().toLowerCase())
+                )
+              )
+            );
+            return !hasChallan;
+          });
+
+          const isBlocked = missingPriorInsts.length > 0;
+          const missingMonthName = isBlocked
+            ? (missingPriorInsts[0].month || (missingPriorInsts[0].installmentNumber ? `Inst #${missingPriorInsts[0].installmentNumber}` : 'earlier installment'))
+            : null;
+          const blockedReason = isBlocked
+            ? `Previous installment (${missingMonthName}) challan not generated yet. Please generate ${missingMonthName} challan first.`
+            : null;
+
+          return {
+            ...s,
+            isBlocked,
+            blockedReason,
+            missingPriorInsts,
+          };
         });
 
         if (controller.signal.aborted) return;
 
         setBulkStudents(eligibleStudents);
-        setSelectedBulkStudents(eligibleStudents.map(s => s.id));
+        setSelectedBulkStudents(eligibleStudents.filter(s => !s.isBlocked).map(s => s.id));
 
         if (eligibleStudents.length > 0 && generateForm.month) {
           const [selYear, selMonth] = generateForm.month.split('-').map(Number);
@@ -2394,13 +2461,18 @@ export const ChallansTab = ({
                 <div className="flex items-center justify-between flex-wrap gap-1">
                   <Label className="text-[10px] sm:text-[11px] font-bold uppercase text-muted-foreground">
                     Students ({selectedBulkStudents.length} of {bulkStudents.length} selected)
+                    {bulkStudents.filter(s => s.isBlocked).length > 0 && (
+                      <span className="text-amber-600 font-semibold ml-1.5 normal-case">
+                        ({bulkStudents.filter(s => s.isBlocked).length} blocked)
+                      </span>
+                    )}
                   </Label>
                   <div className="flex gap-1.5">
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-5 text-[9.5px] sm:text-[10px] px-1"
-                      onClick={() => setSelectedBulkStudents(bulkStudents.map(s => s.id))}
+                      onClick={() => setSelectedBulkStudents(bulkStudents.filter(s => !s.isBlocked).map(s => s.id))}
                     >
                       Select All
                     </Button>
@@ -2483,24 +2555,37 @@ export const ChallansTab = ({
                             key={student.id}
                             className={cn(
                               "border rounded px-1 py-1 sm:py-1.5 bg-white transition-all text-xs flex flex-col justify-between gap-1 overflow-hidden",
-                              isChecked
+                              student.isBlocked
+                                ? "border-amber-300 bg-amber-50/30 opacity-90"
+                                : isChecked
                                 ? "border-primary/50 shadow-xs bg-primary/[0.02]"
                                 : "border-slate-200 hover:border-slate-300 opacity-80"
                             )}
                           >
                             {/* Row 1: Checkbox & Student Details */}
                             <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1 px-0.5 sm:px-1">
-                              <label className="flex items-center gap-1.5 cursor-pointer min-w-0 flex-1 overflow-hidden">
+                              <label className={cn(
+                                "flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden",
+                                student.isBlocked ? "cursor-not-allowed" : "cursor-pointer"
+                              )}>
                                 <input
                                   type="checkbox"
-                                  className="accent-primary h-3.5 w-3.5 cursor-pointer rounded shrink-0"
+                                  disabled={student.isBlocked}
+                                  className={cn(
+                                    "accent-primary h-3.5 w-3.5 rounded shrink-0",
+                                    student.isBlocked ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                                  )}
                                   checked={isChecked}
                                   onChange={(e) => {
+                                    if (student.isBlocked) return;
                                     if (e.target.checked) setSelectedBulkStudents([...selectedBulkStudents, student.id]);
                                     else setSelectedBulkStudents(selectedBulkStudents.filter(id => id !== student.id));
                                   }}
                                 />
-                                <span className="font-semibold text-slate-800 truncate text-[10.5px] sm:text-[11.5px] max-w-full">
+                                <span className={cn(
+                                  "font-semibold truncate text-[10.5px] sm:text-[11.5px] max-w-full",
+                                  student.isBlocked ? "text-slate-600" : "text-slate-800"
+                                )}>
                                   {student.fName} {student.lName || ""}
                                   <span className="text-[9px] sm:text-[10px] text-muted-foreground ml-1 font-mono uppercase font-normal shrink-0">
                                     ({student.rollNumber})
@@ -2512,6 +2597,15 @@ export const ChallansTab = ({
                                 {(student.section?.name || student.sectionId?.name) ? ` • ${student.section?.name || student.sectionId?.name}` : ""}
                               </span>
                             </div>
+
+                            {student.isBlocked && (
+                              <div className="flex items-center gap-1.5 px-1.5 py-1 bg-amber-100/80 border border-amber-300 text-amber-900 rounded text-[10px] font-medium leading-tight">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span className="truncate" title={student.blockedReason}>
+                                  {student.blockedReason}
+                                </span>
+                              </div>
+                            )}
 
                             {/* Row 2: base tuition, heads, arrears upto net amount */}
                             <div className="grid grid-cols-6 gap-0.5 sm:gap-1 px-0.5 sm:px-1 pt-0.5 items-center w-full">

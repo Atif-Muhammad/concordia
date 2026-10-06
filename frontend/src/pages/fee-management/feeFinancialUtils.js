@@ -283,7 +283,7 @@ export const normalizeChallan = (c) => {
     settledByChallanNo,
     settledByChallanNumber: settledByChallanNo,
     settledByChallanId,
-    paymentHistory: null,
+    paymentHistory: c.paymentHistory || null,
     feeStructure: null,
   };
 };
@@ -1423,97 +1423,187 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     html = html.replace(/\{\{lateFee\}\}/g, lateFee > 0 ? lateFee.toLocaleString() : `Rs. ${displayRate} Per Day`);
   }
 
-  const currentInstNo = challan.installmentNumber || challan.installment?.installmentNumber || 0;
-  const allStudentInsts = Array.isArray(challan.installment?.student?.feeInstallments)
-    ? challan.installment.student.feeInstallments
-    : [];
-  const paymentHistory = currentInstNo > 0
-    ? allStudentInsts
-        .filter(i => Number(i.installmentNumber) < currentInstNo)
-        .sort((a, b) => Number(a.installmentNumber || 0) - Number(b.installmentNumber || 0))
-        .slice(-4)
-    : [];
+  const currentInstNo = Number(challan.installmentNumber || challan.installment?.installmentNumber || challan.installmentNo || 0);
+  const targetStudentId = challan.studentId?._id?.toString() || (typeof challan.studentId === 'string' ? challan.studentId : null) || student?._id?.toString() || student?.id;
+  const targetRollNo = challan.rollNumber || challan.rollNo || student?.rollNumber;
 
-  const histMonths = paymentHistory.map(i => `<td>${i.month || '—'}</td>`).join('');
-  const histTotals = paymentHistory.map(i => `<td>${Number(i.snapshotTotalDue ?? i.totalAmount ?? 0).toFixed(0)}</td>`).join('');
-  const histPaid = paymentHistory.map(i => {
-    const challans = Array.isArray(i?.challans) ? i.challans : [];
-    const installmentStatus = String(i?.status || '').toUpperCase();
-    const nonVoidChallans = [...challans]
-      .filter(c => String(c?.status || '').toUpperCase() !== 'VOID')
-      .sort((a, b) => {
-        const bt = new Date(b?.paidAt || b?.generatedDate || b?.updatedAt || b?.createdAt || 0).getTime();
-        const at = new Date(a?.paidAt || a?.generatedDate || a?.updatedAt || a?.createdAt || 0).getTime();
-        return bt - at;
-      });
-    const installmentPaid = Number(i?.paidAmount ?? 0);
-    const installmentSettled = Number(i?.settledAmount ?? 0);
-    const directPaidFromInstallment = Number.isFinite(installmentPaid)
-      ? Math.max(0, installmentPaid - (Number.isFinite(installmentSettled) ? installmentSettled : 0))
-      : 0;
-    const directPaidFromOwnChallan = (() => {
-      const latestDirect = nonVoidChallans.find(c => {
-        const received = Number(c?.amountReceived ?? 0);
-        return Number.isFinite(received) && received > 0;
-      });
-      const latestDirectAmount = Number(latestDirect?.amountReceived ?? 0);
-      if (Number.isFinite(latestDirectAmount) && latestDirectAmount > 0) {
-        return latestDirectAmount;
+  let allStudentInsts = Array.isArray(student?.installments) && student.installments.length > 0
+    ? student.installments
+    : (Array.isArray(student?.feeInstallments) && student.feeInstallments.length > 0
+        ? student.feeInstallments
+        : (Array.isArray(studentInstallments) && studentInstallments.length > 0
+            ? studentInstallments
+            : (Array.isArray(challan.installments) && challan.installments.length > 0
+                ? challan.installments
+                : (Array.isArray(challan.installment?.student?.installments) && challan.installment.student.installments.length > 0
+                    ? challan.installment.student.installments
+                    : (Array.isArray(challan.installment?.student?.feeInstallments) && challan.installment.student.feeInstallments.length > 0
+                        ? challan.installment.student.feeInstallments
+                        : (Array.isArray(challan.previousChallans) && challan.previousChallans.length > 0
+                            ? challan.previousChallans
+                            : (Array.isArray(challan.paymentHistory) && challan.paymentHistory.length > 0
+                                ? challan.paymentHistory
+                                : [])))))));
+
+  if ((!allStudentInsts || allStudentInsts.length === 0) && Array.isArray(feeChallans) && feeChallans.length > 0) {
+    allStudentInsts = feeChallans.filter(c => {
+      if (!c) return false;
+      const cSid = c.studentId?._id?.toString() || (typeof c.studentId === 'string' ? c.studentId : null) || c.student?._id?.toString() || c.student?.id;
+      const cRno = c.rollNumber || c.rollNo || c.student?.rollNumber;
+      return (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
+             (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
+    });
+  }
+
+  let paymentHistory = [];
+  if (currentInstNo > 1) {
+    paymentHistory = allStudentInsts.filter(i => {
+      const num = Number(i?.installmentNumber || i?.installmentNo || 0);
+      return num > 0 && num < currentInstNo;
+    });
+  } else if (currentInstNo === 0) {
+    const selfId = String(challan.id || challan._id || '');
+    const selfNo = String(challan.challanNumber || challan.challanNo || '');
+    paymentHistory = allStudentInsts.filter(i => {
+      const iId = String(i?.id || i?._id || '');
+      const iNo = String(i?.challanNumber || i?.challanNo || '');
+      return (!selfId || iId !== selfId) && (!selfNo || iNo !== selfNo);
+    });
+  }
+
+  const uniqueMap = new Map();
+  const unnumbered = [];
+  for (const item of paymentHistory) {
+    const num = Number(item?.installmentNumber || item?.installmentNo || 0);
+    if (num > 0) uniqueMap.set(num, item);
+    else unnumbered.push(item);
+  }
+  const sortedNumbered = Array.from(uniqueMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, v]) => v);
+  const historyList = (sortedNumbered.length > 0 ? sortedNumbered : unnumbered).slice(-4);
+
+  // Exactly 4 columns for payment history table display
+  const displayHistory = [...historyList];
+  while (displayHistory.length < 4) {
+    displayHistory.push(null);
+  }
+
+  const histMonths = displayHistory.map(i => {
+    if (!i) return '<td>—</td>';
+    let m = i.month || '';
+    if (!m || !String(m).trim()) {
+      const d = i.dueDate || i.paidDate || i.createdAt;
+      if (d) {
+        try {
+          const dt = new Date(d);
+          if (!isNaN(dt.getTime())) m = dt.toLocaleString('en-US', { month: 'short' });
+        } catch {}
       }
-      return 0;
-    })();
-    const activeChallans = [...challans]
-      .filter(c => !['VOID', 'SUPERSEDED'].includes(String(c?.status || '').toUpperCase()))
-      .sort((a, b) => {
-        const bt = new Date(b?.paidAt || b?.generatedDate || b?.updatedAt || b?.createdAt || 0).getTime();
-        const at = new Date(a?.paidAt || a?.generatedDate || a?.updatedAt || a?.createdAt || 0).getTime();
-        return bt - at;
+    }
+    if (!m || !String(m).trim()) {
+      const num = Number(i.installmentNumber || i.installmentNo || 0);
+      m = num > 0 ? `Inst #${num}` : '—';
+    }
+    return `<td>${m}</td>`;
+  }).join('');
+
+  const histTotals = displayHistory.map(i => {
+    if (!i) return '<td>—</td>';
+    const base = Number(i.basePayable ?? i.amount ?? 0);
+    const heads = Number(i.headsAmount ?? 0);
+    const arrears = Number(i.arrearsAmount ?? 0);
+    const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
+    const calculatedGross = base + heads + arrears + fine;
+
+    let tot = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? (calculatedGross > 0 ? calculatedGross : i.snapshotTotalDue) ?? 0);
+
+    if (tot === 0 && Array.isArray(feeChallans)) {
+      const sib = feeChallans.find(c => {
+        if (!c) return false;
+        const cSid = c.studentId?._id?.toString() || (typeof c.studentId === 'string' ? c.studentId : null) || c.student?._id?.toString() || c.student?.id;
+        const cRno = c.rollNumber || c.rollNo || c.student?.rollNumber;
+        const isMatch = (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
+                        (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
+        return isMatch && Number(c.installmentNumber || c.installmentNo || 0) === Number(i.installmentNumber || i.installmentNo || 0);
       });
-    const preferred = activeChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase()))
-      || activeChallans[0]
-      || null;
-    const preferredStatus = String(preferred?.status || '').toUpperCase();
-    const settledViaOtherChallan = Boolean(i?.settledByChallanNumber)
-      || ['SUPERSEDED', 'SETTLED'].includes(installmentStatus)
-      || challans.some(c => Boolean(c?.settledByChallanNumber))
-      || challans.some(c => ['SUPERSEDED', 'SETTLED'].includes(String(c?.status || '').toUpperCase()));
-    const isPendingOrUnpaid = !preferred
-      || ['PENDING', 'UNPAID', 'OVERDUE', 'DUE', 'GENERATED', 'DRAFT'].includes(preferredStatus)
-      || ['PENDING', 'UNPAID', 'OVERDUE', 'DUE'].includes(installmentStatus);
+      if (sib) {
+        const sibBase = Number(sib.basePayable ?? sib.amount ?? 0);
+        const sibHeads = Number(sib.headsAmount ?? 0);
+        const sibArrears = Number(sib.arrearsAmount ?? 0);
+        const sibFine = Number(sib.lateFeeAmount ?? sib.fineAmount ?? 0);
+        const sibGross = sibBase + sibHeads + sibArrears + sibFine;
+        tot = Number(sib.grossAmount ?? sib.totalAmount ?? sib.netPayable ?? (sibGross > 0 ? sibGross : 0));
+      }
+    }
+    return `<td>${tot > 0 ? tot.toFixed(0) : '0'}</td>`;
+  }).join('');
 
-    if (settledViaOtherChallan) {
-      const settledRowDirectPaid = Math.max(directPaidFromInstallment, directPaidFromOwnChallan);
-      return `<td>${Math.max(0, settledRowDirectPaid).toFixed(0)}</td>`;
+  const histPaid = displayHistory.map(i => {
+    if (!i) return '<td>—</td>';
+    const base = Number(i.basePayable ?? i.amount ?? 0);
+    const heads = Number(i.headsAmount ?? 0);
+    const arrears = Number(i.arrearsAmount ?? 0);
+    const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
+    const calculatedGross = base + heads + arrears + fine;
+    const totalDue = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? (calculatedGross > 0 ? calculatedGross : i.snapshotTotalDue) ?? 0);
+
+    const directPaid = Number(i.paidAmount ?? i.directPaidAmount ?? i.amountReceived ?? 0);
+    const advancePaid = Number(i.advanceApplied ?? i.advanceAmount ?? 0);
+    const settledArrears = Number(i.settledViaArrearsAmount ?? i.settledAmount ?? 0);
+    const statusStr = String(i.status || '').toUpperCase();
+    const isSettledOrSuperseded = ['SETTLED', 'SUPERSEDED'].includes(statusStr) || Boolean(i.settledByChallanNo || i.settledByChallanNumber || i.supersededBy);
+
+    let paid = directPaid + advancePaid + settledArrears;
+    const subChallans = Array.isArray(i.challans) ? i.challans : [];
+
+    if (subChallans.length > 0) {
+      const active = subChallans.filter(c => !['VOID', 'SUPERSEDED'].includes(String(c?.status || '').toUpperCase()));
+      const preferred = active.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase())) || active[0];
+      if (preferred) {
+        const pDirect = Number(preferred.amountReceived ?? preferred.paidAmount ?? preferred.directPaidAmount ?? 0);
+        const pAdv = Number(preferred.advanceApplied ?? preferred.advanceAmount ?? 0);
+        const pSettled = Number(preferred.settledViaArrearsAmount ?? preferred.settledAmount ?? 0);
+        const pPaid = pDirect + pAdv + pSettled;
+        if (pPaid > 0) {
+          paid = Math.max(paid, pPaid);
+        } else if (['PAID', 'SETTLED'].includes(String(preferred.status || '').toUpperCase())) {
+          paid = Math.max(paid, totalDue);
+        }
+      }
     }
 
-    if (isPendingOrUnpaid) {
-      return `<td>0</td>`;
+    if (Array.isArray(feeChallans)) {
+      const sib = feeChallans.find(c => {
+        if (!c) return false;
+        const cSid = c.studentId?._id?.toString() || (typeof c.studentId === 'string' ? c.studentId : null) || c.student?._id?.toString() || c.student?.id;
+        const cRno = c.rollNumber || c.rollNo || c.student?.rollNumber;
+        const isMatch = (targetStudentId && cSid && String(targetStudentId) === String(cSid)) ||
+                        (targetRollNo && cRno && String(targetRollNo).toLowerCase() === String(cRno).toLowerCase());
+        return isMatch && Number(c.installmentNumber || c.installmentNo || 0) === Number(i.installmentNumber || i.installmentNo || 0);
+      });
+      if (sib) {
+        const sDirect = Number(sib.paidAmount ?? sib.directPaidAmount ?? sib.amountReceived ?? 0);
+        const sAdv = Number(sib.advanceApplied ?? sib.advanceAmount ?? 0);
+        const sSettled = Number(sib.settledViaArrearsAmount ?? sib.settledAmount ?? 0);
+        const sStatus = String(sib.status || '').toUpperCase();
+        const sTotal = Number(sib.grossAmount ?? sib.totalAmount ?? sib.netPayable ?? totalDue);
+        const sPaidCombined = sDirect + sAdv + sSettled;
+        if (sPaidCombined > 0) {
+          paid = Math.max(paid, sPaidCombined);
+        } else if (sStatus === 'PAID' || sStatus === 'SETTLED' || sStatus === 'SUPERSEDED') {
+          paid = Math.max(paid, sTotal);
+        }
+      }
     }
 
-    const paidFromPreferredChallan = Number(preferred?.amountReceived ?? preferred?.paidAmount ?? 0);
-    const installmentAppliedPaid = Number(i?.paidAmount ?? 0);
-    const sourceChallanNo = preferred?.challanNumber;
+    if (paid === 0) {
+      if (statusStr === 'PAID' || isSettledOrSuperseded) {
+        paid = totalDue;
+      }
+    }
 
-    const linkedAdvanceToThisChallan = sourceChallanNo
-      ? allStudentInsts.reduce((sum, inst) => {
-          const instChallans = Array.isArray(inst?.challans) ? inst.challans : [];
-          const linked = instChallans.reduce((cSum, ch) => {
-            if (!ch) return cSum;
-            const fromNo = String(ch.advanceFromChallanNo || '');
-            if (!fromNo || fromNo !== String(sourceChallanNo)) return cSum;
-            const adv = Number(ch.advanceAmount ?? 0);
-            return cSum + (Number.isFinite(adv) && adv > 0 ? adv : 0);
-          }, 0);
-          return sum + linked;
-        }, 0)
-      : 0;
-
-    const reconstructedPaid = installmentAppliedPaid + linkedAdvanceToThisChallan;
-    const actualPaid = Number.isFinite(paidFromPreferredChallan) && paidFromPreferredChallan > 0
-      ? paidFromPreferredChallan
-      : reconstructedPaid;
-
-    return `<td>${Math.max(0, actualPaid).toFixed(0)}</td>`;
+    return `<td>${paid > 0 ? paid.toFixed(0) : '0'}</td>`;
   }).join('');
 
   html = html.replace(/\{\{paymentHistoryMonths\}\}/g, histMonths);

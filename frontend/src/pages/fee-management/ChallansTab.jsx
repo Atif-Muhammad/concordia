@@ -51,6 +51,7 @@ import {
   Layers,
   MoreVertical,
   DollarSign,
+  Loader2,
 } from "lucide-react";
 import {
   getFeeChallans,
@@ -163,6 +164,9 @@ export const ChallansTab = ({
   const [itemToDelete, setItemToDelete] = useState(null);
   const [editingChallan, setEditingChallan] = useState(null);
   const [printingChallanId, setPrintingChallanId] = useState(null);
+  const [selectedChallanIds, setSelectedChallanIds] = useState([]);
+  const [isBulkPrintingSelected, setIsBulkPrintingSelected] = useState(false);
+  const selectAllRef = useRef(null);
 
   const historyChallanId = selectedChallanForHistory?.id || selectedChallanForHistory?._id;
   const { data: historyReceiptsData = [], isLoading: isHistoryReceiptsLoading } = useQuery({
@@ -266,6 +270,53 @@ export const ChallansTab = ({
     ? feeChallansData
     : (Array.isArray(feeChallansData?.data) ? feeChallansData.data : []);
   const feeChallans = rawChallansList.map(normalizeChallan);
+
+  // Visible challan IDs on current page
+  const visibleChallanIds = useMemo(() => {
+    return feeChallans.map((c) => extractId(c.id || c._id)).filter(Boolean);
+  }, [feeChallans]);
+
+  const isAllVisibleSelected =
+    visibleChallanIds.length > 0 &&
+    visibleChallanIds.every((id) => selectedChallanIds.includes(id));
+
+  const isSomeVisibleSelected =
+    visibleChallanIds.some((id) => selectedChallanIds.includes(id)) && !isAllVisibleSelected;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = isSomeVisibleSelected;
+    }
+  }, [isSomeVisibleSelected]);
+
+  // Clear selection when search/filters/page change
+  useEffect(() => {
+    setSelectedChallanIds([]);
+  }, [
+    challanSearch,
+    challanFilter,
+    challanSessionFilter,
+    selectedInstallment,
+    selectedMonth,
+    selectedProgram,
+    selectedClass,
+    selectedSection,
+    page,
+  ]);
+
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedChallanIds((prev) => Array.from(new Set([...prev, ...visibleChallanIds])));
+    } else {
+      setSelectedChallanIds((prev) => prev.filter((id) => !visibleChallanIds.includes(id)));
+    }
+  };
+
+  const handleToggleChallan = (challanId) => {
+    setSelectedChallanIds((prev) =>
+      prev.includes(challanId) ? prev.filter((id) => id !== challanId) : [...prev, challanId]
+    );
+  };
 
   useEffect(() => {
     if (feeChallansData?.meta) setChallanMeta(feeChallansData.meta);
@@ -667,6 +718,66 @@ export const ChallansTab = ({
       printWindow.close?.();
     } finally {
       setPrintingChallanId(null);
+    }
+  };
+
+  // Bulk Print Selected Generated Challans
+  const handleBulkPrintSelected = async () => {
+    if (selectedChallanIds.length === 0) {
+      toast({
+        title: "No Challans Selected",
+        description: "Please select at least one challan to print.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const challansToPrint = feeChallans.filter((c) =>
+      selectedChallanIds.includes(extractId(c.id || c._id))
+    );
+    if (challansToPrint.length === 0) {
+      toast({
+        title: "No Matching Challans",
+        description: "Selected challans were not found on this view.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsBulkPrintingSelected(true);
+    try {
+      const tpl = installmentTemplate || await getDefaultFeeChallanTemplate("INSTALLMENT");
+      const tplHtml = tpl?.htmlContent || getCachedTemplate("INSTALLMENT");
+
+      await renderAndPrintChallans({
+        title: `Fee Challans (${challansToPrint.length})`,
+        toast,
+        renderers: challansToPrint.map((challan) => () => {
+          const challanWithRate = {
+            ...challan,
+            lateFeeRatePerDay:
+              challan.lateFeeRatePerDay ||
+              challan.installment?.lateFeeRatePerDay ||
+              lateFeeRatePerDay,
+          };
+          const normalized = normalizeChallan(challanWithRate);
+          const baseHtml = generateChallanHtml(
+            normalized,
+            tplHtml,
+            { lateFeeRatePerDay, classes, programs, feeHeads, feeChallans, academicSessions }
+          );
+          return applyPaidChallanPrintTreatment(baseHtml, normalized, feeChallans);
+        }),
+      });
+    } catch (error) {
+      console.error("Bulk print error:", error);
+      toast({
+        title: "Print error",
+        description: error.message || "Failed to generate print view.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBulkPrintingSelected(false);
     }
   };
 
@@ -1410,6 +1521,44 @@ export const ChallansTab = ({
             </div>
 
 
+            {/* Bulk Print button for selected challans */}
+            <Button
+              variant={selectedChallanIds.length > 0 ? "default" : "outline"}
+              size="sm"
+              onClick={handleBulkPrintSelected}
+              disabled={selectedChallanIds.length === 0 || isBulkPrintingSelected}
+              className={cn(
+                "h-9 gap-2 shrink-0 transition-all",
+                selectedChallanIds.length > 0 && "bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+              )}
+              title={
+                selectedChallanIds.length === 0
+                  ? "Select one or more challans to print"
+                  : `Print ${selectedChallanIds.length} selected challan(s)`
+              }
+            >
+              {isBulkPrintingSelected ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4" />
+              )}
+              <span>Print {selectedChallanIds.length > 0 ? `(${selectedChallanIds.length})` : ""}</span>
+            </Button>
+
+            {selectedChallanIds.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs px-2.5 py-1 rounded-md font-medium shrink-0">
+                <span>{selectedChallanIds.length} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedChallanIds([])}
+                  className="hover:text-emerald-950 ml-0.5"
+                  title="Deselect all"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            )}
+
             {/* Generate button */}
             {canCreate && (
               <Button
@@ -1431,6 +1580,17 @@ export const ChallansTab = ({
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="py-2 px-2 sm:px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      ref={selectAllRef}
+                      aria-label="Select all challans on this page"
+                      checked={isAllVisibleSelected}
+                      disabled={feeChallans.length === 0}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      className="h-4 w-4 rounded border-input accent-primary cursor-pointer align-middle"
+                    />
+                  </TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden sm:table-cell">Challan No</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground">Student</TableHead>
                   <TableHead className="py-2 px-2 sm:px-3 text-xs font-semibold text-muted-foreground hidden md:table-cell">Installment</TableHead>
@@ -1447,19 +1607,38 @@ export const ChallansTab = ({
               </TableHeader>
               <TableBody>
                 {isChallansLoading ? (
-                  <TableRow><TableCell colSpan={12} className="text-center py-8">Loading challans...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={13} className="text-center py-8">Loading challans...</TableCell></TableRow>
                 ) : feeChallans.length === 0 ? (
-                  <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground italic">No challans found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground italic">No challans found.</TableCell></TableRow>
                 ) : feeChallans.map((challan, idx) => {
                   return (
                     <TableRow
                       key={challan.id}
-                      className={cn("cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted/80", idx % 2 === 1 ? "bg-muted/20" : "")}
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted/80",
+                        idx % 2 === 1 ? "bg-muted/20" : "",
+                        selectedChallanIds.includes(extractId(challan.id || challan._id)) && "bg-primary/5 hover:bg-primary/10"
+                      )}
                       onClick={() => {
                         setSelectedChallanDetails(challan);
                         setDetailsDialogOpen(true);
                       }}
                     >
+                      <TableCell
+                        className="py-2 px-2 sm:px-3 text-center w-10"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select challan ${challan.challanNumber || ""}`}
+                          checked={selectedChallanIds.includes(extractId(challan.id || challan._id))}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleToggleChallan(extractId(challan.id || challan._id));
+                          }}
+                          className="h-4 w-4 rounded border-input accent-primary cursor-pointer align-middle"
+                        />
+                      </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-medium hidden sm:table-cell">{challan.challanNumber}</TableCell>
                       <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                         {(() => {
@@ -1955,7 +2134,7 @@ export const ChallansTab = ({
                   );
                 })}
                 {!isChallansLoading && feeChallans.length === 0 && (
-                  <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">No fee challans found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground">No fee challans found.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

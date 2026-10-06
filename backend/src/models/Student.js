@@ -118,5 +118,8 @@ StudentSchema.virtual('feeInstallments').set(function (val) {
 });
 StudentSchema.set('toJSON', { virtuals: true });
 StudentSchema.set('toObject', { virtuals: true });
+StudentSchema.index({ programId: 1, classId: 1, sectionId: 1 });
+StudentSchema.index({ sessionId: 1 });
+StudentSchema.index({ status: 1 });
 
 module.exports = mongoose.model('Student', StudentSchema);

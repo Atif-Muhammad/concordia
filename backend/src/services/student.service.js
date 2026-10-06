@@ -134,8 +134,6 @@ class StudentService {
 
     const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
-    const totalCount = await Student.countDocuments(query);
-
     let studentQuery = Student.find(query);
 
     if (filters.summary === 'true' || filters.summary === true) {
@@ -160,7 +158,10 @@ class StudentService {
       studentQuery = studentQuery.skip((page - 1) * limit).limit(limit);
     }
 
-    const rawStudents = await studentQuery;
+    const [totalCount, rawStudents] = await Promise.all([
+      Student.countDocuments(query),
+      studentQuery,
+    ]);
     const students = (Array.isArray(rawStudents) ? rawStudents : []).map(s => {
       const obj = { ...s };
       if (s._id) obj.id = s._id.toString();

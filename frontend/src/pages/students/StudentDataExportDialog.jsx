@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogFooter,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
@@ -48,7 +49,7 @@ import { getStudents } from "../../../config/apis";
 import { extractId, formatDateSafe, formatAmountSafe } from "./StudentProfilePrintTemplate";
 
 const STUDENT_EXPORT_FIELDS = [
-  '_id', 'fName', 'lName', 'fatherOrguardian', 'motherName', 'gender', 'dob',
+  '_id', 'fName', 'lName', 'rollNumber', 'fatherOrguardian', 'motherName', 'gender', 'dob',
   'bloodGroup', 'religion', 'studentCnic', 'parentCNIC', 'parentOrGuardianPhone',
   'contactNumber', 'emergencyContact', 'parentOrGuardianEmail', 'email', 'address',
   'presentAddress', 'admissionDate', 'admissionFormNumber', 'sessionId', 'session',
@@ -189,7 +190,11 @@ export const StudentDataExportDialog = ({
       const studentId = extractId(student.id || student._id);
       const fullName = `${student.fName || ""} ${student.lName || ""}`.trim() || "Student";
       const fatherName = student.fatherOrguardian || student.fatherName || "—";
-      const rollNo = student.rollNumber || "—";
+      const rollNo =
+        student.rollNumber ||
+        student.rollNo ||
+        (Array.isArray(student.academicRecords) && student.academicRecords.find((r) => r.rollNumber)?.rollNumber) ||
+        "—";
       const gender = student.gender || "—";
 
       // Academic names
@@ -937,12 +942,15 @@ export const StudentDataExportDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[92vh] flex flex-col p-6 overflow-hidden">
-        <DialogHeader className="pb-3 border-b border-border/80 flex-shrink-0">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
+      <DialogContent
+        className="p-0 flex flex-col overflow-hidden w-full sm:w-[94vw] lg:w-[90vw]"
+        bodyClassName="p-3 sm:p-4 flex-1 flex flex-col gap-2.5 min-h-0 overflow-hidden"
+      >
+        <DialogHeader className="px-4 py-2.5 border-b border-border/80 flex-shrink-0">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <DialogTitle className="text-xl font-bold flex items-center gap-2 text-foreground">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+              <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
+                <FileSpreadsheet className="w-4.5 h-4.5 text-emerald-600" />
                 Student Data Export
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
@@ -955,12 +963,12 @@ export const StudentDataExportDialog = ({
                 size="sm"
                 onClick={handleExportToExcel}
                 disabled={isExportingExcel || isLoading || studentsList.length === 0}
-                className="gap-2 h-9 text-xs font-semibold text-emerald-700 hover:text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800"
+                className="gap-1.5 h-8 text-xs font-semibold text-emerald-700 hover:text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800"
               >
                 {isExportingExcel ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
                 ) : (
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 )}
                 Export to Excel (.xlsx)
               </Button>
@@ -969,12 +977,12 @@ export const StudentDataExportDialog = ({
                 size="sm"
                 onClick={handleExportAsPrint}
                 disabled={isExportingPrint || isLoading || studentsList.length === 0}
-                className="gap-2 h-9 text-xs font-semibold"
+                className="gap-1.5 h-8 text-xs font-semibold"
               >
                 {isExportingPrint ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Printer className="w-4 h-4 text-primary" />
+                  <Printer className="w-3.5 h-3.5 text-primary" />
                 )}
                 Export as PDF / Print
               </Button>
@@ -983,7 +991,7 @@ export const StudentDataExportDialog = ({
         </DialogHeader>
 
         {/* Filters Section */}
-        <div className="py-3 border-b border-border/60 bg-muted/20 -mx-6 px-6 flex-shrink-0">
+        <div className="p-2.5 bg-muted/30 rounded-lg border border-border/60 flex-shrink-0">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
             {/* Program */}
             <div className="space-y-1">
@@ -1107,44 +1115,44 @@ export const StudentDataExportDialog = ({
         </div>
 
         {/* KPI Summary Header */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 my-3 flex-shrink-0">
-          <Card className="bg-primary/5 border-primary/20 p-2 text-center shadow-none">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 flex-shrink-0">
+          <Card className="bg-primary/5 border-primary/20 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Students</div>
-            <div className="text-base font-extrabold text-primary flex items-center justify-center gap-1">
+            <div className="text-sm font-extrabold text-primary flex items-center justify-center gap-1">
               <Users className="w-3.5 h-3.5" />
               {metrics.total}
             </div>
           </Card>
-          <Card className="bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900 p-2 text-center shadow-none">
+          <Card className="bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Male</div>
-            <div className="text-base font-extrabold text-blue-700 dark:text-blue-400">{metrics.male}</div>
+            <div className="text-sm font-extrabold text-blue-700 dark:text-blue-400">{metrics.male}</div>
           </Card>
-          <Card className="bg-pink-50/50 border-pink-200 dark:bg-pink-950/20 dark:border-pink-900 p-2 text-center shadow-none">
+          <Card className="bg-pink-50/50 border-pink-200 dark:bg-pink-950/20 dark:border-pink-900 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Female</div>
-            <div className="text-base font-extrabold text-pink-700 dark:text-pink-400">{metrics.female}</div>
+            <div className="text-sm font-extrabold text-pink-700 dark:text-pink-400">{metrics.female}</div>
           </Card>
-          <Card className="bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800 p-2 text-center shadow-none">
+          <Card className="bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Total Fee</div>
-            <div className="text-base font-extrabold text-slate-800 dark:text-slate-200">
+            <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200">
               PKR {formatAmountSafe(metrics.totalTuition)}
             </div>
           </Card>
-          <Card className="bg-emerald-50/60 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900 p-2 text-center shadow-none">
+          <Card className="bg-emerald-50/60 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 tracking-wider">Total Paid</div>
-            <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+            <div className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
               PKR {formatAmountSafe(metrics.totalPaid)}
             </div>
           </Card>
-          <Card className="bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-900 p-2 text-center shadow-none">
+          <Card className="bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-900 p-1.5 text-center shadow-none">
             <div className="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400 tracking-wider">Total Pending</div>
-            <div className="text-base font-extrabold text-rose-600 dark:text-rose-400">
+            <div className="text-sm font-extrabold text-rose-600 dark:text-rose-400">
               PKR {formatAmountSafe(metrics.totalPending)}
             </div>
           </Card>
         </div>
 
         {/* Preview Table */}
-        <div className="flex-1 overflow-auto rounded-md border border-border min-h-0 max-h-[55vh]">
+        <div className="flex-1 overflow-auto rounded-md border border-border min-h-0">
           {isLoading || isFetching ? (
             <div className="h-64 flex flex-col items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -1268,25 +1276,25 @@ export const StudentDataExportDialog = ({
         </div>
 
         {/* Footer */}
-        <div className="pt-3 border-t border-border flex items-center justify-between flex-shrink-0 text-xs text-muted-foreground">
+        <DialogFooter className="px-4 py-2 border-t border-border flex items-center justify-between flex-shrink-0 text-xs text-muted-foreground mt-0">
           <div>
             Showing <strong className="text-foreground">{studentsList.length}</strong> matching students
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="h-8 px-4 text-xs">
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="h-8 px-3 text-xs">
               Close
             </Button>
             <Button
               size="sm"
               onClick={handleExportToExcel}
               disabled={isExportingExcel || isLoading || studentsList.length === 0}
-              className="h-8 px-4 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+              className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               Download Excel
             </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

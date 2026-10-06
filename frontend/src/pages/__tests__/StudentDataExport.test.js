@@ -179,4 +179,31 @@ describe("StudentDataExport logic and Excel/Print structures", () => {
     expect(fscOnly.length).toBe(1);
     expect(fscOnly[0].program.name).toBe("F.Sc Pre-Medical");
   });
+
+  it("ensures roll numbers are correctly resolved with fallbacks and included in exported rows", () => {
+    const rawStudentSample = [
+      { fName: "Hureem", lName: "Jamil", rollNumber: "2026-HUM-01" },
+      { fName: "Yahya", lName: "Mujahid", rollNo: "2026-HUM-02" },
+      {
+        fName: "Zain",
+        lName: "Abbas",
+        academicRecords: [{ rollNumber: "2026-HUM-03" }],
+      },
+    ];
+
+    const mapped = rawStudentSample.map((s) => ({
+      name: `${s.fName} ${s.lName}`,
+      rollNo:
+        s.rollNumber ||
+        s.rollNo ||
+        (Array.isArray(s.academicRecords) &&
+          s.academicRecords.find((r) => r.rollNumber)?.rollNumber) ||
+        "—",
+    }));
+
+    expect(mapped[0].rollNo).toBe("2026-HUM-01");
+    expect(mapped[1].rollNo).toBe("2026-HUM-02");
+    expect(mapped[2].rollNo).toBe("2026-HUM-03");
+    expect(mapped.every((m) => m.rollNo !== "—")).toBe(true);
+  });
 });

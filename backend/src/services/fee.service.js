@@ -443,15 +443,21 @@ class FeeService {
       }
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
+      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
       let fineUpdated = false;
       const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
 
-      if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const due = new Date(c.dueDate);
-        due.setHours(0, 0, 0, 0);
+      if (isEligibleForAutoFine && c.dueDate && effectiveRate > 0) {
+        const pktFormatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Karachi',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+        const todayPKTStr = pktFormatter.format(new Date());
+        const now = new Date(todayPKTStr + 'T00:00:00Z');
+        const duePKTStr = pktFormatter.format(new Date(c.dueDate));
+        const due = new Date(duePKTStr + 'T00:00:00Z');
         if (now > due) {
           const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
           const autoFine = diffDays * effectiveRate;
@@ -487,17 +493,17 @@ class FeeService {
       const advanceFromChallanId = c.advanceFromChallanId || primarySource?.sourceChallanId || primarySource?.challanId || null;
 
       const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
-      const grossAmount = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
+      const grossAmount = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
         ? calculatedGross
         : Number(c.grossAmount || calculatedGross);
       const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-      const netPayable = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
+      const netPayable = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
         ? calculatedNet
         : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
             ? Number(c.netPayable)
             : (Number(c.totalAmount) || calculatedNet));
 
-      if ((fineUpdated && isPendingOrPartial) || arrearAllocChanged) {
+      if ((fineUpdated && isEligibleForAutoFine) || arrearAllocChanged) {
         FeeChallan.updateOne(
           { _id: c._id },
           {
@@ -684,18 +690,24 @@ class FeeService {
       }
     }
 
-    const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
     let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
     const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
     const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
     const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
+    const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
     let fineUpdated = false;
 
-    if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const due = new Date(c.dueDate);
-      due.setHours(0, 0, 0, 0);
+    if (isEligibleForAutoFine && c.dueDate && effectiveRate > 0) {
+      const pktFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Karachi',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const todayPKTStr = pktFormatter.format(new Date());
+      const now = new Date(todayPKTStr + 'T00:00:00Z');
+      const duePKTStr = pktFormatter.format(new Date(c.dueDate));
+      const due = new Date(duePKTStr + 'T00:00:00Z');
       if (now > due) {
         const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
         const autoFine = diffDays * effectiveRate;
@@ -740,17 +752,17 @@ class FeeService {
     const advanceApplied = Number(c.advanceApplied || 0);
 
     const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
-    const grossAmount = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
+    const grossAmount = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
       ? calculatedGross
       : Number(c.grossAmount || calculatedGross);
     const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-    const netPayable = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
+    const netPayable = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
       ? calculatedNet
       : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
           ? Number(c.netPayable)
           : (Number(c.totalAmount) || calculatedNet));
 
-    if ((fineUpdated && isPendingOrPartial) || arrearAllocChanged) {
+    if ((fineUpdated && isEligibleForAutoFine) || arrearAllocChanged) {
       FeeChallan.updateOne(
         { _id: c._id },
         {
@@ -977,10 +989,17 @@ class FeeService {
       const effectiveRate = Number(challan.lateFeeRatePerDay || defaultLateFeeRate || 0);
 
       if (effectiveRate > 0) {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const due = new Date(challan.dueDate);
-        due.setHours(0, 0, 0, 0);
+        const pktFormatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Karachi',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+        const todayPKTStr = pktFormatter.format(new Date());
+        const now = new Date(todayPKTStr + 'T00:00:00Z');
+        const duePKTStr = pktFormatter.format(new Date(challan.dueDate));
+        const due = new Date(duePKTStr + 'T00:00:00Z');
+
         if (now > due) {
           const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
           const autoFine = diffDays * effectiveRate;
@@ -1170,6 +1189,87 @@ class FeeService {
       }
 
       current = nextLeader;
+    }
+  }
+
+  async runLateFeeCronJob() {
+    try {
+      const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+      const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
+
+      const pktFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Karachi',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const todayPKTStr = pktFormatter.format(new Date());
+      const nowPKT = new Date(todayPKTStr + 'T00:00:00Z');
+
+      const eligibleChallans = await FeeChallan.find({
+        status: { $nin: ['PAID', 'SETTLED', 'VOID'] },
+        dueDate: { $exists: true, $ne: null }
+      });
+
+      let updatedCount = 0;
+      for (const c of eligibleChallans) {
+        const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
+        if (effectiveRate <= 0 || !c.dueDate) continue;
+
+        const duePKTStr = pktFormatter.format(new Date(c.dueDate));
+        const duePKT = new Date(duePKTStr + 'T00:00:00Z');
+
+        let autoFine = 0;
+        if (nowPKT > duePKT) {
+          const diffDays = Math.floor((nowPKT.getTime() - duePKT.getTime()) / (1000 * 60 * 60 * 24));
+          autoFine = diffDays * effectiveRate;
+        }
+
+        const currentFine = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
+        if (autoFine !== currentFine) {
+          c.lateFeeAmount = autoFine;
+          c.fineAmount = autoFine;
+          if (c.status === 'PENDING' && autoFine > 0) {
+            c.status = 'OVERDUE';
+          } else if (c.status === 'OVERDUE' && autoFine === 0) {
+            c.status = 'PENDING';
+          }
+
+          const base = Number(c.basePayable ?? c.amount ?? 0);
+          const heads = Number(c.headsAmount || 0);
+          const arrears = Number(c.arrearsAmount || 0);
+          const disc = Number(c.discountAmount ?? c.discount ?? 0);
+          const adv = Number(c.advanceApplied || 0);
+
+          c.grossAmount = base + heads + arrears + autoFine;
+          c.netPayable = Math.max(0, c.grossAmount - disc - adv);
+          c.totalAmount = c.netPayable;
+
+          await c.save();
+
+          if (c.studentId && c.installmentNumber) {
+            const sid = c.studentId._id || c.studentId;
+            await Student.updateOne(
+              { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+              {
+                $set: {
+                  'installments.$.status': c.status,
+                  'installments.$.pendingAmount': Math.max(0, c.netPayable - Number(c.paidAmount || 0)),
+                  'installments.$.totalAmount': c.netPayable
+                }
+              }
+            ).exec();
+          }
+
+          await this.cascadeArrearUpdatesToLeadingChallans(c);
+          updatedCount++;
+        }
+      }
+      if (updatedCount > 0) {
+        console.log(`[FeeCron] Automatically updated late fee for ${updatedCount} challans.`);
+      }
+    } catch (err) {
+      console.error('[FeeCron] Error in runLateFeeCronJob:', err);
     }
   }
 
@@ -3453,15 +3553,21 @@ class FeeService {
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
+      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
       let fineUpdated = false;
       const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
 
-      if (isPendingOrPartial && c.dueDate && effectiveRate > 0) {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const due = new Date(c.dueDate);
-        due.setHours(0, 0, 0, 0);
+      if (isEligibleForAutoFine && c.dueDate && effectiveRate > 0) {
+        const pktFormatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Karachi',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+        const todayPKTStr = pktFormatter.format(new Date());
+        const now = new Date(todayPKTStr + 'T00:00:00Z');
+        const duePKTStr = pktFormatter.format(new Date(c.dueDate));
+        const due = new Date(duePKTStr + 'T00:00:00Z');
         if (now > due) {
           const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
           const autoFine = diffDays * effectiveRate;
@@ -3483,11 +3589,11 @@ class FeeService {
       const advanceApplied = Number(c.advanceApplied || 0);
 
       const calculatedGross = baseAmount + headsAmount + arrearsAmount + lateFeeAmount;
-      const grossAmount = (fineUpdated || isPendingOrPartial)
+      const grossAmount = (fineUpdated || isEligibleForAutoFine)
         ? calculatedGross
         : Number(c.grossAmount || calculatedGross);
       const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-      const netPayable = (fineUpdated || isPendingOrPartial)
+      const netPayable = (fineUpdated || isEligibleForAutoFine)
         ? calculatedNet
         : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
             ? Number(c.netPayable)
@@ -3496,7 +3602,7 @@ class FeeService {
         ? Number(c.totalAmount ?? netPayable)
         : netPayable;
 
-      if (fineUpdated && isPendingOrPartial) {
+      if (fineUpdated && isEligibleForAutoFine) {
         FeeChallan.updateOne(
           { _id: c._id },
           {

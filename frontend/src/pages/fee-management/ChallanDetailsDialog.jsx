@@ -562,7 +562,11 @@ export const ChallanDetailsDialog = ({
                                   {alloc.sourceChallanNo ? ` (Challan #${alloc.sourceChallanNo})` : ''}
                                 </TableCell>
                                 <TableCell className="text-xs px-3 text-right py-1.5 text-amber-600">
-                                  {formatAmount(alloc.amountCarriedForward ?? alloc.amountSettled ?? alloc.amount)}
+                                  {formatAmount(
+                                    (alloc.sourceChallanId && typeof alloc.sourceChallanId === 'object')
+                                      ? Math.max(0, Number(alloc.sourceChallanId.netPayable != null ? alloc.sourceChallanId.netPayable : (alloc.sourceChallanId.totalAmount != null ? alloc.sourceChallanId.totalAmount : alloc.sourceChallanId.grossAmount || 0)) - Number(alloc.sourceChallanId.paidAmount || 0))
+                                      : (alloc.amountCarriedForward ?? alloc.amountSettled ?? alloc.amount)
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))

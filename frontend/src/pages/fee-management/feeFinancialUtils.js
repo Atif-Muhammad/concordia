@@ -141,7 +141,7 @@ export const normalizeChallan = (c) => {
   let basePayable = 0;
   let headsAmount = 0;
   let arrearsAmount = 0;
-  const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
+  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(c.status);
   const existingFine = Number(c.lateFeeAmount ?? c.snapshotLateFee ?? c.lateFeeFine ?? c.fineAmount ?? 0);
   const rateCandidate = Number(c.lateFeeRatePerDay || inst.lateFeeRatePerDay || 0);
   const autoFine = (!isSettledOrVoid && c.dueDate && rateCandidate > 0)
@@ -988,7 +988,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     ? 0
     : Number(challan.absenteeFineAmount ?? challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? 0);
 
-  const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
   const configuredRate = isExtraChallan
     ? (extraChallanLateFee || options.feeSettings?.extraChallanLateFee || 0)
     : (lateFeeRatePerDay || options.feeSettings?.lateFeeRatePerDay || 0);
@@ -1087,7 +1087,10 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
 
     if (validAllocations.length > 0) {
       arrearsRowsHtml = validAllocations.map(alloc => {
-        const amt = Number(alloc.amountCarriedForward ?? alloc.amountSettled ?? alloc.amount ?? 0);
+        const src = alloc.sourceChallanId;
+        const amt = (src && typeof src === 'object')
+          ? Math.max(0, Number(src.netPayable != null ? src.netPayable : (src.totalAmount != null ? src.totalAmount : src.grossAmount || 0)) - Number(src.paidAmount || 0))
+          : Number(alloc.amountCarriedForward ?? alloc.amountSettled ?? alloc.amount ?? 0);
         const sourceMonth = alloc.sourceMonth || "";
         const sourceInstNo = alloc.sourceInstallmentNumber ?? alloc.installmentNumber ?? alloc.installmentNo;
         const instLabel = sourceInstNo ? `Installment ${sourceInstNo}` : "";

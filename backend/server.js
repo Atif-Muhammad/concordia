@@ -106,7 +106,19 @@ app.use('/api/wallets', walletRoutes);
 // Global Error Handler
 app.use(errorHandler);
 
+const feeService = require('./src/services/fee.service');
+
 const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => {
   console.log(`Concordia ERP Backend running on port ${PORT}`);
+
+  // Auto Late Fee Cron Job: Run once after startup (5s), then every 1 hour
+  setTimeout(() => {
+    feeService.runLateFeeCronJob();
+  }, 5000);
+
+  setInterval(() => {
+    feeService.runLateFeeCronJob();
+  }, 60 * 60 * 1000);
 });
+

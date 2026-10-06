@@ -1808,7 +1808,7 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-medium text-red-600 hidden xl:table-cell">
                         {(() => {
-                          const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+                          const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??
@@ -1845,7 +1845,7 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-bold bg-slate-50/50 whitespace-nowrap min-w-[105px]">
                         {(() => {
-                          const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+                          const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??

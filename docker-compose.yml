@@ -10,6 +10,7 @@ services:
       - ./backend/.env
     network_mode: host
     environment:
+      TZ: Asia/Karachi
       ENVIRONMENT: production
       UPLOAD_ROOT: /opt/portal/uploads
     volumes:

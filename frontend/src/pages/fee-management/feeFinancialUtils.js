@@ -185,7 +185,21 @@ export const normalizeChallan = (c) => {
   } else {
     basePayable = Number(c.basePayable ?? c.snapshotBaseAmount ?? c.amount ?? 0);
     headsAmount = Number(c.headsAmount ?? getSelectedHeadsTotal(c));
-    arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0 ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : getTotalArrears(c)));
+    let dynamicAllocSum = 0;
+    let hasAllocSum = false;
+    if (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0) {
+      hasAllocSum = true;
+      dynamicAllocSum = c.arrearAllocations.reduce((s, a) => {
+        const src = a.sourceChallanId;
+        if (src && typeof src === 'object') {
+          const srcNet = Number(src.netPayable != null ? src.netPayable : (src.totalAmount != null ? src.totalAmount : src.grossAmount || 0));
+          const srcPaid = Number(src.paidAmount || 0);
+          return s + Math.max(0, srcNet - srcPaid);
+        }
+        return s + (Number(a.amountCarriedForward) || 0);
+      }, 0);
+    }
+    arrearsAmount = Number(hasAllocSum ? dynamicAllocSum : (c.arrearsAmount ?? getTotalArrears(c)));
   }
 
   const baseGross = basePayable + headsAmount + arrearsAmount;

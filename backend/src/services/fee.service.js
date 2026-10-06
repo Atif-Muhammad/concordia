@@ -420,7 +420,27 @@ class FeeService {
       const headsAmount = Number(c.headsAmount ?? (Array.isArray(c.challanHeads) && c.challanHeads.length > 0
         ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
         : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
-      const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+      let arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+      let arrearAllocChanged = false;
+      if (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0) {
+        for (const alloc of c.arrearAllocations) {
+          const src = alloc.sourceChallanId;
+          if (src && typeof src === 'object') {
+            const srcNet = Number(src.netPayable != null ? src.netPayable : (src.totalAmount != null ? src.totalAmount : src.grossAmount || 0));
+            const srcPaid = Number(src.paidAmount || 0);
+            const trueCarried = Math.max(0, srcNet - srcPaid);
+            if (Number(alloc.amountCarriedForward || 0) !== trueCarried) {
+              alloc.amountCarriedForward = trueCarried;
+              alloc.originalDueAmount = srcNet;
+              arrearAllocChanged = true;
+            }
+          }
+        }
+        if (arrearAllocChanged) {
+          arrearsAmount = c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0);
+          c.arrearsAmount = arrearsAmount;
+        }
+      }
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
       const isPendingOrPartial = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status);
@@ -467,21 +487,22 @@ class FeeService {
       const advanceFromChallanId = c.advanceFromChallanId || primarySource?.sourceChallanId || primarySource?.challanId || null;
 
       const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
-      const grossAmount = (fineUpdated || isPendingOrPartial)
+      const grossAmount = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
         ? calculatedGross
         : Number(c.grossAmount || calculatedGross);
       const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-      const netPayable = (fineUpdated || isPendingOrPartial)
+      const netPayable = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
         ? calculatedNet
         : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
             ? Number(c.netPayable)
             : (Number(c.totalAmount) || calculatedNet));
 
-      if (fineUpdated && isPendingOrPartial) {
+      if ((fineUpdated && isPendingOrPartial) || arrearAllocChanged) {
         FeeChallan.updateOne(
           { _id: c._id },
           {
             $set: {
+              ...(arrearAllocChanged ? { arrearAllocations: c.arrearAllocations, arrearsAmount } : {}),
               lateFeeAmount,
               fineAmount: lateFeeAmount,
               grossAmount,
@@ -694,26 +715,47 @@ class FeeService {
     const headsAmount = Number(c.headsAmount ?? (Array.isArray(c.challanHeads) && c.challanHeads.length > 0
       ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
       : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
-    const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+    let arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+    let arrearAllocChanged = false;
+    if (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0) {
+      for (const alloc of c.arrearAllocations) {
+        const src = alloc.sourceChallanId;
+        if (src && typeof src === 'object') {
+          const srcNet = Number(src.netPayable != null ? src.netPayable : (src.totalAmount != null ? src.totalAmount : src.grossAmount || 0));
+          const srcPaid = Number(src.paidAmount || 0);
+          const trueCarried = Math.max(0, srcNet - srcPaid);
+          if (Number(alloc.amountCarriedForward || 0) !== trueCarried) {
+            alloc.amountCarriedForward = trueCarried;
+            alloc.originalDueAmount = srcNet;
+            arrearAllocChanged = true;
+          }
+        }
+      }
+      if (arrearAllocChanged) {
+        arrearsAmount = c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0);
+        c.arrearsAmount = arrearsAmount;
+      }
+    }
     const discountAmount = Number(c.discountAmount ?? c.discount ?? 0);
     const advanceApplied = Number(c.advanceApplied || 0);
 
     const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
-    const grossAmount = (fineUpdated || isPendingOrPartial)
+    const grossAmount = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
       ? calculatedGross
       : Number(c.grossAmount || calculatedGross);
     const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-    const netPayable = (fineUpdated || isPendingOrPartial)
+    const netPayable = (fineUpdated || isPendingOrPartial || arrearAllocChanged)
       ? calculatedNet
       : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
           ? Number(c.netPayable)
           : (Number(c.totalAmount) || calculatedNet));
 
-    if (fineUpdated && isPendingOrPartial) {
+    if ((fineUpdated && isPendingOrPartial) || arrearAllocChanged) {
       FeeChallan.updateOne(
         { _id: c._id },
         {
           $set: {
+            ...(arrearAllocChanged ? { arrearAllocations: c.arrearAllocations, arrearsAmount } : {}),
             lateFeeAmount,
             fineAmount: lateFeeAmount,
             grossAmount,
@@ -928,14 +970,34 @@ class FeeService {
       return ExtraChallan.findByIdAndUpdate(id, data, { new: true });
     }
 
-    if (data.dueDate) challan.dueDate = new Date(data.dueDate);
-    if (data.remarks !== undefined) challan.remarks = data.remarks;
-    if (data.amount !== undefined) challan.basePayable = Math.max(0, Number(data.amount) || 0);
-    if (data.discount !== undefined) {
-      challan.discountAmount = Math.max(0, Number(data.discount) || 0);
-      challan.discount = challan.discountAmount;
-    }
-    if (data.fineAmount !== undefined) {
+    if (data.dueDate) {
+      challan.dueDate = new Date(data.dueDate);
+      const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+      const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
+      const effectiveRate = Number(challan.lateFeeRatePerDay || defaultLateFeeRate || 0);
+
+      if (effectiveRate > 0) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const due = new Date(challan.dueDate);
+        due.setHours(0, 0, 0, 0);
+        if (now > due) {
+          const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+          const autoFine = diffDays * effectiveRate;
+          challan.lateFeeAmount = autoFine;
+          challan.fineAmount = autoFine;
+          if (challan.status === 'PENDING') {
+            challan.status = 'OVERDUE';
+          }
+        } else {
+          challan.lateFeeAmount = 0;
+          challan.fineAmount = 0;
+          if (challan.status === 'OVERDUE') {
+            challan.status = 'PENDING';
+          }
+        }
+      }
+    } else if (data.fineAmount !== undefined) {
       challan.lateFeeAmount = Math.max(0, Number(data.fineAmount) || 0);
       challan.fineAmount = challan.lateFeeAmount;
     }
@@ -980,12 +1042,135 @@ class FeeService {
     const totalEffectivePaid = Number(challan.paidAmount || 0) + adv;
     if (totalEffectivePaid >= (challan.grossAmount - disc) && (challan.grossAmount - disc) > 0) {
       challan.status = 'PAID';
-    } else if (totalEffectivePaid > 0) {
+    } else if (totalEffectivePaid > 0 && !['SUPERSEDED', 'SETTLED', 'VOID'].includes(challan.status)) {
       challan.status = 'PARTIAL';
     }
 
     await challan.save();
+
+    // Sync student installment if exists
+    if (challan.studentId && challan.installmentNumber) {
+      const sid = challan.studentId._id || challan.studentId;
+      await Student.updateOne(
+        { _id: sid, 'installments.installmentNumber': challan.installmentNumber },
+        {
+          $set: {
+            'installments.$.dueDate': challan.dueDate,
+            'installments.$.basePayable': challan.basePayable,
+            'installments.$.pendingAmount': Math.max(0, challan.netPayable - Number(challan.paidAmount || 0)),
+            'installments.$.totalAmount': challan.netPayable
+          }
+        }
+      ).exec();
+    }
+
+    // Cascade any changes to leading challans (arrears carried forward)
+    await this.cascadeArrearUpdatesToLeadingChallans(challan);
+
     return challan;
+  }
+
+  async cascadeArrearUpdatesToLeadingChallans(updatedChallan) {
+    let current = updatedChallan;
+    const visited = new Set([current._id.toString()]);
+
+    while (current) {
+      const newCarriedAmount = Math.max(0, Number(current.netPayable || 0) - Number(current.paidAmount || 0));
+
+      const leadingChallans = await FeeChallan.find({
+        $or: [
+          { 'arrearAllocations.sourceChallanId': current._id },
+          { supersedes: current._id },
+          ...(current.supersededBy ? [{ _id: current.supersededBy }] : [])
+        ]
+      });
+
+      if (!leadingChallans || leadingChallans.length === 0) {
+        break;
+      }
+
+      let nextLeader = null;
+
+      for (const leader of leadingChallans) {
+        if (visited.has(leader._id.toString())) continue;
+        visited.add(leader._id.toString());
+
+        let matchedAlloc = false;
+        if (Array.isArray(leader.arrearAllocations)) {
+          for (const alloc of leader.arrearAllocations) {
+            const allocSrcId = alloc.sourceChallanId?.toString();
+            const currId = current._id?.toString();
+            if (
+              (allocSrcId && allocSrcId === currId) ||
+              (current.challanNo && alloc.sourceChallanNo === current.challanNo) ||
+              (current.installmentNumber && alloc.sourceInstallmentNumber === current.installmentNumber)
+            ) {
+              alloc.amountCarriedForward = newCarriedAmount;
+              alloc.originalDueAmount = Number(current.netPayable || 0);
+              if (!alloc.sourceChallanId && current._id) {
+                alloc.sourceChallanId = current._id;
+              }
+              if (!alloc.sourceChallanNo && current.challanNo) {
+                alloc.sourceChallanNo = current.challanNo;
+              }
+              matchedAlloc = true;
+            }
+          }
+        }
+
+        if (!matchedAlloc) {
+          if (!Array.isArray(leader.arrearAllocations)) leader.arrearAllocations = [];
+          leader.arrearAllocations.push({
+            sourceChallanId: current._id,
+            sourceChallanNo: current.challanNo,
+            sourceInstallmentNumber: current.installmentNumber,
+            sourceMonth: current.month,
+            originalDueAmount: Number(current.netPayable || 0),
+            amountCarriedForward: newCarriedAmount,
+            amountSettled: 0
+          });
+        }
+
+        if (Array.isArray(leader.supersedes)) {
+          if (!leader.supersedes.some(sid => sid?.toString() === current._id.toString())) {
+            leader.supersedes.push(current._id);
+          }
+        } else {
+          leader.supersedes = [current._id];
+        }
+
+        leader.arrearsAmount = leader.arrearAllocations.reduce((sum, a) => sum + (Number(a.amountCarriedForward) || 0), 0);
+        const lBase = Number(leader.basePayable ?? leader.amount ?? 0);
+        const lHeads = Number(leader.headsAmount || 0);
+        const lArrears = Number(leader.arrearsAmount || 0);
+        const lLate = Number(leader.lateFeeAmount ?? leader.fineAmount ?? 0);
+        const lDisc = Number(leader.discountAmount ?? leader.discount ?? 0);
+        const lAdv = Number(leader.advanceApplied || 0);
+
+        leader.grossAmount = lBase + lHeads + lArrears + lLate;
+        leader.netPayable = Math.max(0, leader.grossAmount - lDisc - lAdv);
+        leader.totalAmount = leader.netPayable;
+
+        await leader.save();
+
+        if (leader.studentId && leader.installmentNumber) {
+          const sid = leader.studentId._id || leader.studentId;
+          await Student.updateOne(
+            { _id: sid, 'installments.installmentNumber': leader.installmentNumber },
+            {
+              $set: {
+                'installments.$.pendingAmount': Math.max(0, leader.netPayable - Number(leader.paidAmount || 0)),
+                'installments.$.totalAmount': leader.netPayable
+              }
+            }
+          ).exec();
+        }
+
+        nextLeader = leader;
+      }
+
+      current = nextLeader;
+    }
   }
 
   async deleteChallan(id, userId) {

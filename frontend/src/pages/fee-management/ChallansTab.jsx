@@ -1188,13 +1188,23 @@ export const ChallansTab = ({
       });
     }
 
+    const effectiveRate = Number(
+      editingChallan?.installment?.lateFeeRatePerDay ??
+      editingChallan?.lateFeeRatePerDay ??
+      lateFeeRatePerDay ??
+      0
+    );
+    const computedFine = (challanForm.dueDate && effectiveRate > 0)
+      ? calculateLateFee(challanForm.dueDate, effectiveRate)
+      : additionalToStore;
+
     if (editingChallan) {
       updateChallanMutation.mutate({
         id: editingChallan.id,
         data: {
           dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
           amount: tuitionToStore,
-          fineAmount: additionalToStore,
+          fineAmount: computedFine,
           discount: discountToStore,
           remarks: challanForm.remarks,
           selectedHeads: allFeeHeadDetails,
@@ -2948,7 +2958,16 @@ export const ChallansTab = ({
               const headsTotal = catHeadsTotal + otherVal;
               const arrearsVal = Math.round(parseFloat(challanForm.arrearsAmount) || 0);
               const discVal = Math.round(parseFloat(challanForm.discount) || 0);
-              const grossVal = baseVal + headsTotal + arrearsVal;
+              const effectiveRate = Number(
+                editingChallan?.installment?.lateFeeRatePerDay ??
+                editingChallan?.lateFeeRatePerDay ??
+                lateFeeRatePerDay ??
+                0
+              );
+              const lateVal = (challanForm.dueDate && effectiveRate > 0)
+                ? calculateLateFee(challanForm.dueDate, effectiveRate)
+                : Math.round(Number(challanForm.fineAmount) || 0);
+              const grossVal = baseVal + headsTotal + arrearsVal + lateVal;
               const netVal = Math.max(0, grossVal - discVal);
 
               return (
@@ -2967,6 +2986,12 @@ export const ChallansTab = ({
                     <div className="flex justify-between text-muted-foreground">
                       <span>Carried Arrears:</span>
                       <span className="font-medium text-amber-600">+PKR {arrearsVal.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {lateVal > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Late Fee Fine (Overdue):</span>
+                      <span className="font-medium text-rose-600">+PKR {lateVal.toLocaleString()}</span>
                     </div>
                   )}
                   {discVal > 0 && (

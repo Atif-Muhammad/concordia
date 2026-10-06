@@ -111,7 +111,7 @@ export const PaymentDialog = ({
         ? Number(challan.lateFeeFine || 0)
         : Number(challan.lateFeeAmount ?? challan.snapshotLateFee ?? challan.lateFeeFine ?? 0);
 
-      const addFee = storedFee > 0 ? 0 : autoFee;
+      const addFee = Math.max(0, autoFee - storedFee);
 
       const baseTotal = isExtra
         ? Number(challan.totalAmount ?? 0)
@@ -172,8 +172,8 @@ export const PaymentDialog = ({
     ? Number(challan.lateFeeFine || 0)
     : Number(challan.lateFeeAmount ?? challan.snapshotLateFee ?? challan.lateFeeFine ?? 0);
 
-  const lateFee = storedLateFee > 0 ? storedLateFee : autoLateFee;
-  const additionalLateFee = storedLateFee > 0 ? 0 : autoLateFee;
+  const lateFee = Math.max(storedLateFee, autoLateFee);
+  const additionalLateFee = Math.max(0, autoLateFee - storedLateFee);
 
   const base = isExtraC
     ? (Number(challan.totalAmount ?? 0) - Number(challan.lateFeeFine ?? 0) + Number(challan.discount ?? 0))

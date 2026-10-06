@@ -210,7 +210,7 @@ export const ChallanDetailsDialog = ({
   const autoFine = (!isSettled && !isVoid && currentChallan.dueDate && effectiveRate > 0)
     ? calculateLateFee(currentChallan.dueDate, effectiveRate)
     : 0;
-  const lateFeeFineVal = existingFine > 0 ? existingFine : autoFine;
+  const lateFeeFineVal = Math.max(existingFine, autoFine);
 
   const baseAmount = Number(currentChallan.snapshotBaseAmount ?? currentChallan.basePayable ?? (currentChallan.amount || 0));
   const headsVal = Number(getSelectedHeadsTotal(currentChallan) || currentChallan.headsAmount || 0);

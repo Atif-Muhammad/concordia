@@ -52,7 +52,7 @@ import {
   FileText,
 } from "lucide-react";
 import { NAV_MODULES } from "@/lib/navigation.jsx";
-import { getActivityLogs, getActivityLogFilterOptions } from "@/services/api";
+import { getActivityLogs, getActivityLogFilterOptions, getActivityLogById } from "@/services/api";
 
 // Format helper for timestamp
 const formatDateTime = (dateString) => {
@@ -117,6 +117,245 @@ const getMethodBadge = (method = "") => {
   if (m === "PUT" || m === "PATCH") return <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-300 text-[10px] font-mono font-bold">{m}</Badge>;
   if (m === "DELETE") return <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-300 text-[10px] font-mono font-bold">DEL</Badge>;
   return <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-300 text-[10px] font-mono font-bold">GET</Badge>;
+};
+
+// Format helper for display values in before/after comparison
+const formatDisplayVal = (val) => {
+  if (val === null || val === undefined || val === "" || val === "None") {
+    return <span className="text-muted-foreground italic font-sans">None / Empty</span>;
+  }
+  if (typeof val === "boolean") {
+    return val ? "True / Yes" : "False / No";
+  }
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch {
+      return String(val);
+    }
+  }
+  // If ISO date string
+  if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
+    try {
+      const d = new Date(val);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    } catch {
+      return val;
+    }
+  }
+  return String(val);
+};
+
+// Helper to parse and render installment list cleanly
+const renderInstallments = (val) => {
+  let list = val;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      // not json
+    }
+  }
+
+  if (Array.isArray(list)) {
+    if (list.length === 0) {
+      return <span className="text-muted-foreground italic text-xs">No installments</span>;
+    }
+    return (
+      <div className="space-y-1 my-0.5">
+        {list.map((inst, i) => {
+          const num = inst.installmentNumber || i + 1;
+          const amt = Number(inst.amount || 0).toLocaleString();
+          const month = inst.month ? ` (${inst.month})` : "";
+          let due = "";
+          if (inst.dueDate) {
+            try {
+              const d = new Date(inst.dueDate);
+              due = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            } catch {
+              due = String(inst.dueDate).split("T")[0];
+            }
+          }
+          const status = (inst.status || "UNPAID").toUpperCase();
+
+          return (
+            <div
+              key={i}
+              className="flex flex-wrap items-center justify-between gap-1.5 py-0.5 px-2 rounded bg-background/80 border border-border/50 text-[11px]"
+            >
+              <span className="font-semibold text-foreground">
+                Inst #{num}{month}
+              </span>
+              <span className="font-bold font-mono text-foreground">
+                PKR {amt}
+              </span>
+              {due && (
+                <span className="text-[10px] text-muted-foreground font-sans">
+                  Due: {due}
+                </span>
+              )}
+              <Badge
+                variant="outline"
+                className={`text-[9px] py-0 px-1 font-bold ${
+                  status === "PAID"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                    : status === "OVERDUE"
+                    ? "bg-rose-50 text-rose-700 border-rose-300"
+                    : "bg-amber-50 text-amber-700 border-amber-300"
+                }`}
+              >
+                {status}
+              </Badge>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return formatDisplayVal(val);
+};
+
+// General value renderer
+const renderFieldValue = (field, val) => {
+  if (
+    field === "installments" ||
+    (typeof val === "string" && val.includes("installmentNumber")) ||
+    (Array.isArray(val) && val[0] && (val[0].installmentNumber || val[0].month))
+  ) {
+    return renderInstallments(val);
+  }
+  return formatDisplayVal(val);
+};
+
+// Fallback target extractor for historical logs
+const getFallbackTarget = (log) => {
+  if (!log) return null;
+  const t = log.targetEntity;
+  let name = (t?.name && t.name !== "Student" && t.name !== "Record") ? t.name : "";
+  let identifier = t?.identifier || "";
+  let subTitle = t?.subTitle || "";
+  let entityType = t?.entityType || log.module || "";
+
+  const desc = log.description || "";
+  const b = log.body || {};
+  const first = b.fName || b.firstName || "";
+  const last = b.lName || b.lastName || "";
+  const composed = `${first} ${last}`.trim();
+
+  if (!name) {
+    if (composed) name = composed;
+    else if (b.name) name = b.name;
+    else if (b.studentName) name = b.studentName;
+    else if (b.title) name = b.title;
+    else if (b.accountName) name = b.accountName;
+    else if (b.itemName) name = b.itemName;
+  }
+
+  if (!subTitle) {
+    const father = b.fatherOrguardian || b.fatherName || b.guardianName;
+    if (father) subTitle = `Father: ${father}`;
+    else if (b.designation) subTitle = `Designation: ${b.designation}`;
+    else if (b.category) subTitle = b.category;
+    else if (b.amount != null) subTitle = `PKR ${Number(b.amount).toLocaleString()}`;
+    else if (b.feeMonth) subTitle = `Month: ${b.feeMonth}`;
+  }
+
+  if (!identifier) {
+    const roll = b.rollNumber || b.rollNo;
+    if (roll) identifier = `Roll: ${roll}`;
+    else if (b.staffId) identifier = `Staff ID: ${b.staffId}`;
+    else if (b.challanNo || b.challanNumber) identifier = `Challan: #${b.challanNo || b.challanNumber}`;
+    else if (b.voucherNo) identifier = `Voucher: ${b.voucherNo}`;
+    else if (b.receiptNo) identifier = `Receipt: ${b.receiptNo}`;
+    else if (b.itemCode) identifier = `Item: ${b.itemCode}`;
+    else if (b.accountNumber) identifier = `Account: ${b.accountNumber}`;
+  }
+
+  // Regex extractors from description for older historical logs
+  if (log.module === "Students" || desc.toLowerCase().includes("student")) {
+    if (!entityType) entityType = "Student";
+    if (!identifier) {
+      const rollMatch = desc.match(/\(Roll:\s*([^)]+)\)/i);
+      if (rollMatch) identifier = `Roll: ${rollMatch[1]}`;
+    }
+    if (!name) {
+      const nameMatch = desc.match(/(?:student|record|admitted new student):\s*([^(\n•]+)/i);
+      if (nameMatch && nameMatch[1].trim() && nameMatch[1].trim() !== "Student") {
+        name = nameMatch[1].trim();
+      }
+    }
+  } else if (log.module === "Staff" || desc.toLowerCase().includes("staff")) {
+    if (!entityType) entityType = "Staff";
+    if (!identifier) {
+      const staffMatch = desc.match(/\(Staff ID:\s*([^)]+)\)/i) || desc.match(/\(([A-Z]+-\d+)\)/i);
+      if (staffMatch) identifier = `Staff ID: ${staffMatch[1]}`;
+    }
+    if (!name) {
+      const nameMatch = desc.match(/(?:staff|record):\s*([^(\n•]+)/i);
+      if (nameMatch && nameMatch[1].trim() && nameMatch[1].trim() !== "Staff") {
+        name = nameMatch[1].trim();
+      }
+    }
+  } else if (log.module?.includes("Fee") || desc.toLowerCase().includes("challan")) {
+    if (!entityType) entityType = "FeeChallan";
+    if (!identifier) {
+      const chMatch = desc.match(/#([A-Za-z0-9\-]+)/);
+      if (chMatch) identifier = `Challan: #${chMatch[1]}`;
+    }
+  }
+
+  if (name || identifier || subTitle) {
+    return {
+      name: name || t?.name || "Record",
+      identifier,
+      subTitle,
+      entityType: entityType || "Record"
+    };
+  }
+
+  return t || null;
+};
+
+// Fallback cell renderer for Target Record column in the table
+const renderTargetFallback = (log) => {
+  const target = getFallbackTarget(log);
+  if (target?.name) {
+    return (
+      <div className="space-y-0.5">
+        <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
+          <span className="truncate">{target.name}</span>
+          {target.entityType && (
+            <Badge
+              variant="outline"
+              className="text-[9px] py-0 px-1 font-mono uppercase bg-muted/50 text-muted-foreground border-border/80 shrink-0"
+            >
+              {target.entityType}
+            </Badge>
+          )}
+        </div>
+        <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
+          {target.identifier && (
+            <span className="font-mono font-medium text-foreground/80">
+              {target.identifier}
+            </span>
+          )}
+          {target.identifier && target.subTitle && (
+            <span className="text-muted-foreground/40">•</span>
+          )}
+          {target.subTitle && (
+            <span className="truncate">{target.subTitle}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+      <span className="text-muted-foreground/50">—</span>
+      <span className="truncate">{log.subModule || log.module || "System Operation"}</span>
+    </div>
+  );
 };
 
 // Complete master module tree aligning 100% with the sidebar navigation & system features
@@ -207,6 +446,15 @@ export const ActivityLogsTab = () => {
 
   // Dialog state for viewing log detail
   const [selectedLog, setSelectedLog] = useState(null);
+
+  // Fetch full log details if selected
+  const { data: fullLogDetail } = useQuery({
+    queryKey: ["activityLogDetail", selectedLog?._id || selectedLog?.id],
+    queryFn: () => getActivityLogById(selectedLog?._id || selectedLog?.id),
+    enabled: !!(selectedLog?._id || selectedLog?.id),
+    staleTime: 60000,
+  });
+  const activeLog = fullLogDetail || selectedLog;
 
   // Fetch filter options (distinct modules, submodules, staff list)
   const { data: filterOptions } = useQuery({
@@ -730,8 +978,8 @@ export const ActivityLogsTab = () => {
                   <TableHead className="w-[100px] text-xs font-semibold py-3 px-4">
                     Action
                   </TableHead>
-                  <TableHead className="text-xs font-semibold py-3 px-4">
-                    Activity Description
+                  <TableHead className="w-[240px] text-xs font-semibold py-3 px-4">
+                    Target Record
                   </TableHead>
                   <TableHead className="w-[130px] text-xs font-semibold py-3 px-4 text-center">
                     Status
@@ -779,15 +1027,17 @@ export const ActivityLogsTab = () => {
                 ) : (
                   logs.map((log) => {
                     const isFailed = log.status === "FAILED";
+                    const target = getFallbackTarget(log);
                     return (
                       <TableRow
                         key={log._id || log.id}
-                        className={`hover:bg-muted/30 transition-colors ${
+                        onClick={() => setSelectedLog(log)}
+                        className={`cursor-pointer hover:bg-muted/50 transition-colors group ${
                           isFailed ? "bg-rose-50/30 dark:bg-rose-950/10" : ""
                         }`}
                       >
                         {/* Timestamp */}
-                        <TableCell className="py-2.5 px-4 text-xs font-mono whitespace-nowrap">
+                        <TableCell className="py-2 px-3 sm:px-4 text-xs font-mono whitespace-nowrap">
                           <div className="font-medium text-foreground">
                             {formatDateTime(log.timestamp)}
                           </div>
@@ -797,18 +1047,18 @@ export const ActivityLogsTab = () => {
                         </TableCell>
 
                         {/* Staff / User */}
-                        <TableCell className="py-2.5 px-4">
+                        <TableCell className="py-2 px-3 sm:px-4">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold uppercase shrink-0">
                               {log.userName?.charAt(0) || "U"}
                             </div>
                             <div className="min-w-0">
-                              <div className="text-xs font-medium truncate flex items-center gap-1.5">
+                              <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
                                 <span>{log.userName || "System"}</span>
                                 {log.staffId && (
                                   <Badge
                                     variant="outline"
-                                    className="text-[10px] py-0 px-1 font-mono font-bold bg-amber-50 text-amber-700 border-amber-300"
+                                    className="text-[10px] py-0 px-1 font-mono font-bold bg-amber-50 text-amber-700 border-amber-300 shrink-0"
                                   >
                                     {log.staffId}
                                   </Badge>
@@ -822,18 +1072,18 @@ export const ActivityLogsTab = () => {
                         </TableCell>
 
                         {/* Module & Sub-module */}
-                        <TableCell className="py-2.5 px-4">
+                        <TableCell className="py-2 px-3 sm:px-4">
                           <div className="space-y-1">
                             <Badge
                               variant="outline"
-                              className={`text-[11px] font-medium border ${getModuleBadgeColor(
+                              className={`text-[10px] sm:text-[11px] font-medium border ${getModuleBadgeColor(
                                 log.module
                               )}`}
                             >
                               {log.module}
                             </Badge>
                             {log.subModule && (
-                              <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                              <div className="text-[10px] sm:text-[11px] text-muted-foreground truncate flex items-center gap-1">
                                 <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
                                 <span className="truncate">{log.subModule}</span>
                               </div>
@@ -842,32 +1092,50 @@ export const ActivityLogsTab = () => {
                         </TableCell>
 
                         {/* Action & Method */}
-                        <TableCell className="py-2.5 px-4 whitespace-nowrap">
+                        <TableCell className="py-2 px-3 sm:px-4 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             {getMethodBadge(log.method)}
                           </div>
                         </TableCell>
 
-                        {/* Activity Description */}
-                        <TableCell className="py-2.5 px-4">
-                          <div className="text-xs font-medium line-clamp-2 text-foreground">
-                            {log.description}
-                          </div>
-                          {isFailed && log.failureReason && (
-                            <div className="mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 line-clamp-1 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3 shrink-0" />
-                              <span>Reason: {log.failureReason}</span>
+                        {/* Target Record */}
+                        <TableCell className="py-2 px-3 sm:px-4">
+                          {target?.name && target.name !== "Record" ? (
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
+                                <span className="truncate">{target.name}</span>
+                                {target.entityType && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] py-0 px-1 font-mono uppercase bg-muted/60 text-muted-foreground border-border shrink-0"
+                                  >
+                                    {target.entityType}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-[10px] sm:text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
+                                {target.identifier && (
+                                  <span className="font-mono font-medium text-foreground/80">
+                                    {target.identifier}
+                                  </span>
+                                )}
+                                {target.identifier && target.subTitle && (
+                                  <span className="text-muted-foreground/40">•</span>
+                                )}
+                                {target.subTitle && (
+                                  <span className="truncate">{target.subTitle}</span>
+                                )}
+                              </div>
                             </div>
+                          ) : (
+                            renderTargetFallback(log)
                           )}
-                          <div className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">
-                            {log.endpoint}
-                          </div>
                         </TableCell>
 
                         {/* Status */}
-                        <TableCell className="py-2.5 px-4 text-center whitespace-nowrap">
+                        <TableCell className="py-2 px-3 sm:px-4 text-center whitespace-nowrap">
                           {isFailed ? (
-                            <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-200 border-rose-200 dark:bg-rose-950 dark:text-rose-300 text-xs gap-1 font-semibold">
+                            <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-200 border-rose-200 dark:bg-rose-950 dark:text-rose-300 text-[10px] sm:text-xs gap-1 font-semibold">
                               <XCircle className="w-3 h-3" />
                               FAILED
                               {log.statusCode && (
@@ -875,7 +1143,7 @@ export const ActivityLogsTab = () => {
                               )}
                             </Badge>
                           ) : (
-                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 text-xs gap-1 font-semibold">
+                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] sm:text-xs gap-1 font-semibold">
                               <CheckCircle2 className="w-3 h-3" />
                               SUCCESS
                             </Badge>
@@ -883,12 +1151,15 @@ export const ActivityLogsTab = () => {
                         </TableCell>
 
                         {/* Details View Action */}
-                        <TableCell className="py-2.5 px-4 text-center">
+                        <TableCell className="py-2 px-3 sm:px-4 text-center">
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => setSelectedLog(log)}
-                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLog(log);
+                            }}
+                            className="h-7 w-7 text-muted-foreground hover:bg-primary/10 hover:text-primary group-hover:text-primary transition-colors"
                             title="View Log Details"
                           >
                             <Eye className="w-4 h-4" />
@@ -975,97 +1246,215 @@ export const ActivityLogsTab = () => {
 
       {/* Log Detail Dialog */}
       <Dialog open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center justify-between pr-4">
-              <DialogTitle className="text-lg flex items-center gap-2">
-                <FileText className="w-5 h-5 text-primary" />
+        <DialogContent
+          className="w-full sm:w-[540px] md:w-[620px] lg:w-[700px] p-0"
+          bodyClassName="p-2 sm:p-2.5 flex-1 flex flex-col gap-2 overflow-y-auto min-h-0"
+        >
+          <DialogHeader className="px-3 py-2 border-b shrink-0 flex flex-col gap-0.5">
+            <div className="flex items-center justify-between pr-6">
+              <DialogTitle className="text-sm sm:text-base flex items-center gap-1.5 font-bold">
+                <FileText className="w-4 h-4 text-primary shrink-0" />
                 Activity Log Inspection
               </DialogTitle>
-              {selectedLog?.status === "FAILED" ? (
-                <Badge className="bg-rose-100 text-rose-700 border-rose-300 text-xs font-bold">
-                  FAILED ({selectedLog.statusCode})
+              {activeLog?.status === "FAILED" ? (
+                <Badge className="bg-rose-100 text-rose-700 border-rose-300 text-[10px] font-bold gap-1 py-0.5 px-1.5 shrink-0">
+                  <XCircle className="w-3 h-3" />
+                  FAILED {activeLog?.statusCode ? `(${activeLog.statusCode})` : ""}
                 </Badge>
               ) : (
-                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 text-xs font-bold">
-                  SUCCESS (200)
+                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 text-[10px] font-bold gap-1 py-0.5 px-1.5 shrink-0">
+                  <CheckCircle2 className="w-3 h-3" />
+                  SUCCESS {activeLog?.statusCode ? `(${activeLog.statusCode})` : ""}
                 </Badge>
               )}
             </div>
-            <DialogDescription>
-              Detailed audit trace of action performed in the system
+            <DialogDescription className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
+              Detailed audit trace and field modifications for this system activity
             </DialogDescription>
           </DialogHeader>
 
-          {selectedLog && (
-            <div className="space-y-4 py-2 text-sm">
+          {activeLog && (
+            <div className="space-y-2 text-xs">
               {/* If FAILED: Highlighted Failure Reason Card */}
-              {selectedLog.status === "FAILED" && (
-                <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-800 space-y-1.5">
-                  <div className="flex items-center gap-2 text-rose-800 dark:text-rose-300 font-semibold text-sm">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Failed Due To (Failure Reason):</span>
+              {activeLog.status === "FAILED" && (
+                <div className="p-2 rounded-md bg-rose-50 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-800 space-y-1">
+                  <div className="flex items-center gap-1.5 text-rose-800 dark:text-rose-300 font-semibold text-xs">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span>Failure Reason:</span>
                   </div>
-                  <div className="text-rose-900 dark:text-rose-200 text-sm font-medium bg-white/60 dark:bg-black/30 p-2.5 rounded border border-rose-200/50 break-words font-mono text-xs">
-                    {selectedLog.failureReason || "No explicit error message returned by server."}
+                  <div className="text-rose-900 dark:text-rose-200 text-xs font-medium bg-white/60 dark:bg-black/30 p-1.5 rounded border border-rose-200/50 break-words font-mono">
+                    {activeLog.failureReason || "No explicit error message returned by server."}
                   </div>
                 </div>
               )}
 
-              {/* Grid of Key Info */}
-              <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-lg border text-xs">
-                <div>
-                  <span className="text-muted-foreground block">Timestamp:</span>
-                  <span className="font-semibold text-foreground">
-                    {formatDateTime(selectedLog.timestamp)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block">Staff / User:</span>
-                  <span className="font-semibold text-foreground">
-                    {selectedLog.userName} {selectedLog.staffId ? `(${selectedLog.staffId})` : ""}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block">User Email / Role:</span>
-                  <span className="font-mono text-foreground">
-                    {selectedLog.userEmail || "N/A"} [{selectedLog.userRole}]
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block">Client IP / Agent:</span>
-                  <span className="font-mono text-foreground truncate block" title={selectedLog.userAgent}>
-                    {selectedLog.ipAddress || "Localhost"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block">Module:</span>
-                  <Badge variant="outline" className={`mt-0.5 ${getModuleBadgeColor(selectedLog.module)}`}>
-                    {selectedLog.module}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block">Sub-module:</span>
-                  <span className="font-semibold text-foreground">
-                    {selectedLog.subModule || "General"}
-                  </span>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block">HTTP Endpoint:</span>
-                  <span className="font-mono text-xs font-semibold text-foreground break-all">
-                    <span className="font-bold text-primary mr-1">[{selectedLog.method}]</span>
-                    {selectedLog.endpoint}
-                  </span>
-                </div>
+              {/* 1. Target Entity Identification Bar */}
+              {(() => {
+                const target = getFallbackTarget(activeLog);
+                if (!target || (!target.name && !target.identifier)) return null;
+
+                const displayName = target.name && target.name !== "Student" && target.name !== "Record"
+                  ? target.name
+                  : (target.identifier || target.entityType || "Record");
+
+                return (
+                  <div className="px-2.5 py-1.5 rounded-md border border-primary/20 bg-primary/5 flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      <User className="w-3.5 h-3.5 text-primary shrink-0" />
+                      <span className="text-xs sm:text-sm font-bold text-foreground">
+                        {displayName}
+                      </span>
+                      {target.subTitle && (
+                        <span className="text-[11px] sm:text-xs text-muted-foreground font-medium">
+                          — {target.subTitle}
+                        </span>
+                      )}
+                      {target.identifier && (
+                        <span className="text-[11px] sm:text-xs font-mono font-bold text-primary">
+                          — {target.identifier}
+                        </span>
+                      )}
+                    </div>
+                    {target.entityType && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] uppercase font-mono font-bold py-0 px-1.5 bg-background text-primary border-primary/30 shrink-0"
+                      >
+                        {target.entityType}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 2. Moved Activity Description */}
+              <div className="px-2.5 py-1.5 rounded-md border bg-muted/20 text-xs flex flex-col sm:flex-row sm:items-baseline gap-1">
+                <span className="font-bold text-muted-foreground shrink-0 text-[10px] sm:text-[11px] uppercase tracking-wider">
+                  Description:
+                </span>
+                <span className="font-medium text-foreground text-xs leading-relaxed break-words">
+                  {activeLog.description}
+                </span>
               </div>
 
-              {/* Activity Description */}
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Activity Summary
-                </span>
-                <div className="p-3 rounded bg-muted/20 border text-xs font-medium text-foreground">
-                  {selectedLog.description}
+              {/* 3. Field Changes Comparison: Single Unified Big Box */}
+              {activeLog.changes && activeLog.changes.length > 0 ? (
+                <div className="rounded-md border bg-card overflow-hidden shadow-2xs">
+                  {/* Big Box Header */}
+                  <div className="px-2.5 py-1.5 bg-muted/40 border-b flex items-center justify-between">
+                    <div className="text-[11px] sm:text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                      <span>Field Modifications</span>
+                      <Badge variant="secondary" className="text-[9px] sm:text-[10px] font-mono font-bold py-0 px-1.5">
+                        {activeLog.changes.length} {activeLog.changes.length === 1 ? "field" : "fields"}
+                      </Badge>
+                    </div>
+                    <div className="text-[9px] sm:text-[10px] text-muted-foreground font-mono">
+                      Old Value → New Value
+                    </div>
+                  </div>
+
+                  {/* Big Box Rows */}
+                  <div className="divide-y divide-border/60">
+                    {activeLog.changes.map((change, idx) => (
+                      <div key={idx} className="p-2 sm:p-2.5 hover:bg-muted/10 transition-colors space-y-1">
+                        {/* Field Label Header */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-foreground flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                            {change.fieldLabel || change.field}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground/70">
+                            {change.field}
+                          </span>
+                        </div>
+
+                        {/* Two Columns with Arrow inside this row */}
+                        <div className="grid grid-cols-[1fr,auto,1fr] items-stretch gap-1.5 sm:gap-2 text-xs">
+                          {/* Box 1: Before (Old Value) */}
+                          <div className="p-1.5 sm:p-2 rounded bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 min-w-0">
+                            <div className="text-[9px] uppercase font-bold tracking-wider text-amber-700/80 dark:text-amber-400 mb-0.5">
+                              Before (Old Value)
+                            </div>
+                            <div className="text-[11px] sm:text-xs font-mono font-medium text-foreground break-words whitespace-pre-wrap">
+                              {renderFieldValue(change.field, change.oldValue)}
+                            </div>
+                          </div>
+
+                          {/* Arrow Right Indicator */}
+                          <div className="flex items-center justify-center px-0.5 text-muted-foreground">
+                            <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary shrink-0" />
+                          </div>
+
+                          {/* Box 2: After (New Value) */}
+                          <div className="p-1.5 sm:p-2 rounded bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-300/70 dark:border-emerald-700/50 min-w-0">
+                            <div className="text-[9px] uppercase font-bold tracking-wider text-emerald-700/80 dark:text-emerald-400 mb-0.5">
+                              After (New Value)
+                            </div>
+                            <div className="text-[11px] sm:text-xs font-mono font-bold text-emerald-950 dark:text-emerald-100 break-words whitespace-pre-wrap">
+                              {renderFieldValue(change.field, change.newValue)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Fallback when changes array is not present (historical logs or request body) */
+                activeLog.body && Object.keys(activeLog.body).length > 0 && (
+                  <div className="rounded-md border bg-card overflow-hidden shadow-2xs">
+                    <div className="px-2.5 py-1.5 bg-muted/40 border-b text-[11px] sm:text-xs font-bold text-foreground uppercase tracking-wider">
+                      Payload Attributes
+                    </div>
+                    <div className="p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {Object.entries(activeLog.body)
+                        .filter(([k]) => !['_id', 'password', 'token', 'id'].includes(k))
+                        .slice(0, 8)
+                        .map(([k, v]) => (
+                          <div key={k} className="p-1.5 rounded border bg-muted/20 text-xs">
+                            <div className="font-semibold text-muted-foreground text-[9px] uppercase">
+                              {k.replace(/([A-Z])/g, ' $1')}
+                            </div>
+                            <div className="font-mono font-medium text-foreground truncate mt-0.5 text-[11px]">
+                              {typeof v === 'object' ? renderFieldValue(k, v) : String(v)}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )
+              )}
+
+              {/* 4. Grid of Key Technical Info */}
+              <div className="p-2 sm:p-2.5 bg-muted/20 rounded-md border text-xs space-y-1.5">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground block text-[9px] sm:text-[10px]">Timestamp:</span>
+                    <span className="font-semibold text-foreground font-mono text-[10px] sm:text-[11px]">
+                      {formatDateTime(activeLog.timestamp)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[9px] sm:text-[10px]">Performed By:</span>
+                    <span className="font-semibold text-foreground text-[10px] sm:text-[11px]">
+                      {activeLog.userName} {activeLog.staffId ? `(${activeLog.staffId})` : ""}
+                    </span>
+                  </div>
+                </div>
+                <div className="border-t border-border/40 pt-1">
+                  <span className="text-muted-foreground block text-[9px] sm:text-[10px]">Role / Email:</span>
+                  <span className="font-mono text-foreground text-[10px] sm:text-[11px] break-all">
+                    {activeLog.userEmail || "N/A"}{" "}
+                    <Badge variant="outline" className="text-[9px] font-mono py-0 px-1 ml-1 font-bold">
+                      {activeLog.userRole}
+                    </Badge>
+                  </span>
+                </div>
+                <div className="border-t border-border/40 pt-1">
+                  <span className="text-muted-foreground block text-[9px] sm:text-[10px]">Endpoint:</span>
+                  <span className="font-mono text-foreground break-all block text-[10px] sm:text-[11px]">
+                    [{activeLog.method}] {activeLog.endpoint}
+                  </span>
                 </div>
               </div>
 

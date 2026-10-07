@@ -106,7 +106,10 @@ class ActivityLogService {
         { staffId: regex },
         { failureReason: regex },
         { endpoint: regex },
-        { action: regex }
+        { action: regex },
+        { 'targetEntity.name': regex },
+        { 'targetEntity.identifier': regex },
+        { 'targetEntity.subTitle': regex }
       ];
       if (filter.$or) {
         filter.$and = [

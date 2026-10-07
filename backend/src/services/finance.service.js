@@ -6,6 +6,12 @@ const {
   Wallet,
   WalletTransaction,
   User,
+  FeeChallan,
+  ExtraChallan,
+  HostelChallan,
+  Payroll,
+  InventoryExpense,
+  HostelExpense,
 } = require('../models');
 
 const DEFAULT_EXPENSE_CATEGORIES = [
@@ -359,13 +365,29 @@ class FinanceService {
     if (!rejecterName) rejecterName = 'Administrator';
 
     // If previously approved and deducted, revert deduction
-    if (String(expense.status || '').toUpperCase() === 'APPROVED' && expense.walletId && expense.transactionId) {
+    if (String(expense.status || '').toUpperCase() === 'APPROVED' && expense.walletId) {
       const wallet = await Wallet.findById(expense.walletId);
       if (wallet) {
-        wallet.currentBalance = (Number(wallet.currentBalance) || 0) + Number(expense.amount || 0);
+        const amount = Number(expense.amount || 0);
+        wallet.currentBalance = (Number(wallet.currentBalance) || 0) + amount;
         await wallet.save();
+
+        await WalletTransaction.create({
+          transactionType: 'EXPENSE',
+          category: 'EXPENSE',
+          sourceWallet: wallet._id,
+          amount: -Math.abs(amount),
+          date: new Date().toISOString().split('T')[0],
+          sourceCategory: 'FINANCE_EXPENSE_REVERSAL',
+          sourceModule: 'Finance Expense',
+          referenceNo: `REV-EXP-${expense._id.toString().slice(-6)}`,
+          description: `Reversal: Expense rejected after approval - ${expense.category || 'Expense'}${expense.subCategory ? ` (${expense.subCategory})` : ''} refunded to ${wallet.name}`,
+          performedBy: userId || null,
+          performedByName: rejecterName,
+          balanceAfterSource: wallet.currentBalance,
+          isReversal: true,
+        });
       }
-      await WalletTransaction.findByIdAndDelete(expense.transactionId);
       expense.transactionId = null;
     }
 
@@ -643,6 +665,437 @@ class FinanceService {
     const finalNetChange = exactClosing && exactClosing.netChange !== undefined ? Number(exactClosing.netChange) : (finalInflows - finalOutflows);
     const finalHoldings = exactClosing && exactClosing.totalHolding ? Number(exactClosing.totalHolding) : totalCurrentHolding;
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // DETAILED CLOSING SECTOR BREAKDOWNS (Fee, Incomes, Payroll, Expenses)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const todayStr = new Date().toISOString().split('T')[0];
+    const queryDateFrom = effectiveDateFrom || todayStr;
+    const queryDateTo = effectiveDateTo || todayStr;
+    const startOfDay = new Date(`${queryDateFrom}T00:00:00.000Z`);
+    const endOfDay = new Date(`${queryDateTo}T23:59:59.999Z`);
+
+    const defaultWallet = wallets.find(w => w.type === 'CASH') || wallets[0] || null;
+    const defaultWalletId = defaultWallet ? String(defaultWallet._id) : null;
+    const defaultWalletName = defaultWallet ? defaultWallet.name : 'Cash in Hand';
+
+    // Find any reversal challan numbers so we can ensure deleted/reversed challans never appear
+    const reversalTxs = await WalletTransaction.find({
+      isReversal: true,
+    }).lean().catch(() => []);
+    const reversedChallanNos = new Set(reversalTxs.map(t => t.challanNumber).filter(Boolean));
+
+    // 1. Fee Collections Breakdown (Active, non-reversed paid challans)
+    const feeChallans = await FeeChallan.find({
+      status: { $in: ['PAID', 'PARTIAL'] },
+      $or: [
+        { paidDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paidDate: { $in: [null, ''] }, updatedAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    })
+      .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
+      .lean()
+      .catch(() => []);
+
+    const extraChallans = await ExtraChallan.find({
+      status: { $in: ['PAID', 'PARTIAL'] },
+      $or: [
+        { paidDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paidDate: { $in: [null, ''] }, updatedAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    })
+      .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
+      .lean()
+      .catch(() => []);
+
+    const hostelChallans = await HostelChallan.find({
+      status: { $in: ['PAID', 'PARTIAL'] },
+      $or: [
+        { paidDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paidDate: { $in: [null, ''] }, updatedAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    })
+      .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
+      .lean()
+      .catch(() => []);
+
+    const feeCollectionDetails = [];
+    const seenChallans = new Set();
+
+    for (const c of [...feeChallans, ...extraChallans, ...hostelChallans]) {
+      const cNo = c.challanNo || c.challanNumber;
+      if (cNo && reversedChallanNos.has(cNo)) {
+        continue; // Exclude deleted / reversed challans
+      }
+      const idStr = String(c._id);
+      if (seenChallans.has(idStr)) continue;
+      seenChallans.add(idStr);
+
+      const paidAmount = Number(c.paidAmount || c.amount || 0);
+      if (paidAmount <= 0) continue; // Exclude non-positive amounts
+
+      const st = c.studentId || {};
+      const fName = st.fName || st.firstName || '';
+      const lName = st.lName || st.lastName || '';
+      const stName = `${fName} ${lName}`.trim() || c.studentName || 'Student';
+      const father = st.fatherOrguardian || st.fatherName || c.fatherName || '—';
+      const roll = st.rollNumber || st.rollNo || c.rollNumber || '—';
+
+      const baseAmount = Number(c.basePayable || c.amount || 0);
+      let headsStr = 'Tuition Fee';
+      let totalHeadsAmount = 0;
+      if (Array.isArray(c.challanHeads) && c.challanHeads.length > 0) {
+        totalHeadsAmount = c.challanHeads.reduce((s, h) => s + Number(h.amount || 0), 0);
+        headsStr = c.challanHeads.map(h => `${h.name || h.headName}: PKR ${Number(h.amount || 0).toLocaleString()}`).join(', ');
+      } else if (c.headsAmount) {
+        totalHeadsAmount = Number(c.headsAmount || 0);
+        headsStr = `PKR ${totalHeadsAmount.toLocaleString()}`;
+      } else if (c.totalAmount && baseAmount) {
+        const diff = Number(c.totalAmount) - baseAmount - Number(c.lateFeeAmount || c.fineAmount || 0);
+        if (diff > 0) totalHeadsAmount = diff;
+      }
+
+      const lateFee = Number(c.lateFeeAmount || c.fineAmount || 0);
+      const totalAmount = Number(c.totalAmount || c.grossAmount || (baseAmount + lateFee + totalHeadsAmount));
+
+      const assignedWalletId = c.walletId ? String(c.walletId) : defaultWalletId;
+      const assignedWalletName = c.walletName || (c.walletId ? wallets.find(w => String(w._id) === String(c.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      feeCollectionDetails.push({
+        id: idStr,
+        challanNo: cNo || '—',
+        studentName: stName,
+        fatherName: father,
+        rollNumber: roll,
+        compositeStudent: `${stName} • Father: ${father} • Roll: ${roll}`,
+        baseAmount,
+        heads: headsStr,
+        headsAmount: totalHeadsAmount,
+        lateFeeFine: lateFee,
+        totalAmount,
+        paidAmount,
+        type: c.challanNo?.startsWith('EX') ? 'Extra Challan' : (c.challanNo?.startsWith('HOS') ? 'Hostel Challan' : 'Tuition Challan'),
+        paymentMode: c.paymentMode || c.paidBy || 'Cash',
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+      });
+    }
+
+    const totalFeeCollection = feeCollectionDetails.reduce((s, c) => s + c.paidAmount, 0);
+
+    // 2. Other Incomes Breakdown
+    const financeIncomes = await FinanceIncome.find({
+      $or: [
+        { date: { $gte: queryDateFrom, $lte: queryDateTo } },
+        { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    }).lean().catch(() => []);
+
+    const otherIncomeDetails = [];
+    const seenIncomeIds = new Set();
+
+    for (const inc of financeIncomes) {
+      const amt = Number(inc.amount || 0);
+      if (amt <= 0) continue;
+      const idStr = String(inc._id);
+      seenIncomeIds.add(idStr);
+
+      const assignedWalletId = inc.walletId ? String(inc.walletId) : defaultWalletId;
+      const assignedWalletName = inc.walletName || (inc.walletId ? wallets.find(w => String(w._id) === String(inc.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      otherIncomeDetails.push({
+        id: idStr,
+        title: inc.description || inc.category || 'Other Revenue',
+        category: inc.category || 'Revenue',
+        subCategory: inc.subCategory || '',
+        source: inc.source || 'Direct Receipt',
+        amount: amt,
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        date: inc.date || queryDateFrom,
+        remarks: inc.description || inc.remarks || '—',
+      });
+    }
+
+    // Also include any direct non-fee deposit transactions in WalletTransaction
+    const directDeposits = await WalletTransaction.find({
+      transactionType: 'DEPOSIT',
+      amount: { $gt: 0 },
+      isReversal: { $ne: true },
+      sourceCategory: { $nin: ['CONTRA_TRANSFER', 'TRANSFER', 'FINANCE_INCOME'] },
+      $or: [
+        { date: { $gte: queryDateFrom, $lte: queryDateTo } },
+        { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    }).lean().catch(() => []);
+
+    for (const dep of directDeposits) {
+      const idStr = String(dep._id);
+      if (seenIncomeIds.has(idStr)) continue;
+      seenIncomeIds.add(idStr);
+
+      const amt = Number(dep.amount || 0);
+      if (amt <= 0) continue;
+
+      const assignedWalletId = dep.destinationWallet ? String(dep.destinationWallet) : defaultWalletId;
+      const assignedWalletName = (dep.destinationWallet ? wallets.find(w => String(w._id) === String(dep.destinationWallet))?.name : defaultWalletName) || 'Cash in Hand';
+
+      otherIncomeDetails.push({
+        id: idStr,
+        title: dep.description || dep.sourceCategory || 'Direct Deposit',
+        category: dep.sourceCategory || 'Deposit',
+        subCategory: '',
+        source: dep.referenceNo || 'Direct Receipt',
+        amount: amt,
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        date: dep.date || queryDateFrom,
+        remarks: dep.description || '—',
+      });
+    }
+
+    const totalOtherRevenue = otherIncomeDetails.reduce((s, inc) => s + inc.amount, 0);
+    const calculatedTotalIncome = totalFeeCollection + totalOtherRevenue;
+
+    // Group other revenue by category
+    const otherIncomeCategoriesMap = {};
+    for (const inc of otherIncomeDetails) {
+      const cat = inc.category || 'General';
+      if (!otherIncomeCategoriesMap[cat]) {
+        otherIncomeCategoriesMap[cat] = {
+          category: cat,
+          totalAmount: 0,
+          items: [],
+        };
+      }
+      otherIncomeCategoriesMap[cat].totalAmount += inc.amount;
+      otherIncomeCategoriesMap[cat].items.push(inc);
+    }
+    const otherIncomeCategories = Object.values(otherIncomeCategoriesMap);
+
+    // 3. Payroll / Salaries Breakdown
+    const payrollRecords = await Payroll.find({
+      status: { $in: ['PAID', 'partially_paid', 'PARTIALLY_PAID'] },
+      $or: [
+        { paymentDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paymentDate: { $in: [null, ''] }, updatedAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    })
+      .populate('staffId', 'name fatherName staffId designation department')
+      .lean()
+      .catch(() => []);
+
+    const payrollDetails = [];
+    const seenPayrolls = new Set();
+
+    for (const p of payrollRecords) {
+      const idKey = String(p._id);
+      seenPayrolls.add(idKey);
+      const paidAmt = Number(p.netSalary || p.paidAmount || p.amount || 0);
+      if (paidAmt <= 0) continue;
+
+      const st = p.staffId || {};
+      const staffName = st.name || p.staffName || 'Staff Member';
+      const fatherName = st.fatherName || '—';
+      const empId = st.staffId || p.staffId || '—';
+      const desig = st.designation || p.designation || 'Staff';
+
+      const assignedWalletId = p.walletId ? String(p.walletId) : defaultWalletId;
+      const assignedWalletName = p.walletName || p.paidBy || (p.walletId ? wallets.find(w => String(w._id) === String(p.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      payrollDetails.push({
+        id: idKey,
+        staffName,
+        fatherName,
+        employeeId: empId,
+        compositeStaff: `${staffName} • Father: ${fatherName} • ID: ${empId}`,
+        designation: desig,
+        payable: Number(p.basicSalary || p.baseSalary || p.currentSalary || 0),
+        deductions: Number(p.totalDeductions || 0),
+        allowance: Number(p.totalAllowances || 0),
+        totalAmount: paidAmt,
+        month: p.month || '',
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+      });
+    }
+
+    const totalPayroll = payrollDetails.reduce((s, p) => s + p.totalAmount, 0);
+
+    // 4. Other Expenses Breakdown
+    const financeExpenses = await FinanceExpense.find({
+      status: 'Approved',
+      $or: [
+        { date: { $gte: queryDateFrom, $lte: queryDateTo } },
+        { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    }).lean().catch(() => []);
+
+    const inventoryExpenses = await InventoryExpense.find({
+      $or: [
+        { date: { $gte: queryDateFrom, $lte: queryDateTo } },
+        { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    }).lean().catch(() => []);
+
+    const hostelExpenses = await HostelExpense.find({
+      $or: [
+        { date: { $gte: queryDateFrom, $lte: queryDateTo } },
+        { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    }).lean().catch(() => []);
+
+    const otherExpenseDetails = [];
+    const seenExpenseIds = new Set();
+
+    for (const e of financeExpenses) {
+      const amt = Number(e.amount || 0);
+      if (amt <= 0) continue;
+      const idStr = String(e._id);
+      seenExpenseIds.add(idStr);
+
+      const assignedWalletId = e.walletId ? String(e.walletId) : defaultWalletId;
+      const assignedWalletName = e.walletName || (e.walletId ? wallets.find(w => String(w._id) === String(e.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      otherExpenseDetails.push({
+        id: idStr,
+        title: e.description || e.category,
+        category: e.category || 'Operations',
+        subCategory: e.subCategory || '',
+        voucherNo: e.voucherNo || idStr.slice(-6),
+        vendor: e.vendor || e.source || '—',
+        amount: amt,
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        remarks: e.description || e.remarks || '—',
+      });
+    }
+
+    for (const e of inventoryExpenses) {
+      const amt = Number(e.amount || 0);
+      if (amt <= 0) continue;
+      const idStr = String(e._id);
+      if (seenExpenseIds.has(idStr)) continue;
+      seenExpenseIds.add(idStr);
+
+      const assignedWalletId = e.walletId ? String(e.walletId) : defaultWalletId;
+      const assignedWalletName = e.walletName || (e.walletId ? wallets.find(w => String(w._id) === String(e.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      otherExpenseDetails.push({
+        id: idStr,
+        title: e.description || e.itemName || 'Inventory Purchase',
+        category: 'Inventory',
+        subCategory: e.category || '',
+        voucherNo: e.voucherNo || idStr.slice(-6),
+        vendor: e.supplier || '—',
+        amount: amt,
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        remarks: e.description || '—',
+      });
+    }
+
+    for (const e of hostelExpenses) {
+      const amt = Number(e.amount || 0);
+      if (amt <= 0) continue;
+      const idStr = String(e._id);
+      if (seenExpenseIds.has(idStr)) continue;
+      seenExpenseIds.add(idStr);
+
+      const assignedWalletId = e.walletId ? String(e.walletId) : defaultWalletId;
+      const assignedWalletName = e.walletName || (e.walletId ? wallets.find(w => String(w._id) === String(e.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      otherExpenseDetails.push({
+        id: idStr,
+        title: e.description || e.title || 'Hostel Expense',
+        category: 'Hostel',
+        subCategory: e.category || '',
+        voucherNo: e.voucherNo || idStr.slice(-6),
+        vendor: e.vendor || '—',
+        amount: amt,
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        remarks: e.description || '—',
+      });
+    }
+
+    const totalOtherExpenses = otherExpenseDetails.reduce((s, e) => s + e.amount, 0);
+    const calculatedTotalExpense = totalPayroll + totalOtherExpenses;
+    const calculatedNetBalance = calculatedTotalIncome - calculatedTotalExpense;
+
+    // Group other expenses by category
+    const otherExpenseCategoriesMap = {};
+    for (const exp of otherExpenseDetails) {
+      const cat = exp.category || 'General';
+      if (!otherExpenseCategoriesMap[cat]) {
+        otherExpenseCategoriesMap[cat] = {
+          category: cat,
+          totalAmount: 0,
+          items: [],
+        };
+      }
+      otherExpenseCategoriesMap[cat].totalAmount += exp.amount;
+      otherExpenseCategoriesMap[cat].items.push(exp);
+    }
+    const otherExpenseCategories = Object.values(otherExpenseCategoriesMap);
+
+    // 5. Date-Specific Wallet Holdings Breakdown (Strictly Reconciled)
+    const walletsDateBreakdown = wallets.map(w => {
+      const wId = String(w._id);
+      const feeIn = feeCollectionDetails.filter(c => c.walletId === wId).reduce((s, c) => s + c.paidAmount, 0);
+      const incIn = otherIncomeDetails.filter(i => i.walletId === wId).reduce((s, i) => s + i.amount, 0);
+      const dateInflow = feeIn + incIn;
+
+      const payOut = payrollDetails.filter(p => p.walletId === wId).reduce((s, p) => s + p.totalAmount, 0);
+      const expOut = otherExpenseDetails.filter(e => e.walletId === wId).reduce((s, e) => s + e.amount, 0);
+      const dateOutflow = payOut + expOut;
+
+      const dateNetBalance = dateInflow - dateOutflow;
+
+      return {
+        walletId: wId,
+        walletName: w.name,
+        walletType: w.type,
+        bankName: w.bankName || '',
+        accountNumber: w.accountNumber || '',
+        location: w.location || '',
+        dateInflow,
+        dateOutflow,
+        dateNetBalance,
+        currentBalance: Number(w.currentBalance || 0),
+      };
+    });
+
+    // Summary tables for Income and Expense
+    const incomeSummary = [
+      {
+        sNo: 1,
+        particular: 'Student Fee Collections',
+        count: feeCollectionDetails.length,
+        amount: totalFeeCollection,
+      },
+      {
+        sNo: 2,
+        particular: 'Other Revenue & Direct Receipts',
+        count: otherIncomeDetails.length,
+        amount: totalOtherRevenue,
+      },
+    ];
+
+    const expenseSummary = [
+      {
+        sNo: 1,
+        particular: 'Staff Payroll & Salaries',
+        count: payrollDetails.length,
+        amount: totalPayroll,
+      },
+      {
+        sNo: 2,
+        particular: 'Other Operating Expenses',
+        count: otherExpenseDetails.length,
+        amount: totalOtherExpenses,
+      },
+    ];
+
     return {
       isDateFiltered: isFiltered,
       isExactCheckpoint: Boolean(exactClosing),
@@ -656,10 +1109,10 @@ class FinanceService {
         id: exactClosing._id,
         date: exactClosing.date,
         closingDateTime: exactClosing.closingDateTime || exactClosing.createdAt,
-        totalHolding: finalHoldings,
-        totalInflows: finalInflows,
-        totalOutflows: finalOutflows,
-        netChange: finalNetChange,
+        totalHolding: exactClosing.totalHolding || totalCurrentHolding,
+        totalInflows: calculatedTotalIncome,
+        totalOutflows: calculatedTotalExpense,
+        netChange: calculatedNetBalance,
         closedByName: exactClosing.closedByName || exactClosing.closedBy?.name || 'Admin',
         remarks: exactClosing.remarks || '',
       } : (lastClosing ? {
@@ -675,17 +1128,32 @@ class FinanceService {
       } : null),
       wallets: walletsCalculated,
       summary: {
-        totalCurrentHolding: finalHoldings,
-        totalInflows: finalInflows,
-        totalOutflows: finalOutflows,
-        totalNetChange: finalNetChange,
-        totalLastClosingHolding: finalHoldings - finalNetChange,
+        totalIncome: calculatedTotalIncome,
+        totalExpense: calculatedTotalExpense,
+        netBalance: calculatedNetBalance,
+        totalFeeCollection,
+        totalOtherRevenue,
+        totalPayroll,
+        totalOtherExpenses,
+        totalCurrentHolding: wallets.reduce((s, w) => s + Number(w.currentBalance || 0), 0),
         activeWalletsCount: wallets.length,
       },
-      categoryBreakdown: {
-        inflows: Object.entries(inflowCategories).map(([category, amount]) => ({ category, amount })),
-        outflows: Object.entries(outflowCategories).map(([category, amount]) => ({ category, amount })),
-      },
+      totalIncome: calculatedTotalIncome,
+      totalExpense: calculatedTotalExpense,
+      netBalance: calculatedNetBalance,
+      totalFeeCollection,
+      totalOtherRevenue,
+      totalPayroll,
+      totalOtherExpenses,
+      incomeSummary,
+      expenseSummary,
+      feeCollectionDetails,
+      otherIncomeDetails,
+      otherIncomeCategories,
+      payrollDetails,
+      otherExpenseDetails,
+      otherExpenseCategories,
+      walletsDateBreakdown,
     };
   }
 

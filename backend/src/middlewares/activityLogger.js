@@ -1,5 +1,402 @@
 const jwt = require('jsonwebtoken');
-const { ActivityLog, Staff, User } = require('../models');
+const mongoose = require('mongoose');
+const {
+  ActivityLog,
+  Staff,
+  User,
+  Student,
+  FeeChallan,
+  ExtraChallan,
+  FinanceExpense,
+  FinanceIncome,
+  InventoryItem,
+  Wallet,
+} = require('../models');
+
+// Field human-friendly labels mapping
+const FIELD_LABELS = {
+  fName: "First Name",
+  lName: "Last Name",
+  firstName: "First Name",
+  lastName: "Last Name",
+  fatherName: "Father's Name",
+  fatherOrguardian: "Father's Name",
+  guardianName: "Guardian Name",
+  rollNumber: "Roll Number",
+  rollNo: "Roll Number",
+  gender: "Gender",
+  email: "Email Address",
+  phone: "Phone Number",
+  contactNumber: "Contact Number",
+  emergencyContact: "Emergency Contact",
+  guardianPhone: "Guardian Phone",
+  parentOrGuardianPhone: "Parent / Guardian Phone",
+  address: "Address",
+  dob: "Date of Birth",
+  dateOfBirth: "Date of Birth",
+  admissionDate: "Admission Date",
+  registrationNumber: "Registration Number",
+  status: "Status",
+  programId: "Program",
+  classId: "Class",
+  sectionId: "Section",
+  sessionId: "Academic Session",
+  session: "Academic Session",
+  bloodGroup: "Blood Group",
+  religion: "Religion",
+  cnic: "CNIC / B-Form",
+  studentCnic: "Student CNIC",
+  parentCNIC: "Parent CNIC",
+  fatherCnic: "Father CNIC",
+  tuitionFee: "Tuition Fee",
+  totalTuition: "Total Tuition",
+  dueDate: "Due Date",
+  fine: "Late Fine",
+  lateFeeFine: "Late Fee Fine",
+  amount: "Amount",
+  totalAmount: "Total Amount",
+  paidAmount: "Paid Amount",
+  balance: "Balance",
+  discountAmount: "Discount Amount",
+  heads: "Fee Heads",
+  customHeads: "Custom Heads",
+  staffId: "Staff ID",
+  designation: "Designation",
+  department: "Department",
+  basicSalary: "Basic Salary",
+  joiningDate: "Joining Date",
+  qualification: "Qualification",
+  maritalStatus: "Marital Status",
+  employmentType: "Employment Type",
+  bankName: "Bank Name",
+  accountNumber: "Account Number",
+  accountTitle: "Account Title",
+  walletId: "Wallet / Account",
+  paymentMethod: "Payment Method",
+  note: "Note / Remarks",
+  remarks: "Remarks",
+  title: "Title",
+  description: "Description",
+  category: "Category",
+  quantity: "Quantity",
+  unitPrice: "Unit Price",
+  unit: "Unit",
+  supplier: "Supplier / Vendor",
+  roomNumber: "Room Number",
+  bedNumber: "Bed Number",
+  accountName: "Account Name",
+  currentBalance: "Current Balance",
+};
+
+const formatFieldLabel = (key) => {
+  if (!key) return '';
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
+};
+
+const resolveTargetFromDoc = (doc, entityType) => {
+  if (!doc) return null;
+  const idStr = String(doc._id || doc.id || '');
+
+  switch (entityType) {
+    case 'Student': {
+      const fName = doc.fName || doc.firstName || '';
+      const lName = doc.lName || doc.lastName || '';
+      const name = `${fName} ${lName}`.trim() || doc.name || doc.studentName || 'Student';
+      const father = doc.fatherOrguardian || doc.fatherName || doc.guardianName || '';
+      const roll = doc.rollNumber || doc.rollNo || '';
+      return {
+        entityType: 'Student',
+        entityId: idStr,
+        name,
+        subTitle: father ? `Father: ${father}` : '',
+        identifier: roll ? `Roll: ${roll}` : '',
+      };
+    }
+    case 'Staff': {
+      const fName = doc.fName || doc.firstName || '';
+      const lName = doc.lName || doc.lastName || '';
+      const name = doc.name || `${fName} ${lName}`.trim() || 'Staff Member';
+      const desig = doc.designation || (doc.department ? `Dept: ${doc.department}` : (doc.phone || ''));
+      const sId = doc.staffId || '';
+      return {
+        entityType: 'Staff',
+        entityId: idStr,
+        name,
+        subTitle: doc.fatherName ? `Father: ${doc.fatherName}` : (desig ? `Designation: ${desig}` : ''),
+        identifier: sId ? `Staff ID: ${sId}` : '',
+      };
+    }
+    case 'FeeChallan': {
+      const challanNo = doc.challanNo || doc.challanNumber || 'N/A';
+      const stName = doc.studentName || 'Fee Challan';
+      const month = doc.feeMonth || (doc.dueDate ? `Due: ${new Date(doc.dueDate).toLocaleDateString()}` : '');
+      return {
+        entityType: 'FeeChallan',
+        entityId: idStr,
+        name: stName,
+        subTitle: month ? `Month: ${month}` : '',
+        identifier: `Challan: #${challanNo}`,
+      };
+    }
+    case 'ExtraChallan': {
+      const challanNo = doc.challanNo || 'N/A';
+      const stName = doc.studentName || 'Extra Challan';
+      const title = doc.title || (doc.dueDate ? `Due: ${new Date(doc.dueDate).toLocaleDateString()}` : '');
+      return {
+        entityType: 'ExtraChallan',
+        entityId: idStr,
+        name: stName,
+        subTitle: title ? `Title: ${title}` : '',
+        identifier: `Extra Challan: #${challanNo}`,
+      };
+    }
+    case 'FinanceExpense': {
+      const title = doc.title || doc.category || 'Expense Voucher';
+      const amt = doc.amount != null ? `PKR ${Number(doc.amount).toLocaleString()}` : '';
+      const voucher = doc.voucherNo || idStr.slice(-6);
+      return {
+        entityType: 'Expense',
+        entityId: idStr,
+        name: title,
+        subTitle: amt,
+        identifier: `Voucher: ${voucher}`,
+      };
+    }
+    case 'FinanceIncome': {
+      const title = doc.title || doc.source || 'Income Voucher';
+      const amt = doc.amount != null ? `PKR ${Number(doc.amount).toLocaleString()}` : '';
+      const receipt = doc.receiptNo || idStr.slice(-6);
+      return {
+        entityType: 'Income',
+        entityId: idStr,
+        name: title,
+        subTitle: amt,
+        identifier: `Receipt: ${receipt}`,
+      };
+    }
+    case 'InventoryItem': {
+      const name = doc.itemName || doc.name || 'Inventory Item';
+      const cat = doc.category || (doc.quantity != null ? `Qty: ${doc.quantity}` : '');
+      const code = doc.itemCode || idStr.slice(-6);
+      return {
+        entityType: 'Inventory',
+        entityId: idStr,
+        name,
+        subTitle: cat,
+        identifier: `Item: ${code}`,
+      };
+    }
+    case 'Wallet': {
+      const name = doc.accountName || doc.name || 'Financial Account';
+      const type = doc.accountType || (doc.currentBalance != null ? `Balance: PKR ${Number(doc.currentBalance).toLocaleString()}` : '');
+      const acc = doc.accountNumber || idStr.slice(-6);
+      return {
+        entityType: 'Wallet',
+        entityId: idStr,
+        name,
+        subTitle: type,
+        identifier: `Account: ${acc}`,
+      };
+    }
+    default: {
+      return {
+        entityType: entityType || 'General',
+        entityId: idStr,
+        name: doc.name || doc.title || 'Record',
+        subTitle: doc.description || doc.type || '',
+        identifier: idStr ? `ID: ${idStr.slice(-6)}` : '',
+      };
+    }
+  }
+};
+
+const preFetchBeforeDoc = async (req) => {
+  const url = req.originalUrl || req.url;
+  const cleanPath = url.split('?')[0].toLowerCase();
+
+  const idFromQuery = req.query?.studentID || req.query?.studentId || req.query?.challanID || req.query?.challanId || req.query?.staffId || req.query?.id || req.query?._id;
+  const idFromBody = req.body?.studentID || req.body?.studentId || req.body?.challanId || req.body?.staffId || req.body?.id || req.body?._id;
+  const idFromPath = url.match(/\/([a-f0-9]{24})(?:[/?#]|$)/i)?.[1];
+  const targetId = idFromQuery || idFromPath || idFromBody;
+
+  if (!targetId) return;
+
+  let Model = null;
+  let entityType = '';
+
+  if (cleanPath.startsWith('/api/student')) {
+    Model = Student;
+    entityType = 'Student';
+  } else if (cleanPath.startsWith('/api/hr/staff')) {
+    Model = Staff;
+    entityType = 'Staff';
+  } else if (cleanPath.startsWith('/api/fee-management/extra-challan') || cleanPath.startsWith('/api/fee/challans/extra')) {
+    Model = ExtraChallan;
+    entityType = 'ExtraChallan';
+  } else if (cleanPath.startsWith('/api/fee-management/challan') || cleanPath.startsWith('/api/fee/challans')) {
+    Model = FeeChallan;
+    entityType = 'FeeChallan';
+  } else if (cleanPath.startsWith('/api/finance/expense')) {
+    Model = FinanceExpense;
+    entityType = 'FinanceExpense';
+  } else if (cleanPath.startsWith('/api/finance/income')) {
+    Model = FinanceIncome;
+    entityType = 'FinanceIncome';
+  } else if (cleanPath.startsWith('/api/inventory')) {
+    Model = InventoryItem;
+    entityType = 'InventoryItem';
+  } else if (cleanPath.startsWith('/api/wallets')) {
+    Model = Wallet;
+    entityType = 'Wallet';
+  }
+
+  if (Model && targetId) {
+    req._targetEntityType = entityType;
+    if (mongoose.Types.ObjectId.isValid(targetId)) {
+      req._beforeDoc = await Model.findById(targetId).lean();
+    } else {
+      req._beforeDoc = await Model.findOne({
+        $or: [{ _id: targetId }, { staffId: targetId }, { rollNumber: targetId }, { challanNo: targetId }]
+      }).lean();
+    }
+  }
+};
+
+const areInstallmentsEqual = (oldList, newList) => {
+  let a = oldList;
+  let b = newList;
+  if (typeof a === 'string') {
+    try { a = JSON.parse(a); } catch (e) { a = []; }
+  }
+  if (typeof b === 'string') {
+    try { b = JSON.parse(b); } catch (e) { b = []; }
+  }
+
+  if (!Array.isArray(a) && !Array.isArray(b)) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+
+  const toYMD = (d) => {
+    if (!d) return '';
+    if (d instanceof Date) return d.toISOString().split('T')[0];
+    return String(d).split('T')[0];
+  };
+
+  for (let i = 0; i < a.length; i++) {
+    const itemA = a[i] || {};
+    const itemB = b[i] || {};
+
+    const numA = itemA.installmentNumber || (i + 1);
+    const numB = itemB.installmentNumber || (i + 1);
+    if (numA !== numB) return false;
+
+    const amtA = Number(itemA.amount || 0);
+    const amtB = Number(itemB.amount || 0);
+    if (amtA !== amtB) return false;
+
+    const dueA = toYMD(itemA.dueDate);
+    const dueB = toYMD(itemB.dueDate);
+    if (dueA !== dueB) return false;
+
+    const statusA = String(itemA.status || 'UNPAID').toUpperCase();
+    const statusB = String(itemB.status || 'UNPAID').toUpperCase();
+    if (statusA !== statusB) return false;
+
+    const paidA = Number(itemA.paidAmount || 0);
+    const paidB = Number(itemB.paidAmount || 0);
+    if (paidA !== paidB) return false;
+  }
+
+  return true;
+};
+
+const sanitizeInstallmentsForLog = (list) => {
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch (e) { return list; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.map((inst, idx) => ({
+    installmentNumber: inst.installmentNumber || idx + 1,
+    month: inst.month || '',
+    amount: Number(inst.amount || 0),
+    dueDate: inst.dueDate ? String(inst.dueDate).split('T')[0] : '',
+    status: (inst.status || 'UNPAID').toUpperCase(),
+    paidAmount: Number(inst.paidAmount || 0),
+  }));
+};
+
+const calculateDiff = (beforeDoc, afterDoc, body) => {
+  if (!beforeDoc) return [];
+  const changes = [];
+  const ignoredKeys = new Set([
+    '_id', 'id', 'studentID', 'studentId', 'challanId', 'staffId',
+    'createdAt', 'updatedAt', '__v', 'password', 'token', 'removePhoto',
+    'files', 'headers', 'authorization'
+  ]);
+
+  const candidateKeys = new Set([
+    ...Object.keys(body || {}),
+    'lateFeeFine', 'totalAmount', 'status', 'dueAmount', 'paidAmount'
+  ]);
+
+  for (const key of candidateKeys) {
+    if (ignoredKeys.has(key)) continue;
+
+    const oldRaw = beforeDoc[key];
+    const newRaw = afterDoc && afterDoc[key] !== undefined ? afterDoc[key] : (body ? body[key] : undefined);
+
+    if (newRaw === undefined) continue;
+
+    // Special handling for installments array
+    if (key === 'installments') {
+      if (areInstallmentsEqual(oldRaw, newRaw)) {
+        continue;
+      }
+      changes.push({
+        field: 'installments',
+        fieldLabel: 'Installment Plan',
+        oldValue: sanitizeInstallmentsForLog(oldRaw),
+        newValue: sanitizeInstallmentsForLog(newRaw),
+      });
+      continue;
+    }
+
+    const normalize = (v) => {
+      if (v === null || v === undefined) return '';
+      if (v instanceof Date) return v.toISOString().split('T')[0];
+      if (typeof v === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return v.split('T')[0];
+        return v.trim();
+      }
+      if (typeof v === 'number') return String(v);
+      if (typeof v === 'boolean') return v ? 'true' : 'false';
+      if (typeof v === 'object') {
+        if (v._id) return String(v._id);
+        try { return JSON.stringify(v); } catch { return String(v); }
+      }
+      return String(v);
+    };
+
+    const normOld = normalize(oldRaw);
+    const normNew = normalize(newRaw);
+
+    if (normOld !== normNew) {
+      changes.push({
+        field: key,
+        fieldLabel: formatFieldLabel(key),
+        oldValue: oldRaw ?? (normOld === '' ? 'None' : normOld),
+        newValue: newRaw ?? (normNew === '' ? 'None' : normNew),
+      });
+    }
+  }
+
+  return changes;
+};
 
 // Helper to sanitize request body
 const sanitizeData = (data) => {
@@ -466,6 +863,10 @@ const activityLogger = (req, res, next) => {
     return next();
   }
 
+  const method = req.method.toUpperCase();
+  const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  const isUpdateOrDelete = ['PUT', 'PATCH', 'DELETE'].includes(method);
+
   // Extract auth token immediately if present
   let authUser = req.user || null;
   if (!authUser) {
@@ -502,9 +903,6 @@ const activityLogger = (req, res, next) => {
 
   // When request completes
   res.on('finish', () => {
-    // Determine if we should record this request
-    const method = req.method.toUpperCase();
-    const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
     const isFailed = res.statusCode >= 400;
     const isAuth = url.startsWith('/api/auth/login') || url.startsWith('/api/auth/logout');
 
@@ -555,8 +953,91 @@ const activityLogger = (req, res, next) => {
           }
         }
 
-        // Resolve module info & description
-        const { module, subModule, action, description } = resolveModuleInfo(url, method, req.body, user);
+        // Resolve base module info
+        let { module, subModule, action, description } = resolveModuleInfo(url, method, req.body, user);
+
+        // Resolve Target Entity
+        let targetEntity = null;
+        if (req._beforeDoc && req._targetEntityType) {
+          targetEntity = resolveTargetFromDoc(req._beforeDoc, req._targetEntityType);
+        } else if (res.statusCode < 400) {
+          const respDoc = (responseData && typeof responseData === 'object')
+            ? (responseData.data || responseData.student || responseData.staff || responseData.challan || responseData)
+            : null;
+          if (respDoc && typeof respDoc === 'object' && (respDoc._id || respDoc.name || respDoc.fName || respDoc.firstName || respDoc.studentName || respDoc.rollNumber || respDoc.challanNo)) {
+            const cleanPath = url.split('?')[0].toLowerCase();
+            let guessedType = '';
+            if (cleanPath.startsWith('/api/student')) guessedType = 'Student';
+            else if (cleanPath.startsWith('/api/hr/staff')) guessedType = 'Staff';
+            else if (cleanPath.startsWith('/api/fee-management/extra-challan') || cleanPath.startsWith('/api/fee/challans/extra')) guessedType = 'ExtraChallan';
+            else if (cleanPath.startsWith('/api/fee-management/challan') || cleanPath.startsWith('/api/fee/challans')) guessedType = 'FeeChallan';
+            else if (cleanPath.startsWith('/api/finance/expense')) guessedType = 'FinanceExpense';
+            else if (cleanPath.startsWith('/api/finance/income')) guessedType = 'FinanceIncome';
+            else if (cleanPath.startsWith('/api/inventory')) guessedType = 'InventoryItem';
+            else if (cleanPath.startsWith('/api/wallets')) guessedType = 'Wallet';
+
+            if (guessedType) {
+              targetEntity = resolveTargetFromDoc(respDoc, guessedType);
+            }
+          }
+        }
+
+        // Fallback targetEntity if still empty but req.body has identifier info
+        if (!targetEntity) {
+          const b = req.body || {};
+          const candidateName =
+            (b.fName ? `${b.fName} ${b.lName || ''}`.trim() : '') ||
+            (b.firstName ? `${b.firstName} ${b.lastName || ''}`.trim() : '') ||
+            b.name ||
+            b.studentName ||
+            b.title ||
+            b.accountName ||
+            '';
+          if (candidateName) {
+            const father = b.fatherOrguardian || b.fatherName || '';
+            const roll = b.rollNumber || b.rollNo || '';
+            const staffIdVal = b.staffId || '';
+            const challanVal = b.challanNo || b.challanNumber || '';
+
+            targetEntity = {
+              entityType: subModule || module || 'Record',
+              entityId: String(b.id || b._id || b.studentID || ''),
+              name: candidateName,
+              subTitle: father ? `Father: ${father}` : (b.designation ? `Designation: ${b.designation}` : (b.amount ? `PKR ${Number(b.amount).toLocaleString()}` : '')),
+              identifier: roll ? `Roll: ${roll}` : (staffIdVal ? `Staff ID: ${staffIdVal}` : (challanVal ? `Challan: #${challanVal}` : '')),
+            };
+          }
+        }
+
+        // Calculate changes
+        let changes = [];
+        if (['PUT', 'PATCH'].includes(method) && req._beforeDoc) {
+          const afterDoc = (responseData && typeof responseData === 'object')
+            ? (responseData.data || responseData.student || responseData.staff || responseData.challan || responseData)
+            : null;
+          changes = calculateDiff(req._beforeDoc, afterDoc, req.body);
+        } else if (method === 'DELETE') {
+          changes = [{ field: 'record', fieldLabel: 'Record Status', oldValue: 'Active Record', newValue: 'Deleted' }];
+        } else if (method === 'POST' && res.statusCode < 400 && !isAuth) {
+          changes = [{ field: 'record', fieldLabel: 'Record Status', oldValue: 'None', newValue: 'Created' }];
+        }
+
+        // Enrich description if targetEntity is known
+        if (targetEntity && targetEntity.name && !isFailed) {
+          if (['PUT', 'PATCH'].includes(method)) {
+            if (changes.length > 0) {
+              const summaryFields = changes.map(c => c.fieldLabel).slice(0, 3).join(', ');
+              const more = changes.length > 3 ? ` (+${changes.length - 3} more)` : '';
+              description = `Updated ${targetEntity.entityType || 'record'}: ${targetEntity.name} ${targetEntity.identifier ? `(${targetEntity.identifier})` : ''} — modified ${summaryFields}${more}`;
+            } else {
+              description = `Updated ${targetEntity.entityType || 'record'}: ${targetEntity.name} ${targetEntity.identifier ? `(${targetEntity.identifier})` : ''}`;
+            }
+          } else if (method === 'POST') {
+            description = `Created ${targetEntity.entityType || 'record'}: ${targetEntity.name} ${targetEntity.identifier ? `(${targetEntity.identifier})` : ''} ${targetEntity.subTitle ? `• ${targetEntity.subTitle}` : ''}`.trim();
+          } else if (method === 'DELETE') {
+            description = `Deleted ${targetEntity.entityType || 'record'}: ${targetEntity.name} ${targetEntity.identifier ? `(${targetEntity.identifier})` : ''}`.trim();
+          }
+        }
 
         // Determine status & failure reason
         const status = isFailed ? 'FAILED' : 'SUCCESS';
@@ -596,6 +1077,14 @@ const activityLogger = (req, res, next) => {
           failureReason: failureReason || '',
           ipAddress,
           userAgent,
+          targetEntity: targetEntity || {
+            entityType: '',
+            entityId: '',
+            name: '',
+            subTitle: '',
+            identifier: '',
+          },
+          changes: changes || [],
           params: sanitizeData({ query: req.query, params: req.params }),
           body: sanitizeData(req.body),
           timestamp: new Date()
@@ -606,7 +1095,21 @@ const activityLogger = (req, res, next) => {
     });
   });
 
-  next();
+  const proceed = () => {
+    next();
+  };
+
+  if (isUpdateOrDelete) {
+    preFetchBeforeDoc(req)
+      .catch((err) => {
+        // silent fail
+      })
+      .finally(() => {
+        proceed();
+      });
+  } else {
+    proceed();
+  }
 };
 
 module.exports = activityLogger;

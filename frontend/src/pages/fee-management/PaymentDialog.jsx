@@ -227,13 +227,13 @@ export const PaymentDialog = ({
             walletId: selectedWalletId || undefined,
           }
         });
-        queryClient.invalidateQueries(['feeChallans']);
-        queryClient.invalidateQueries(['extraChallans']);
-        queryClient.invalidateQueries(['studentFeeHistory']);
-        queryClient.invalidateQueries(['wallets']);
-        queryClient.invalidateQueries(['walletHistory']);
-        queryClient.invalidateQueries(['walletTuitionLogs']);
-        queryClient.invalidateQueries(['walletStats']);
+        queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+        queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+        queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
+        queryClient.invalidateQueries({ queryKey: ['wallets'] });
+        queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
+        queryClient.invalidateQueries({ queryKey: ['walletTuitionLogs'] });
+        queryClient.invalidateQueries({ queryKey: ['walletStats'] });
         toast({ title: "Payment recorded successfully" });
         onOpenChange(false);
         onPaymentSuccess?.();
@@ -259,14 +259,14 @@ export const PaymentDialog = ({
         remarks: challanForm.remarks || undefined,
         walletId: selectedWalletId || undefined,
       });
-      queryClient.invalidateQueries(['feeChallans']);
-      queryClient.invalidateQueries(['extraChallans']);
-      queryClient.invalidateQueries(['studentFeeHistory']);
-      queryClient.invalidateQueries(['studentCredit']);
-      queryClient.invalidateQueries(['wallets']);
-      queryClient.invalidateQueries(['walletHistory']);
-      queryClient.invalidateQueries(['walletTuitionLogs']);
-      queryClient.invalidateQueries(['walletStats']);
+      queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['studentCredit'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['walletTuitionLogs'] });
+      queryClient.invalidateQueries({ queryKey: ['walletStats'] });
       toast({ title: "Payment recorded successfully" });
       onOpenChange(false);
       onPaymentSuccess?.();

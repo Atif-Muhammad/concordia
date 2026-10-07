@@ -265,20 +265,35 @@ export default function WalletsManagement() {
 
   const walletTuitionLogs = walletTuitionLogsData?.logs || [];
 
+  // Fetch transfers & deposits strictly for the selected wallet
+  const {
+    data: walletDetailTransfersData,
+  } = useQuery({
+    queryKey: ["walletDetailTransfers", selectedWalletForDetail?.id || selectedWalletForDetail?._id],
+    queryFn: () =>
+      getWalletHistory({
+        walletId: selectedWalletForDetail?.id || selectedWalletForDetail?._id,
+        limit: 100,
+      }),
+    enabled: walletDetailOpen && !!selectedWalletForDetail,
+  });
+
   // Filter transfers specifically involving the selected wallet
   const walletTransfers = useMemo(() => {
     if (!selectedWalletForDetail) return [];
+    const sourceList = walletDetailTransfersData?.transactions || transactions;
     const wId = selectedWalletForDetail.id || selectedWalletForDetail._id;
-    return transactions.filter(
+    return sourceList.filter(
       (tx) =>
-        tx.sourceWallet?.id === wId ||
-        tx.sourceWallet?._id === wId ||
-        tx.sourceWallet === wId ||
-        tx.destinationWallet?.id === wId ||
-        tx.destinationWallet?._id === wId ||
-        tx.destinationWallet === wId
+        (tx.transactionType === "CONTRA_TRANSFER" || tx.transactionType === "DEPOSIT") &&
+        (tx.sourceWallet?.id === wId ||
+          tx.sourceWallet?._id === wId ||
+          tx.sourceWallet === wId ||
+          tx.destinationWallet?.id === wId ||
+          tx.destinationWallet?._id === wId ||
+          tx.destinationWallet === wId)
     );
-  }, [transactions, selectedWalletForDetail]);
+  }, [walletDetailTransfersData, transactions, selectedWalletForDetail]);
 
   const handleOpenWalletDetail = (wallet) => {
     setSelectedWalletForDetail(wallet);
@@ -1011,6 +1026,8 @@ export default function WalletsManagement() {
                       <SelectItem value="CONTRA_TRANSFER">Contra Transfer</SelectItem>
                       <SelectItem value="HOSTEL_FEE">Hostel Fee Collection</SelectItem>
                       <SelectItem value="FEE">Tuition Fee Collection</SelectItem>
+                      <SelectItem value="EXPENSE">Expense Disbursed</SelectItem>
+                      <SelectItem value="PAYROLL">Payroll Disbursed</SelectItem>
                       <SelectItem value="OPENING_BALANCE">Opening Balance</SelectItem>
                       <SelectItem value="WALLET_UPDATED">Opening Adjustment</SelectItem>
                     </SelectContent>
@@ -1080,7 +1097,9 @@ export default function WalletsManagement() {
                             "INVENTORY_ITEM_EXPENSE",
                             "INVENTORY_MANUAL_EXPENSE",
                             "INVENTORY_EXPENSE",
-                          ].includes(tx.category);
+                          ].includes(tx.category) ||
+                          Boolean(tx.sourceCategory?.includes("EXPENSE"));
+                        const isExpenseReversal = isReversal && isExpense;
                         const isPayroll = tx.transactionType === "PAYROLL" || tx.category === "PAYROLL";
 
                         return (
@@ -1158,14 +1177,17 @@ export default function WalletsManagement() {
                             <TableCell className="py-2.5 text-right font-mono font-bold">
                               <span
                                 className={cn(
-                                  isReversal && "text-destructive",
+                                  isExpenseReversal && "text-emerald-600",
+                                  !isExpenseReversal && isReversal && "text-destructive",
                                   !isReversal && (isDeposit || isHostelFee || isTuitionFee) && "text-emerald-600",
                                   !isReversal && isTransfer && "text-blue-600",
                                   !isReversal && (isExpense || isPayroll) && "text-destructive",
                                   !isReversal && (isOpening || isUpdate) && "text-foreground"
                                 )}
                               >
-                                {isReversal
+                                {isExpenseReversal
+                                  ? `+PKR ${Math.abs(Number(tx.amount || 0)).toLocaleString()}`
+                                  : isReversal
                                   ? `-PKR ${Math.abs(Number(tx.amount || 0)).toLocaleString()}`
                                   : (isDeposit || isHostelFee || isTuitionFee)
                                   ? `+PKR ${Math.abs(Number(tx.amount || 0)).toLocaleString()}`
@@ -2002,6 +2024,11 @@ export default function WalletsManagement() {
                         const isOutgoing = (tx.sourceWallet?.id === wId || tx.sourceWallet?._id === wId || tx.sourceWallet === wId) && tx.transactionType === "CONTRA_TRANSFER";
                         const isIncoming = (tx.destinationWallet?.id === wId || tx.destinationWallet?._id === wId || tx.destinationWallet === wId) && tx.transactionType === "CONTRA_TRANSFER";
                         const isDeposit = tx.transactionType === "DEPOSIT";
+                        const isReversal =
+                          tx.isReversal ||
+                          Number(tx.amount || 0) < 0 ||
+                          Boolean(tx.sourceCategory?.includes("REVERSAL")) ||
+                          Boolean(tx.description?.toLowerCase().includes("reversal"));
 
                         return (
                           <TableRow key={tx._id || tx.id}>
@@ -2009,9 +2036,14 @@ export default function WalletsManagement() {
                               {new Date(tx.date).toLocaleDateString()}
                             </TableCell>
                             <TableCell className="text-xs">
-                              {isDeposit && (
+                              {isDeposit && !isReversal && (
                                 <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[10px]">
                                   Direct Deposit
+                                </Badge>
+                              )}
+                              {isDeposit && isReversal && (
+                                <Badge variant="outline" className="border-destructive/30 text-destructive bg-destructive/5 text-[10px]">
+                                  Deposit Reversal
                                 </Badge>
                               )}
                               {isIncoming && (
@@ -2031,12 +2063,12 @@ export default function WalletsManagement() {
                               )}
                             </TableCell>
                             <TableCell className="text-xs">
-                              {isDeposit && (tx.category || tx.description || "Capital Deposit")}
+                              {isDeposit && (tx.category || tx.description || (isReversal ? "Deposit Reversal" : "Capital Deposit"))}
                               {isIncoming && `From: ${tx.sourceWallet?.name || "Other Account"}`}
                               {isOutgoing && `To: ${tx.destinationWallet?.name || "Other Account"}`}
                             </TableCell>
-                            <TableCell className={cn("text-xs font-semibold text-right font-mono", isOutgoing ? "text-destructive" : "text-emerald-600")}>
-                              {isOutgoing ? "-" : "+"}PKR {Number(tx.amount || 0).toLocaleString()}
+                            <TableCell className={cn("text-xs font-semibold text-right font-mono", (isOutgoing || isReversal) ? "text-destructive" : "text-emerald-600")}>
+                              {(isOutgoing || isReversal) ? "-" : "+"}PKR {Math.abs(Number(tx.amount || 0)).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-xs font-mono text-muted-foreground">
                               {tx.referenceNo || "—"}

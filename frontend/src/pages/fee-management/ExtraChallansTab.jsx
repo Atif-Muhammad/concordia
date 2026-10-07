@@ -267,8 +267,8 @@ export const ExtraChallansTab = ({
     mutationFn: bulkGenerateExtraChallans,
     onSuccess: (data) => {
       setIsGenerating(false);
-      queryClient.invalidateQueries(['feeChallans']);
-      queryClient.invalidateQueries(['extraChallans']);
+      queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
 
       const results = Array.isArray(data) ? data : [];
       const createdCount = results.filter(r => r.status === 'CREATED').length;
@@ -309,13 +309,13 @@ export const ExtraChallansTab = ({
   const deleteExtraChallanMutation = useMutation({
     mutationFn: deleteExtraChallanDedicated,
     onSuccess: () => {
-      queryClient.invalidateQueries(['extraChallans']);
-      queryClient.invalidateQueries(['studentFeeHistory']);
-      queryClient.invalidateQueries(['newFeeReportSummary']);
-      queryClient.invalidateQueries(['feeCollectionSummary']);
-      queryClient.invalidateQueries(['wallets']);
-      queryClient.invalidateQueries(['walletHistory']);
-      queryClient.invalidateQueries(['walletTuitionLogs']);
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['newFeeReportSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['feeCollectionSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['walletTuitionLogs'] });
       toast({ title: "Extra Challan deleted successfully" });
       setDeleteDialogOpen(false);
     },
@@ -326,8 +326,8 @@ export const ExtraChallansTab = ({
   const updateExtraChallanMutation = useMutation({
     mutationFn: ({ id, data }) => updateExtraChallanDedicated(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['extraChallans']);
-      queryClient.invalidateQueries(['studentFeeHistory']);
+      queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+      queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
       toast({ title: "Extra Challan updated successfully" });
       setEditExtraChallanOpen(false);
       setEditingChallan(null);
@@ -1026,8 +1026,8 @@ export const ExtraChallansTab = ({
 
                      if (result) {
                        toast({ title: "Extra challan created successfully" });
-                       queryClient.invalidateQueries(['feeChallans']);
-                       queryClient.invalidateQueries(['extraChallans']);
+                       queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
+                       queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
                        setCreateExtraChallanOpen(false);
                      } else {
                        toast({ title: "Could not create challan.", variant: "destructive" });
@@ -1627,8 +1627,8 @@ export const ExtraChallansTab = ({
         feeHeads={feeHeads}
         extraChallanLateFee={extraChallanLateFee}
         onPaymentSuccess={() => {
-          queryClient.invalidateQueries(['extraChallans']);
-          queryClient.invalidateQueries(['feeChallans']);
+          queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+          queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
         }}
       />
 

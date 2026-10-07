@@ -17,11 +17,25 @@ const ActivityLogSchema = new mongoose.Schema({
   failureReason: { type: String, default: '' },
   ipAddress: { type: String, default: '' },
   userAgent: { type: String, default: '' },
+  targetEntity: {
+    entityType: { type: String, default: '' },
+    entityId: { type: String, default: '' },
+    name: { type: String, default: '' },
+    subTitle: { type: String, default: '' },
+    identifier: { type: String, default: '' },
+  },
+  changes: [{
+    field: { type: String },
+    fieldLabel: { type: String },
+    oldValue: { type: mongoose.Schema.Types.Mixed },
+    newValue: { type: mongoose.Schema.Types.Mixed },
+  }],
   params: { type: mongoose.Schema.Types.Mixed },
   body: { type: mongoose.Schema.Types.Mixed },
   timestamp: { type: Date, default: Date.now, index: true }
 }, {
-  timestamps: true
+  timestamps: true,
+  strict: false
 });
 
 ActivityLogSchema.index({ timestamp: -1 });

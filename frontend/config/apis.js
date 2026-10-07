@@ -6437,6 +6437,18 @@ export const getActivityLogFilterOptions = async () => {
   }
 };
 
+export const getActivityLogById = async (id) => {
+  try {
+    const response = await axios.get(`${base_url}/configuration/activity-logs/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to fetch activity log details";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const clearActivityLogs = async (days = 90) => {
   try {
     const response = await axios.delete(`${base_url}/configuration/activity-logs/clear`, {

@@ -86,7 +86,11 @@ export const ChallanDetailsDialog = ({
       return receiptsData.map((r, idx) => ({
         id: r._id || r.id || idx,
         receiptNo: r.receiptNo || '-',
+        receiptType: r.receiptType || 'DIRECT',
         amount: Number(r.amountPaid ?? r.amount ?? 0),
+        advanceCreditUsed: Number(r.advanceCreditUsed || 0),
+        settledViaArrearsAmount: Number(r.settledViaArrearsAmount || 0),
+        sourceChallanNo: r.sourceChallanNo || '',
         date: r.paidDate || r.createdAt || currentChallan?.paidDate,
         time: r.paidTime || currentChallan?.paidTime,
         receivedBy: r.recordedBy?.name || r.receivedByName || currentChallan?.receivedByName || currentChallan?.paidBy || 'Super Admin',
@@ -104,7 +108,11 @@ export const ChallanDetailsDialog = ({
       return hist.map((entry, idx) => ({
         id: entry.id || idx,
         receiptNo: entry.receiptNo || `REC-${idx + 1}`,
+        receiptType: entry.receiptType || 'DIRECT',
         amount: Number(entry.amount || 0),
+        advanceCreditUsed: Number(entry.advanceCreditUsed || 0),
+        settledViaArrearsAmount: Number(entry.settledViaArrearsAmount || 0),
+        sourceChallanNo: entry.sourceChallanNo || '',
         date: entry.date || entry.paidDate || currentChallan?.paidDate,
         time: entry.paidTime || entry.time || currentChallan?.paidTime,
         receivedBy: entry.recordedBy?.name || entry.receivedBy || entry.recordedBy || entry.paidBy || currentChallan?.receivedByName || currentChallan?.paidBy || 'Super Admin',
@@ -114,21 +122,62 @@ export const ChallanDetailsDialog = ({
       }));
     }
 
+    const txs = [];
     if (Number(currentChallan?.paidAmount || 0) > 0) {
-      return [{
+      txs.push({
         id: currentChallan.id || currentChallan._id,
         receiptNo: currentChallan.challanNo ? `REC-${currentChallan.challanNo}` : '-',
+        receiptType: 'DIRECT',
         amount: Number(currentChallan.paidAmount),
+        advanceCreditUsed: 0,
+        settledViaArrearsAmount: 0,
+        sourceChallanNo: '',
         date: currentChallan.paidDate || currentChallan.updatedAt,
         time: currentChallan.paidTime,
         receivedBy: currentChallan.receivedByName || currentChallan.paidBy || 'Super Admin',
         paymentMode: currentChallan.paymentMode || currentChallan.paidBy || 'Cash',
         depositAccount: currentChallan.walletName || currentChallan.walletId?.name || '-',
         remarks: currentChallan.remarks || '-',
-      }];
+      });
     }
 
-    return [];
+    if (Number(currentChallan?.advanceApplied || 0) > 0) {
+      txs.push({
+        id: `adv-${currentChallan.id || currentChallan._id}`,
+        receiptNo: `ADV-${currentChallan.challanNo || 'SETTLE'}`,
+        receiptType: 'ADVANCE_SETTLEMENT',
+        amount: 0,
+        advanceCreditUsed: Number(currentChallan.advanceApplied),
+        settledViaArrearsAmount: 0,
+        sourceChallanNo: '',
+        date: currentChallan.issueDate || currentChallan.createdAt,
+        time: currentChallan.paidTime,
+        receivedBy: 'System / Ledger',
+        paymentMode: 'Advance Credit',
+        depositAccount: 'Advance Credit Ledger',
+        remarks: 'Settled from student advance balance',
+      });
+    }
+
+    if (Number(currentChallan?.settledViaArrearsAmount || 0) > 0) {
+      txs.push({
+        id: `arr-${currentChallan.id || currentChallan._id}`,
+        receiptNo: `ARR-${currentChallan.challanNo || 'SETTLE'}`,
+        receiptType: 'ARREARS_SETTLEMENT',
+        amount: 0,
+        advanceCreditUsed: 0,
+        settledViaArrearsAmount: Number(currentChallan.settledViaArrearsAmount),
+        sourceChallanNo: currentChallan.settledInChallanNo || '',
+        date: currentChallan.updatedAt,
+        time: currentChallan.paidTime,
+        receivedBy: 'System / Ledger',
+        paymentMode: 'Arrears Transfer',
+        depositAccount: 'Arrears Settlement Ledger',
+        remarks: `Settled via Arrears in Challan #${currentChallan.settledInChallanNo || ''}`,
+      });
+    }
+
+    return txs;
   }, [receiptsData, currentChallan]);
 
   if (!challan) return null;
@@ -192,6 +241,11 @@ export const ChallanDetailsDialog = ({
 
   const isVoid = currentChallan.status === "VOID";
   const isSettled = currentChallan.status === "SETTLED";
+  const isPaid = (currentChallan.status || "").toUpperCase() === "PAID";
+  const isLocked = ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((currentChallan.status || '').toUpperCase()) ||
+    Boolean(currentChallan.paidDate) ||
+    (Number(currentChallan.paidAmount || 0) > 0 && Number(currentChallan.paidAmount || 0) >= Number(currentChallan.netPayable || currentChallan.totalAmount || 0));
+
   const discountVal = Number(currentChallan.snapshotDiscount || currentChallan.discount || currentChallan.installment?.discount || 0);
   const hasAbsenteeInHeads = (currentChallan.challanHeads || currentChallan.heads || []).some(h => (h?.name || '').toLowerCase().includes('absent'));
   const absentiesFineVal = hasAbsenteeInHeads
@@ -207,10 +261,10 @@ export const ChallanDetailsDialog = ({
     0
   );
   const existingFine = Number(currentChallan.snapshotLateFee ?? currentChallan.lateFeeAmount ?? currentChallan.lateFeeFine ?? 0);
-  const autoFine = (!isSettled && !isVoid && currentChallan.dueDate && effectiveRate > 0)
+  const autoFine = (!isLocked && currentChallan.dueDate && effectiveRate > 0)
     ? calculateLateFee(currentChallan.dueDate, effectiveRate)
     : 0;
-  const lateFeeFineVal = Math.max(existingFine, autoFine);
+  const lateFeeFineVal = isLocked ? existingFine : Math.max(existingFine, autoFine);
 
   const baseAmount = Number(currentChallan.snapshotBaseAmount ?? currentChallan.basePayable ?? (currentChallan.amount || 0));
   const headsVal = Number(getSelectedHeadsTotal(currentChallan) || currentChallan.headsAmount || 0);
@@ -936,7 +990,7 @@ export const ChallanDetailsDialog = ({
                 </CardContent>
               </Card>
 
-              {/* Session History (for regular installment challans) or Extra Scope Card (for extra challans) */}
+              {/* Extra Scope Card or Remarks Card */}
               {isExtra ? (
                 <Card className="shadow-sm border-border bg-slate-50/50">
                   <CardHeader className="pb-2 py-3 border-b bg-white">
@@ -957,69 +1011,19 @@ export const ChallanDetailsDialog = ({
                     )}
                   </CardContent>
                 </Card>
-              ) : (
+              ) : currentChallan.remarks ? (
                 <Card className="shadow-sm border-border bg-slate-50/50">
                   <CardHeader className="pb-2 py-3 border-b bg-white">
                     <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-2">
-                      <History className="w-3.5 h-3.5" />
-                      Session Payment History
+                      <Receipt className="w-3.5 h-3.5" />
+                      Remarks / Notes
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableBody>
-                          {(() => {
-                            const currentNum = currentChallan.installmentNo || currentChallan.installment?.installmentNumber || 0;
-                            const history = (currentChallan.installment?.student?.feeInstallments || [])
-                              .filter(i => i.installmentNumber < currentNum)
-                              .sort((a,b) => a.installmentNumber - b.installmentNumber);
-                            
-                            if (history.length === 0) {
-                              return (
-                                <TableRow className="h-8 bg-white">
-                                  <TableCell colSpan={2} className="text-[10px] italic text-slate-400 py-1 px-3 text-center">
-                                    No previous installments in this session history.
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            }
-
-                            return (
-                              <>
-                                <TableRow className="h-8 bg-white">
-                                  <TableCell className="text-[10px] font-bold py-1 px-3 border-r bg-slate-50 w-24">Month</TableCell>
-                                  {history.map((inst, idx) => (
-                                    <TableCell key={idx} className="text-[10px] text-center py-1 px-2 border-r last:border-r-0 min-w-[60px]">
-                                      {inst.month || `#${inst.installmentNumber}`}
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                                <TableRow className="h-8 bg-white">
-                                  <TableCell className="text-[10px] font-bold py-1 px-3 border-r bg-slate-50">Total</TableCell>
-                                  {history.map((inst, idx) => (
-                                    <TableCell key={idx} className="text-[10px] text-center py-1 px-2 border-r last:border-r-0 font-medium">
-                                      {formatAmount(inst.totalAmount)}
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                                <TableRow className="h-8 bg-white">
-                                  <TableCell className="text-[10px] font-bold py-1 px-3 border-r bg-slate-50">Paid</TableCell>
-                                  {history.map((inst, idx) => (
-                                    <TableCell key={idx} className="text-[10px] text-center py-1 px-2 border-r last:border-r-0 font-bold text-success">
-                                      {formatAmount(inst.paidAmount)}
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                              </>
-                            );
-                          })()}
-                        </TableBody>
-                      </Table>
-                    </div>
+                  <CardContent className="p-3 text-xs">
+                    <p className="text-slate-700 italic">{currentChallan.remarks}</p>
                   </CardContent>
                 </Card>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -1027,12 +1031,12 @@ export const ChallanDetailsDialog = ({
           <Card className="shadow-sm border-border overflow-hidden">
             <CardHeader className="pb-2.5 bg-slate-50/70 border-b flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-emerald-600" />
+                <Receipt className="w-4 h-4 text-slate-600" />
                 Payment Transactions
               </CardTitle>
               {transactions.length > 0 && (
-                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
-                  {transactions.length} Transaction{transactions.length > 1 ? 's' : ''}
+                <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200 text-[10px] font-medium">
+                  {transactions.length} Record{transactions.length > 1 ? 's' : ''}
                 </Badge>
               )}
             </CardHeader>
@@ -1053,7 +1057,8 @@ export const ChallanDetailsDialog = ({
                       <TableRow className="h-8">
                         <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Receipt #</TableHead>
                         <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Date & Time</TableHead>
-                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px] text-right">Amount Paid</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Type</TableHead>
+                        <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px] text-right">Amount / Settlement</TableHead>
                         <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Received By</TableHead>
                         <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Payment Mode</TableHead>
                         <TableHead className="text-xs px-3 py-2 font-bold uppercase text-[10px]">Deposit Account</TableHead>
@@ -1063,27 +1068,58 @@ export const ChallanDetailsDialog = ({
                     <TableBody>
                       {transactions.map((tx, idx) => (
                         <TableRow key={tx.id || idx} className="h-9 hover:bg-muted/30">
-                          <TableCell className="px-3 py-2 text-xs font-mono text-slate-600 font-medium whitespace-nowrap">
+                          <TableCell className="px-3 py-2 text-xs font-mono text-slate-700 font-medium whitespace-nowrap">
                             {tx.receiptNo}
                           </TableCell>
                           <TableCell className="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">
                             {format12HourDateTime(tx.date, tx.time)}
                           </TableCell>
-                          <TableCell className="px-3 py-2 text-xs font-bold font-mono text-emerald-700 text-right whitespace-nowrap">
-                            PKR {formatAmount(tx.amount)}
+                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">
+                            {tx.receiptType === 'ADVANCE_SETTLEMENT' ? (
+                              <Badge variant="outline" className="text-[10px] font-normal bg-slate-50 text-slate-700 border-slate-300">
+                                Advance Settle
+                              </Badge>
+                            ) : tx.receiptType === 'ARREARS_SETTLEMENT' ? (
+                              <Badge variant="outline" className="text-[10px] font-normal bg-slate-50 text-slate-700 border-slate-300">
+                                Arrears Settle
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] font-normal bg-slate-50 text-slate-700 border-slate-300">
+                                Direct Payment
+                              </Badge>
+                            )}
                           </TableCell>
-                          <TableCell className="px-3 py-2 text-xs font-medium text-slate-800 whitespace-nowrap">
+                          <TableCell className="px-3 py-2 text-xs font-bold font-mono text-right whitespace-nowrap">
+                            {tx.receiptType === 'ADVANCE_SETTLEMENT' ? (
+                              <div className="flex flex-col items-end">
+                                <span className="text-slate-800">PKR 0</span>
+                                <span className="text-[10px] font-normal text-muted-foreground">
+                                  Advance: PKR {formatAmount(tx.advanceCreditUsed)}
+                                </span>
+                              </div>
+                            ) : tx.receiptType === 'ARREARS_SETTLEMENT' ? (
+                              <div className="flex flex-col items-end">
+                                <span className="text-slate-800">PKR 0</span>
+                                <span className="text-[10px] font-normal text-muted-foreground">
+                                  Settled: PKR {formatAmount(tx.settledViaArrearsAmount)}{tx.sourceChallanNo ? ` (Challan #${tx.sourceChallanNo})` : ''}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-900">
+                                PKR {formatAmount(tx.amount)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">
                             {tx.receivedBy}
                           </TableCell>
-                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">
-                            <Badge variant="outline" className="text-[10px] uppercase font-semibold bg-slate-50">
-                              {tx.paymentMode}
-                            </Badge>
+                          <TableCell className="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">
+                            {tx.paymentMode}
                           </TableCell>
                           <TableCell className="px-3 py-2 text-xs text-slate-700 font-medium whitespace-nowrap">
                             {tx.depositAccount}
                           </TableCell>
-                          <TableCell className="px-3 py-2 text-[11px] italic text-muted-foreground max-w-[200px] truncate" title={tx.remarks !== '-' ? tx.remarks : ''}>
+                          <TableCell className="px-3 py-2 text-[11px] text-muted-foreground max-w-[200px] truncate" title={tx.remarks !== '-' ? tx.remarks : ''}>
                             {tx.remarks}
                           </TableCell>
                         </TableRow>

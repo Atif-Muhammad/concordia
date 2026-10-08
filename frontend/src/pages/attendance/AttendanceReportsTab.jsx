@@ -26,8 +26,15 @@ import {
   getSections,
   getTeacherClasses,
   getAttendanceReport,
+  getProgramNames,
 } from "../../../config/apis";
 import { hasPermission } from "@/lib/navigation.jsx";
+
+const extractId = (val) => {
+  if (!val) return "";
+  if (typeof val === "object") return String(val._id || val.id || "");
+  return String(val);
+};
 
 export default function AttendanceReportsTab() {
   const queryClient = useQueryClient();
@@ -46,6 +53,7 @@ export default function AttendanceReportsTab() {
   const [reportEndDate, setReportEndDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [reportProgramId, setReportProgramId] = useState("*");
   const [reportClassId, setReportClassId] = useState("*");
   const [reportSectionId, setReportSectionId] = useState("*");
   const [reportSessionId, setReportSessionId] = useState("all");
@@ -68,6 +76,11 @@ export default function AttendanceReportsTab() {
     queryFn: getAcademicSessions,
   });
 
+  const { data: allPrograms = [] } = useQuery({
+    queryKey: ["programs"],
+    queryFn: getProgramNames,
+  });
+
   const { data: allClasses = [] } = useQuery({
     queryKey: ["classes"],
     queryFn: getClasses,
@@ -78,26 +91,83 @@ export default function AttendanceReportsTab() {
     queryFn: getSections,
   });
 
-  const { data: teacherClassMappings = [] } = useQuery({
-    queryKey: ["teacherClasses"],
-    queryFn: getTeacherClasses,
-    enabled: isTeacherScoped,
+  const teacherStaffId = currentUser?.refId || currentUser?.staffDbId || currentUser?.id;
+  const { data: rawTeacherClassMappings = [] } = useQuery({
+    queryKey: ["teacherClasses", teacherStaffId],
+    queryFn: () => getTeacherClasses(teacherStaffId),
+    enabled: isTeacherScoped && !!teacherStaffId,
   });
 
-  const teacherClasses = isTeacherScoped
-    ? teacherClassMappings
-        .map((mapping) => ({
-          ...mapping.class,
-          programName: mapping.class?.program?.name || "N/A",
-        }))
-        .filter(Boolean)
-    : [];
+  const teacherClassMappings = useMemo(() => {
+    return Array.isArray(rawTeacherClassMappings)
+      ? rawTeacherClassMappings
+      : rawTeacherClassMappings?.data || [];
+  }, [rawTeacherClassMappings]);
 
-  const uniqueTeacherClasses = teacherClasses.filter(
-    (c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx
-  );
+  const availablePrograms = useMemo(() => {
+    if (!isTeacherScoped) return allPrograms;
+    const teacherProgMap = new Map();
+    teacherClassMappings.forEach((m) => {
+      const cls = m.classId || m.class;
+      const prog = cls?.programId || cls?.program || m.programId || m.program;
+      const pId = extractId(prog);
+      if (pId) {
+        teacherProgMap.set(
+          pId,
+          prog?.name ? prog : allPrograms.find((p) => extractId(p) === pId) || { _id: pId, id: pId, name: pId }
+        );
+      }
+    });
+    return Array.from(teacherProgMap.values());
+  }, [allPrograms, isTeacherScoped, teacherClassMappings]);
 
-  const reportFilteredClasses = isTeacherScoped ? uniqueTeacherClasses : allClasses;
+  const teacherClasses = useMemo(() => {
+    if (!isTeacherScoped) return [];
+    const mapped = teacherClassMappings
+      .map((mapping) => {
+        const cls = mapping.classId || mapping.class;
+        if (!cls) return null;
+        const prog = cls.programId || cls.program || mapping.programId || mapping.program;
+        return {
+          ...cls,
+          id: extractId(cls),
+          _id: extractId(cls),
+          programId: prog,
+          program: prog,
+          programName: prog?.name || "N/A",
+        };
+      })
+      .filter(Boolean);
+    return mapped.filter(
+      (c, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(c)) === idx
+    );
+  }, [isTeacherScoped, teacherClassMappings]);
+
+  const reportFilteredClasses = useMemo(() => {
+    const baseList = isTeacherScoped ? teacherClasses : allClasses;
+    if (!reportProgramId || reportProgramId === "*") return baseList;
+    return baseList.filter((c) => extractId(c.programId || c.program) === reportProgramId);
+  }, [isTeacherScoped, teacherClasses, allClasses, reportProgramId]);
+
+  const selectedClass = useMemo(() => {
+    return reportFilteredClasses.find((c) => extractId(c) === reportClassId) || null;
+  }, [reportFilteredClasses, reportClassId]);
+
+  const isSectionApplicable = selectedClass ? selectedClass.allowSections !== false : true;
+
+  const availableSections = useMemo(() => {
+    if (!reportClassId || reportClassId === "*" || !isSectionApplicable) return [];
+    if (isTeacherScoped) {
+      const matching = teacherClassMappings.filter(
+        (m) => extractId(m.classId || m.class) === reportClassId
+      );
+      const secs = matching.map((m) => m.sectionId || m.section).filter(Boolean);
+      return secs.filter(
+        (s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx
+      );
+    }
+    return allSections.filter((s) => extractId(s.classId || s.class) === reportClassId);
+  }, [reportClassId, isSectionApplicable, isTeacherScoped, teacherClassMappings, allSections]);
 
   const {
     data: reportData = [],
@@ -108,6 +178,7 @@ export default function AttendanceReportsTab() {
       "attendanceReport",
       reportStartDate,
       reportEndDate,
+      reportProgramId,
       reportClassId,
       reportSectionId,
       reportSessionId,
@@ -116,12 +187,14 @@ export default function AttendanceReportsTab() {
       const classParam = reportClassId === "*" ? "" : reportClassId;
       const sectionParam = reportSectionId === "*" ? "" : reportSectionId;
       const sessionParam = reportSessionId === "all" ? undefined : reportSessionId;
+      const programParam = reportProgramId === "*" ? "" : reportProgramId;
       return getAttendanceReport(
         reportStartDate,
         reportEndDate,
         classParam,
         sectionParam,
-        sessionParam
+        sessionParam,
+        programParam
       );
     },
     enabled: false,
@@ -243,31 +316,212 @@ export default function AttendanceReportsTab() {
     const printContent = document.querySelector(".attendance-register-table");
     if (!printContent) return;
 
-    const printWindow = window.open("", "", "height=600,width=800");
-    printWindow.document.write("<html><head><title>Attendance Report</title>");
-    printWindow.document.write("<style>");
-    printWindow.document.write("body { font-family: Arial, sans-serif; margin: 20px; }");
-    printWindow.document.write("table { width: 100%; border-collapse: collapse; }");
-    printWindow.document.write(
-      "th, td { border: 1px solid #ddd; padding: 8px; text-align: center; font-size: 12px; }"
-    );
-    printWindow.document.write("th { background-color: #f5f5f5; font-weight: bold; }");
-    printWindow.document.write(".present { background-color: #dcfce7; color: #166534; }");
-    printWindow.document.write(".absent { background-color: #fee2e2; color: #991b1b; }");
-    printWindow.document.write(".leave { background-color: #fef3c7; color: #92400e; }");
-    printWindow.document.write("</style></head><body>");
-    printWindow.document.write('<h2 style="text-align: center;">Attendance Report</h2>');
-    printWindow.document.write(
-      '<p style="text-align: center;">' +
-        new Date(reportStartDate).toLocaleDateString() +
-        " to " +
-        new Date(reportEndDate).toLocaleDateString() +
-        "</p>"
-    );
-    printWindow.document.write(printContent.innerHTML);
-    printWindow.document.write("</body></html>");
+    const sessionObj = academicSessions.find((s) => String(s.id) === String(reportSessionId));
+    const sessionLabel = sessionObj?.name || (reportSessionId === "all" ? "All Sessions" : reportSessionId);
+
+    const progObj = availablePrograms.find((p) => extractId(p) === reportProgramId);
+    const programLabel = progObj?.name || (reportProgramId === "*" ? "All Programs" : reportProgramId);
+
+    const classObj = reportFilteredClasses.find((c) => extractId(c) === reportClassId);
+    const classLabel = classObj?.name || (reportClassId === "*" ? "All Classes" : reportClassId);
+
+    const secObj = availableSections.find((s) => extractId(s) === reportSectionId);
+    const sectionLabel = isSectionApplicable
+      ? (secObj?.name || (reportSectionId === "*" ? "All Sections" : reportSectionId))
+      : "N/A (No Section)";
+
+    const formattedStartDate = new Date(reportStartDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const formattedEndDate = new Date(reportEndDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const printDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+
+    const printWindow = window.open("", "", "height=700,width=1000");
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Attendance Report</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 8mm 10mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            color: #0f172a;
+            background: #fff;
+            font-size: 11px;
+            line-height: 1.3;
+          }
+          .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 16px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 10px;
+            margin-bottom: 12px;
+          }
+          .logo-box {
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .logo-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+          }
+          .header-text {
+            text-align: left;
+          }
+          .college-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            color: #0f172a;
+            text-transform: uppercase;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .report-subtitle {
+            font-family: 'Alex Brush', cursive;
+            font-size: 28px;
+            color: #334155;
+            margin: 2px 0 0 0;
+            line-height: 1.1;
+            font-weight: normal;
+          }
+          .meta-strip {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 6px 10px;
+            margin-bottom: 12px;
+            font-size: 10px;
+          }
+          .meta-item {
+            display: flex;
+            flex-direction: column;
+          }
+          .meta-label {
+            font-size: 8px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .meta-val {
+            font-size: 10px;
+            font-weight: 600;
+            color: #0f172a;
+          }
+          .stats-strip {
+            display: flex;
+            gap: 16px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 6px 10px;
+            margin-bottom: 12px;
+            font-size: 10px;
+          }
+          .stat-item {
+            display: flex;
+            gap: 4px;
+          }
+          .stat-label {
+            color: #64748b;
+            font-weight: 500;
+          }
+          .stat-val {
+            font-weight: 700;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1 !important;
+            padding: 5px 6px;
+            text-align: center;
+          }
+          th {
+            background-color: #f1f5f9 !important;
+            color: #0f172a;
+            font-weight: 700;
+          }
+          .sticky {
+            position: static !important;
+          }
+          .footer {
+            margin-top: 14px;
+            font-size: 8px;
+            color: #94a3b8;
+            text-align: right;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header-container">
+          <div class="logo-box">
+            <img src="/logo.png" alt="Concordia College Peshawar" />
+          </div>
+          <div class="header-text">
+            <h1 class="college-title">CONCORDIA COLLEGE PESHAWAR</h1>
+            <div class="report-subtitle">Attendance Report</div>
+          </div>
+        </div>
+
+        <div class="meta-strip">
+          <div class="meta-item"><span class="meta-label">Session</span><span class="meta-val">${sessionLabel}</span></div>
+          <div class="meta-item"><span class="meta-label">Program</span><span class="meta-val">${programLabel}</span></div>
+          <div class="meta-item"><span class="meta-label">Class</span><span class="meta-val">${classLabel}</span></div>
+          <div class="meta-item"><span class="meta-label">Section</span><span class="meta-val">${sectionLabel}</span></div>
+          <div class="meta-item"><span class="meta-label">Period</span><span class="meta-val">${formattedStartDate} - ${formattedEndDate}</span></div>
+          <div class="meta-item"><span class="meta-label">Printed On</span><span class="meta-val">${printDate}</span></div>
+        </div>
+
+        <div class="stats-strip">
+          <div class="stat-item"><span class="stat-label">Students:</span> <span class="stat-val">${dailyStats.totalStudents}</span></div>
+          <div class="stat-item"><span class="stat-label">Days:</span> <span class="stat-val">${dailyStats.totalDays}</span></div>
+          <div class="stat-item"><span class="stat-label">Recorded:</span> <span class="stat-val">${dailyStats.recordedClasses}</span></div>
+          <div class="stat-item"><span class="stat-label">Present:</span> <span class="stat-val" style="color: #166534;">${dailyStats.presentCount}</span></div>
+          <div class="stat-item"><span class="stat-label">Absent:</span> <span class="stat-val" style="color: #991b1b;">${dailyStats.absentCount}</span></div>
+          <div class="stat-item"><span class="stat-label">Leave:</span> <span class="stat-val" style="color: #92400e;">${dailyStats.leaveCount}</span></div>
+          <div class="stat-item"><span class="stat-label">Rate:</span> <span class="stat-val" style="color: #2563eb;">${dailyStats.attendanceRate}%</span></div>
+        </div>
+
+        ${printContent.innerHTML}
+
+        <div class="footer">
+          Generated via Concordia College Management System
+        </div>
+      </body>
+      </html>
+    `);
     printWindow.document.close();
-    printWindow.print();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 400);
   };
 
   return (
@@ -299,14 +553,13 @@ export default function AttendanceReportsTab() {
               : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
           }`}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
             <div className="space-y-2">
               <Label>Session</Label>
               <Select
                 value={reportSessionId}
                 onValueChange={(val) => {
                   setReportSessionId(val);
-                  refetchReport();
                 }}
               >
                 <SelectTrigger>
@@ -322,24 +575,31 @@ export default function AttendanceReportsTab() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end mt-4">
+
             <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Input
-                type="date"
-                value={reportStartDate}
-                onChange={(e) => setReportStartDate(e.target.value)}
-              />
+              <Label>Program</Label>
+              <Select
+                value={reportProgramId}
+                onValueChange={(val) => {
+                  setReportProgramId(val);
+                  setReportClassId("*");
+                  setReportSectionId("*");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All Programs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="*">All Programs</SelectItem>
+                  {availablePrograms.map((p) => (
+                    <SelectItem key={extractId(p)} value={extractId(p)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2">
-              <Label>End Date</Label>
-              <Input
-                type="date"
-                value={reportEndDate}
-                onChange={(e) => setReportEndDate(e.target.value)}
-              />
-            </div>
+
             <div className="space-y-2">
               <Label>Class</Label>
               <Select
@@ -355,36 +615,54 @@ export default function AttendanceReportsTab() {
                 <SelectContent>
                   <SelectItem value="*">All Classes</SelectItem>
                   {reportFilteredClasses.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.programName} - {c.name}
+                    <SelectItem key={extractId(c)} value={extractId(c)}>
+                      {c.name || c.className}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label>Section (Optional)</Label>
+              <Label>Section</Label>
               <Select
                 value={reportSectionId}
                 onValueChange={setReportSectionId}
-                disabled={!reportClassId || reportClassId === "*"}
+                disabled={!reportClassId || reportClassId === "*" || !isSectionApplicable}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="All Sections" />
+                  <SelectValue
+                    placeholder={!isSectionApplicable ? "Not Applicable" : "All Sections"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="*">All Sections</SelectItem>
-                  {reportClassId &&
-                    reportClassId !== "*" &&
-                    allSections
-                      .filter((s) => s.classId === Number(reportClassId))
-                      .map((s) => (
-                        <SelectItem key={s.id} value={String(s.id)}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
+                  {isSectionApplicable &&
+                    availableSections.map((s) => (
+                      <SelectItem key={extractId(s)} value={extractId(s)}>
+                        {s.name || s.sectionName}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Start Date</Label>
+              <Input
+                type="date"
+                value={reportStartDate}
+                onChange={(e) => setReportStartDate(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>End Date</Label>
+              <Input
+                type="date"
+                value={reportEndDate}
+                onChange={(e) => setReportEndDate(e.target.value)}
+              />
             </div>
           </div>
         </div>
@@ -597,7 +875,10 @@ export default function AttendanceReportsTab() {
               </TableHeader>
               <TableBody>
                 {reportData.map((student) => {
-                  return (student.subjects || []).map((subject, index) => {
+                  const subjects = student.subjects?.length > 0
+                    ? student.subjects
+                    : [{ subjectId: "general", subjectName: "General", attendance: [] }];
+                  return subjects.map((subject, index) => {
                     const isFirstRow = index === 0;
                     const attendanceMap = {};
                     (subject.attendance || []).forEach((att) => {
@@ -616,19 +897,19 @@ export default function AttendanceReportsTab() {
 
                     return (
                       <TableRow
-                        key={`${student.id}-${subject.subjectId}`}
+                        key={`${student.id || student._id}-${subject.subjectId}`}
                         className="hover:bg-muted/30"
                       >
                         {isFirstRow && (
                           <>
                             <TableCell
-                              rowSpan={student.subjects?.length || 1}
+                              rowSpan={subjects.length}
                               className="font-medium sticky left-0 bg-background border-r align-top pt-4"
                             >
                               {student.rollNumber}
                             </TableCell>
                             <TableCell
-                              rowSpan={student.subjects?.length || 1}
+                              rowSpan={subjects.length}
                               className="sticky left-20 bg-background border-r align-top pt-4"
                             >
                               {student.name}

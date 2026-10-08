@@ -1153,6 +1153,15 @@ export const ChallansTab = ({
   };
 
   const handleSubmitChallan = () => {
+    if (editingChallan && (
+      ['PAID', 'SETTLED', 'VOID'].includes((editingChallan.status || '').toUpperCase()) ||
+      Boolean(editingChallan.paidDate) ||
+      (Number(editingChallan.paidAmount || 0) > 0 && Number(editingChallan.paidAmount || 0) >= Number(editingChallan.netPayable || editingChallan.totalAmount || 0))
+    )) {
+      toast({ title: "Challan is locked (PAID or SETTLED) and cannot be modified", variant: "destructive" });
+      return;
+    }
+
     if (!challanForm.studentId || !challanForm.amount) {
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
@@ -1206,6 +1215,7 @@ export const ChallansTab = ({
           amount: tuitionToStore,
           fineAmount: computedFine,
           discount: discountToStore,
+          discountAmount: discountToStore,
           remarks: challanForm.remarks,
           selectedHeads: allFeeHeadDetails,
           challanHeads: allFeeHeadDetails,
@@ -1808,7 +1818,9 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-medium text-red-600 hidden xl:table-cell">
                         {(() => {
-                          const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
+                          const isLocked = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
+                            Boolean(challan.paidDate) ||
+                            (Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0));
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??
@@ -1816,14 +1828,14 @@ export const ChallansTab = ({
                             lateFeeRatePerDay ??
                             0
                           );
-                          const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveRate > 0)
+                          const autoFine = (!isLocked && challan.dueDate && effectiveRate > 0)
                             ? calculateLateFee(challan.dueDate, effectiveRate)
                             : 0;
-                          const effectiveFine = Math.max(existingFine, autoFine);
+                          const effectiveFine = isLocked ? existingFine : Math.max(existingFine, autoFine);
                           return (
                             <span>
                               PKR {formatAmount(effectiveFine)}
-                              {autoFine > 0 && effectiveFine > existingFine && (
+                              {!isLocked && autoFine > 0 && effectiveFine > existingFine && (
                                 <span className="ml-1 text-[10px] text-red-500 font-normal italic">(Overdue)</span>
                               )}
                             </span>
@@ -1845,7 +1857,9 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-bold bg-slate-50/50 whitespace-nowrap min-w-[105px]">
                         {(() => {
-                          const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
+                          const isLocked = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
+                            Boolean(challan.paidDate) ||
+                            (Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0));
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??
@@ -1853,14 +1867,14 @@ export const ChallansTab = ({
                             lateFeeRatePerDay ??
                             0
                           );
-                          const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveRate > 0)
+                          const autoFine = (!isLocked && challan.dueDate && effectiveRate > 0)
                             ? calculateLateFee(challan.dueDate, effectiveRate)
                             : 0;
-                          const effectiveFine = Math.max(existingFine, autoFine);
+                          const effectiveFine = isLocked ? existingFine : Math.max(existingFine, autoFine);
 
                           const grossTotal = getChallanGrossTotal(challan);
                           const fineIncluded = existingFine > 0 && Number(challan.lateFeeAmount || challan.snapshotLateFee || 0) > 0;
-                          const additionalFine = fineIncluded ? Math.max(0, effectiveFine - existingFine) : effectiveFine;
+                          const additionalFine = isLocked ? 0 : (fineIncluded ? Math.max(0, effectiveFine - existingFine) : effectiveFine);
                           const totalWithFine = grossTotal + additionalFine;
 
                           const advanceApplied = Number(challan.advanceApplied || challan.advanceAmount || 0);
@@ -2167,7 +2181,10 @@ export const ChallansTab = ({
                                 </DropdownMenuItem>
                               )}
 
-                              {canUpdate && !['PAID', 'SETTLED'].includes(challan.status) && (
+                              {canUpdate &&
+                                !['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) &&
+                                !challan.paidDate &&
+                                !(Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0)) && (
                                 <DropdownMenuItem
                                   className="cursor-pointer gap-2"
                                   onClick={() => handleEditChallan(challan)}

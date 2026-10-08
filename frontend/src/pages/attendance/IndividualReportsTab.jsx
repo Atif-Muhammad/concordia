@@ -1,15 +1,5 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { SlidersHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { StudentAttendanceTab } from "../StudentAttendanceTab";
 import {
@@ -21,7 +11,6 @@ import {
 export default function IndividualReportsTab() {
   const { toast } = useToast();
 
-  const [showIndividualFilters, setShowIndividualFilters] = useState(true);
   const [individualReportSessionId, setIndividualReportSessionId] = useState("all");
   const [individualStudentSearchQuery, setIndividualStudentSearchQuery] = useState("");
   const [individualSearchResults, setIndividualSearchResults] = useState([]);
@@ -48,37 +37,52 @@ export default function IndividualReportsTab() {
       "individualAttendanceReport",
       individualStartDate,
       individualEndDate,
-      selectedIndividualStudent?.class?.id,
-      selectedIndividualStudent?.section?.id,
-      selectedIndividualStudent?.id,
+      selectedIndividualStudent?._id || selectedIndividualStudent?.id,
       individualReportSessionId,
     ],
     queryFn: async () => {
       if (!selectedIndividualStudent) return [];
-      const classParam = selectedIndividualStudent.class?.id || "";
-      const sectionParam = selectedIndividualStudent.section?.id || "";
-      const sessionParam = individualReportSessionId === "all" ? undefined : individualReportSessionId;
+      const studentId = selectedIndividualStudent._id || selectedIndividualStudent.id;
+      const classParam =
+        selectedIndividualStudent.classId?._id ||
+        selectedIndividualStudent.class?.id ||
+        selectedIndividualStudent.classId ||
+        "";
+      const sectionParam =
+        selectedIndividualStudent.sectionId?._id ||
+        selectedIndividualStudent.section?.id ||
+        selectedIndividualStudent.sectionId ||
+        "";
+      const sessionParam =
+        individualReportSessionId === "all" ? undefined : individualReportSessionId;
+      const programParam =
+        selectedIndividualStudent.programId?._id ||
+        selectedIndividualStudent.program?.id ||
+        selectedIndividualStudent.programId ||
+        "";
       const allData = await getAttendanceReport(
         individualStartDate,
         individualEndDate,
         classParam,
         sectionParam,
-        sessionParam
+        sessionParam,
+        programParam,
+        studentId
       );
-      return (allData || []).filter((student) => student.id === selectedIndividualStudent.id);
+      return allData || [];
     },
     enabled: false,
   });
 
   const handleIndividualStudentSearch = async (query) => {
     setIndividualStudentSearchQuery(query);
-    if (query.length < 2) {
+    if (!query || query.trim().length < 2) {
       setIndividualSearchResults([]);
       return;
     }
     setIsIndividualSearching(true);
     try {
-      const results = await searchStudents(query);
+      const results = await searchStudents(query.trim());
       setIndividualSearchResults(results || []);
     } catch (error) {
       console.error("Search error:", error);
@@ -91,8 +95,14 @@ export default function IndividualReportsTab() {
   const handleSelectIndividualStudent = (student) => {
     setSelectedIndividualStudent(student);
     setIndividualStudentSearchQuery(
-      `${student.rollNumber} - ${student.fName} ${student.lName}`
+      `${student.rollNumber || ''} - ${student.fName || ''} ${student.lName || ''}`.trim()
     );
+    setIndividualSearchResults([]);
+  };
+
+  const handleClearIndividualStudent = () => {
+    setSelectedIndividualStudent(null);
+    setIndividualStudentSearchQuery("");
     setIndividualSearchResults([]);
   };
 
@@ -109,46 +119,6 @@ export default function IndividualReportsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => setShowIndividualFilters((s) => !s)}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          {showIndividualFilters ? "Hide Filters" : "Filters"}
-        </Button>
-      </div>
-      <div
-        className={`transition-all duration-300 ease-out overflow-hidden ${
-          showIndividualFilters
-            ? "max-h-[220px] opacity-100"
-            : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
-        }`}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
-          <div className="space-y-2">
-            <Label>Session</Label>
-            <Select
-              value={individualReportSessionId}
-              onValueChange={setIndividualReportSessionId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="All Sessions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Sessions</SelectItem>
-                {academicSessions.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
       <StudentAttendanceTab
         studentSearchQuery={individualStudentSearchQuery}
         setStudentSearchQuery={setIndividualStudentSearchQuery}
@@ -157,6 +127,7 @@ export default function IndividualReportsTab() {
         selectedStudent={selectedIndividualStudent}
         handleStudentSearch={handleIndividualStudentSearch}
         handleSelectStudent={handleSelectIndividualStudent}
+        handleClearStudent={handleClearIndividualStudent}
         startDate={individualStartDate}
         setStartDate={setIndividualStartDate}
         endDate={individualEndDate}
@@ -164,7 +135,10 @@ export default function IndividualReportsTab() {
         reportData={individualReportData}
         generateReport={handleGenerateIndividualReport}
         isFetchingReport={isFetchingIndividualReport}
-        showFilters={showIndividualFilters}
+        showFilters={true}
+        sessionId={individualReportSessionId}
+        setSessionId={setIndividualReportSessionId}
+        academicSessions={academicSessions}
       />
     </div>
   );

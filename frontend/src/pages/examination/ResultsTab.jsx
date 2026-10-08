@@ -32,6 +32,7 @@ import { StudentResultsTab } from "../StudentResultsTab";
 import {
   getExams,
   getClasses,
+  getSections,
   getProgramNames,
   getResults,
   getStudents,
@@ -54,6 +55,8 @@ export const ResultsTab = () => {
   const [resultDialog, setResultDialog] = useState(false);
   const [resultFilterProgram, setResultFilterProgram] = useState("");
   const [resultFilterClass, setResultFilterClass] = useState("");
+  const [resultFilterSection, setResultFilterSection] = useState("");
+  const [resultFilterExam, setResultFilterExam] = useState("");
   const [resultsSessionFilter, setResultsSessionFilter] = useState("");
   const [showResultsFilters, setShowResultsFilters] = useState(true);
   const sessionInitializedRef = React.useRef(false);
@@ -82,11 +85,20 @@ export const ResultsTab = () => {
   // Cascading filter resets
   useEffect(() => {
     setResultFilterClass("");
+    setResultFilterSection("");
+    setResultFilterExam("");
   }, [resultFilterProgram]);
+
+  useEffect(() => {
+    setResultFilterSection("");
+    setResultFilterExam("");
+  }, [resultFilterClass]);
 
   useEffect(() => {
     setResultFilterProgram("");
     setResultFilterClass("");
+    setResultFilterSection("");
+    setResultFilterExam("");
   }, [resultsSessionFilter]);
 
   // Student Results cascading resets
@@ -185,6 +197,11 @@ export const ResultsTab = () => {
     }
   }, [sessions]);
 
+  const { data: sectionsData = [] } = useQuery({
+    queryKey: ["sections"],
+    queryFn: getSections,
+  });
+
   const { data: results = [], isLoading: isLoadingResults } = useQuery({
     queryKey: ["results", resultsSessionFilter],
     queryFn: () => getResults(resultsSessionFilter || undefined),
@@ -202,6 +219,47 @@ export const ResultsTab = () => {
         );
       })
     : exams;
+
+  const selectedResultClassObj = classesData.find(
+    (c) => extractId(c.id || c._id) === resultFilterClass
+  );
+  const allowSections = selectedResultClassObj ? selectedResultClassObj.allowSections !== false : true;
+
+  const availableSections = useMemo(() => {
+    if (!resultFilterClass || !allowSections) return [];
+    if (isTeacher) {
+      const matching = teacherClassMappings.filter(
+        (m) => extractId(m.classId || m.class) === resultFilterClass
+      );
+      const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
+      const unique = secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
+      if (unique.length > 0) return unique;
+      if (matching.some((m) => !(m.sectionId || m.section)) && selectedResultClassObj?.sections?.length) {
+        return selectedResultClassObj.sections;
+      }
+      return [];
+    }
+    return sectionsData.filter((s) => extractId(s.classId || s.class) === resultFilterClass);
+  }, [allowSections, isTeacher, teacherClassMappings, resultFilterClass, selectedResultClassObj, sectionsData]);
+
+  const availableFilterExams = useMemo(() => {
+    return resultsSessionFilteredExams.filter((exam) => {
+      const examClassId = extractId(exam.classId || exam.class);
+      const examProgId = extractId(exam.programId || exam.program);
+
+      if (isTeacher) {
+        if (!teacherClassMappings.some((m) => extractId(m.classId || m.class) === examClassId)) return false;
+      }
+
+      if (resultFilterProgram && resultFilterProgram !== "*") {
+        if (examProgId && examProgId !== resultFilterProgram) return false;
+      }
+      if (resultFilterClass && resultFilterClass !== "*") {
+        if (examClassId && examClassId !== resultFilterClass) return false;
+      }
+      return true;
+    });
+  }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings, resultFilterProgram, resultFilterClass]);
 
   const formatDateDisplay = (dateString) => {
     if (!dateString) return "";
@@ -222,7 +280,7 @@ export const ResultsTab = () => {
   };
 
   const getFullName = (student) => {
-    return `${student.fName} ${student.lName || ""}`.trim();
+    return `${student?.fName || ""} ${student?.lName || ""}`.trim() || student?.name || "Student";
   };
 
   const calculateGrade = (percentage) => {
@@ -270,57 +328,301 @@ export const ResultsTab = () => {
   const printResults = (examId) => {
     const exam = exams.find((e) => extractId(e.id || e._id) === extractId(examId));
     if (!exam) return;
-    const filtered = results
-      .filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === extractId(examId))
-      .sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+    let filtered = results
+      .filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === extractId(examId));
+
+    if (resultFilterProgram && resultFilterProgram !== "*") {
+      filtered = filtered.filter((r) => {
+        const progId = extractId(r.student?.programId || r.student?.program?.id || r.student?.program?._id || r.programId);
+        return progId === resultFilterProgram;
+      });
+    }
+
+    if (resultFilterClass && resultFilterClass !== "*") {
+      filtered = filtered.filter((r) => {
+        const clsId = extractId(r.student?.classId || r.student?.class?.id || r.student?.class?._id || r.classId);
+        return clsId === resultFilterClass;
+      });
+    }
+
+    if (allowSections && resultFilterSection && resultFilterSection !== "*") {
+      filtered = filtered.filter((r) => {
+        const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
+        return secId === resultFilterSection;
+      });
+    }
+
+    filtered.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+
+    const totalStudents = filtered.length;
+    const passedStudents = filtered.filter((r) => r.grade !== "F").length;
+    const failedStudents = totalStudents - passedStudents;
+    const passPercentage = totalStudents > 0 ? ((passedStudents / totalStudents) * 100).toFixed(1) : "0";
+
+    const progName = exam.program?.name || "";
+    const className = exam.class?.name || (resultFilterClass && classesData.find(c => extractId(c) === resultFilterClass)?.name) || "All Classes";
+    const sectionName = (resultFilterSection && resultFilterSection !== "*")
+      ? (sectionsData.find(s => extractId(s) === resultFilterSection)?.name || "")
+      : "";
 
     const printWin = window.open("", "_blank");
     printWin?.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>${exam.examName}</title>
+        <meta charset="utf-8" />
+        <title>${exam.examName} - Result Gazette</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #000; padding: 10px; }
-          th { background-color: #f2f2f2; }
+          @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            color: #0f172a;
+            background: #fff;
+            font-size: 11px;
+            line-height: 1.4;
+          }
+          .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 16px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 12px;
+            margin-bottom: 14px;
+          }
+          .logo-box {
+            width: 72px;
+            height: 72px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .logo-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+          }
+          .header-text {
+            text-align: left;
+          }
+          .college-title {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            color: #0f172a;
+            text-transform: uppercase;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .report-subtitle {
+            font-family: 'Alex Brush', cursive;
+            font-size: 30px;
+            color: #334155;
+            margin: 2px 0 0 0;
+            line-height: 1.1;
+            font-weight: normal;
+          }
+          .meta-strip {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 14px;
+            font-size: 11px;
+          }
+          .meta-item {
+            display: flex;
+            flex-direction: column;
+          }
+          .meta-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .meta-val {
+            font-size: 11px;
+            font-weight: 600;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            font-size: 11px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1;
+            padding: 6px 8px;
+            text-align: left;
+          }
+          th {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.3px;
+          }
+          tr:nth-child(even) td {
+            background-color: #f8fafc;
+          }
+          .text-center { text-align: center; }
+          .badge-pass {
+            color: #047857;
+            font-weight: 700;
+          }
+          .badge-fail {
+            color: #b91c1c;
+            font-weight: 700;
+          }
+          .summary-strip {
+            display: flex;
+            justify-content: space-between;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 8px 14px;
+            margin-bottom: 24px;
+            font-size: 11px;
+          }
+          .summary-strip span strong {
+            color: #0f172a;
+          }
+          .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 36px;
+            padding-top: 10px;
+          }
+          .sign-col {
+            text-align: center;
+            width: 180px;
+          }
+          .sign-line {
+            border-top: 1px dashed #64748b;
+            margin-bottom: 6px;
+          }
+          .sign-title {
+            font-size: 10px;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+          }
         </style>
       </head>
       <body>
-        <h1>${exam.examName} - Results</h1>
-        <h2>Session: ${exam.session}</h2>
+        <div class="header-container">
+          <div class="logo-box">
+            <img src="/logo.png" alt="Concordia College Peshawar" onerror="this.style.display='none'" />
+          </div>
+          <div class="header-text">
+            <div class="college-title">Concordia College Peshawar</div>
+            <div class="report-subtitle">Examination Result Gazette</div>
+          </div>
+        </div>
+
+        <div class="meta-strip">
+          <div class="meta-item">
+            <span class="meta-label">Examination</span>
+            <span class="meta-val">${exam.examName || "N/A"}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Academic Session</span>
+            <span class="meta-val">${exam.session || "N/A"}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Program & Class</span>
+            <span class="meta-val">${progName ? `${progName} - ` : ""}${className}${sectionName ? ` (${sectionName})` : ""}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Date Generated</span>
+            <span class="meta-val">${new Date().toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })}</span>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
-              <th>Pos</th>
-              <th>Name</th>
-              <th>Roll No</th>
-              <th>Total</th>
-              <th>Obtained</th>
-              <th>%</th>
-              <th>Grade</th>
+              <th class="text-center" style="width: 40px;">Pos</th>
+              <th style="width: 80px;">Roll No</th>
+              <th>Student Name</th>
+              <th>Father Name</th>
+              <th>Class</th>
+              <th class="text-center" style="width: 60px;">Total</th>
+              <th class="text-center" style="width: 60px;">Obt.</th>
+              <th class="text-center" style="width: 60px;">%</th>
+              <th class="text-center" style="width: 50px;">Grade</th>
+              <th class="text-center" style="width: 60px;">Status</th>
             </tr>
           </thead>
           <tbody>
-            ${filtered
+            ${filtered.length === 0 ? `
+              <tr>
+                <td colspan="10" class="text-center" style="padding: 20px; color: #64748b;">No results found for the selected criteria</td>
+              </tr>
+            ` : filtered
               .map((r, i) => {
                 const s = r.student;
+                const isFail = r.grade === "F";
                 return `
                 <tr>
-                  <td>${i + 1}</td>
-                  <td>${getFullName(s) || "N/A"}</td>
-                  <td>${s?.rollNumber || "N/A"}</td>
-                  <td>${r.totalMarks}</td>
-                  <td>${r.obtainedMarks}</td>
-                  <td>${r.percentage.toFixed(2)}%</td>
-                  <td>${r.grade}</td>
+                  <td class="text-center" style="font-weight: 700;">${r.position || i + 1}</td>
+                  <td style="font-family: monospace; font-weight: 600;">${s?.rollNumber || "—"}</td>
+                  <td style="font-weight: 600;">${getFullName(s) || "N/A"}</td>
+                  <td style="color: #475569;">${s?.fatherOrguardian || s?.fatherName || "—"}</td>
+                  <td>${s?.class?.name || exam.class?.name || className}</td>
+                  <td class="text-center">${r.totalMarks}</td>
+                  <td class="text-center" style="font-weight: 700;">${r.obtainedMarks}</td>
+                  <td class="text-center">${(r.percentage || 0).toFixed(2)}%</td>
+                  <td class="text-center" style="font-weight: 700; color: ${isFail ? '#b91c1c' : '#0f172a'};">${r.grade}</td>
+                  <td class="text-center ${isFail ? 'badge-fail' : 'badge-pass'}">${isFail ? 'FAIL' : 'PASS'}</td>
                 </tr>
               `;
               })
               .join("")}
           </tbody>
         </table>
+
+        <div class="summary-strip">
+          <span>Total Candidates: <strong>${totalStudents}</strong></span>
+          <span>Passed: <strong style="color: #047857;">${passedStudents}</strong></span>
+          <span>Failed: <strong style="color: #b91c1c;">${failedStudents}</strong></span>
+          <span>Pass Percentage: <strong>${passPercentage}%</strong></span>
+        </div>
+
+        <div class="signatures">
+          <div class="sign-col">
+            <div class="sign-line"></div>
+            <div class="sign-title">Prepared By</div>
+          </div>
+          <div class="sign-col">
+            <div class="sign-line"></div>
+            <div class="sign-title">Controller of Examinations</div>
+          </div>
+          <div class="sign-col">
+            <div class="sign-line"></div>
+            <div class="sign-title">Principal</div>
+          </div>
+        </div>
       </body>
       </html>
     `);
@@ -337,17 +639,6 @@ export const ResultsTab = () => {
     const { student, exam, marks, result, position } = studentResultData;
 
     try {
-      const template = await getDefaultReportCardTemplate();
-
-      if (!template) {
-        toast({
-          title: "No default template found",
-          description: "Please set a default report card template in Configuration",
-          variant: "destructive",
-        });
-        return;
-      }
-
       const subjectsData = marks.map((mark) => {
         const subId = extractId(mark.subjectId || mark.subject);
         const foundSub = allSubjects.find((s) => extractId(s.id || s._id) === subId);
@@ -355,89 +646,309 @@ export const ResultsTab = () => {
           (mark.subject && !mark.subject.startsWith("Subject #") && !/^[0-9a-fA-F]{24}$/.test(mark.subject))
             ? mark.subject
             : (foundSub?.name || "Subject");
+        const tot = mark.totalMarks || 100;
+        const obt = mark.isAbsent ? 0 : (mark.obtainedMarks ?? 0);
+        const pct = tot > 0 ? ((obt / tot) * 100).toFixed(2) : "0.00";
         return {
           name: sName,
-          totalMarks: mark.totalMarks,
-          obtainedMarks: mark.obtainedMarks,
-          percentage: ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(2),
-          grade: calculateGrade((mark.obtainedMarks / mark.totalMarks) * 100).grade,
+          totalMarks: tot,
+          obtainedMarks: obt,
+          percentage: pct,
+          grade: mark.isAbsent ? "F" : calculateGrade(Number(pct)).grade,
           isAbsent: mark.isAbsent || false,
         };
       });
 
-      const programYear = exam.program?.year || exam.class?.year || 3;
-      const showGPA = programYear > 2;
-
       const marksRowsHtml = subjectsData
         .map(
           (subject, index) => `
-      <tr style="border-bottom: 1px solid #000;">
-          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${
-            index + 1
-          }</td>
-          <td style="border-right: 1px solid #000; padding: 4px;">${subject.name}</td>
-          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${
-            subject.totalMarks
-          }</td>
-          <td style="text-align: center; border-right: 1px solid #000; padding: 4px; ${
-            subject.isAbsent
-              ? "background-color: #fee2e2; color: #dc2626; font-weight: bold;"
-              : ""
-          }">${subject.isAbsent ? "Absent" : subject.obtainedMarks}</td>
-          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${
-            subject.percentage
-          }%</td>
-          <td style="text-align: center; padding: 4px;">${subject.grade}</td>
-        </tr>
-  `
+          <tr style="${subject.isAbsent ? 'background-color: #fef2f2;' : (index % 2 === 1 ? 'background-color: #f8fafc;' : '')}">
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 6px 8px;">${index + 1}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 6px 8px; font-weight: 500;">${subject.name}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 6px 8px;">${subject.totalMarks}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 6px 8px; font-weight: 700; ${subject.isAbsent ? 'color: #dc2626;' : ''}">
+              ${subject.isAbsent ? "ABSENT" : subject.obtainedMarks}
+            </td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 6px 8px;">${subject.percentage}%</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 6px 8px; font-weight: 700; ${subject.grade === 'F' ? 'color: #dc2626;' : ''}">
+              ${subject.grade}
+            </td>
+          </tr>`
         )
         .join("");
 
-      let filledTemplate = template.htmlContent;
-      const printDate = new Date().toLocaleString();
+      const isFail = result.grade === "F";
+      const className = exam?.class?.name || student?.class?.name || "Class";
+      const programName = exam?.program?.name || student?.program?.name || "";
+      const sectionName = student?.section?.name || "";
 
-      filledTemplate = filledTemplate
-        .replace(/{{instituteName}}/g, "Concordia College")
-        .replace(/{{instituteAddress}}/g, "Peshawar, Pakistan")
-        .replace(/{{examType}}/g, exam.type || exam.examName || "")
-        .replace(/{{examName}}/g, exam.examName || "")
-        .replace(/{{session}}/g, exam.session || "")
-        .replace(/{{printDate}}/g, printDate)
-        .replace(/{{studentName}}/g, getFullName(student))
-        .replace(/{{fatherName}}/g, student.fatherOrguardian || "N/A")
-        .replace(/{{rollNo}}/g, student.rollNumber || "N/A")
-        .replace(/{{regNo}}/g, student.rollNumber || "N/A")
-        .replace(/{{admNo}}/g, student.id || "N/A")
-        .replace(
-          /{{class}}/g,
-          exam.class?.name + (exam?.program?.name ? ` (${exam?.program?.name})` : "") ||
-            (student.class ? student.class.name : "") +
-              (exam?.program?.name ? `(${exam?.program?.name})` : "")
-        )
-        .replace(/{{section}}/g, student.section ? student.section.name : "")
-        .replace(/{{sectionVisibilityClass}}/g, student.section ? "" : "hidden-section")
-        .replace(
-          /{{studentPhotoOrPlaceholder}}/g,
-          student.photo_url
-            ? `<img src="${student.photo_url}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;" />`
-            : `<div class="student-pho" style="font-size: 10px; color: #666;">No Photo</div>`
-        )
-        .replace(/{{studentPhoto}}/g, student.photo_url || "")
-        .replace(/{{marksRows}}/g, marksRowsHtml)
-        .replace(/{{totalMarks}}/g, result.totalMarks)
-        .replace(/{{obtainedMarks}}/g, result.obtainedMarks)
-        .replace(/{{percentage}}/g, result.percentage.toFixed(2))
-        .replace(/{{grade}}/g, result.grade)
-        .replace(/{{gradeColor}}/g, result.grade === "F" ? "#dc2626" : "#059669")
-        .replace(/{{gpa}}/g, showGPA ? result.gpa.toFixed(2) : "N/A")
-        .replace(/{{position}}/g, position || "N/A")
-        .replace(/{{status}}/g, result.grade === "F" ? "FAIL" : "PASS")
-        .replace(/{{remarks}}/g, result.remarks || "");
+      const reportHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${getFullName(student)} - Report Card</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 12mm 10mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              margin: 0;
+              padding: 10px;
+              color: #0f172a;
+              background: #fff;
+              font-size: 11px;
+              line-height: 1.4;
+            }
+            .header-container {
+              display: flex;
+              align-items: center;
+              justify-content: flex-start;
+              gap: 16px;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 12px;
+              margin-bottom: 14px;
+            }
+            .logo-box {
+              width: 72px;
+              height: 72px;
+              flex-shrink: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .logo-box img {
+              max-width: 100%;
+              max-height: 100%;
+              object-fit: contain;
+            }
+            .header-text {
+              text-align: left;
+            }
+            .college-title {
+              font-size: 20px;
+              font-weight: 800;
+              letter-spacing: 0.8px;
+              color: #0f172a;
+              text-transform: uppercase;
+              margin: 0;
+              line-height: 1.2;
+            }
+            .report-subtitle {
+              font-family: 'Alex Brush', cursive;
+              font-size: 32px;
+              color: #334155;
+              margin: 2px 0 0 0;
+              line-height: 1.1;
+              font-weight: normal;
+            }
+            .student-info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr auto;
+              gap: 12px;
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-radius: 4px;
+              padding: 10px 14px;
+              margin-bottom: 14px;
+            }
+            .info-item {
+              margin-bottom: 4px;
+              font-size: 11px;
+            }
+            .info-label {
+              font-weight: 600;
+              color: #64748b;
+              display: inline-block;
+              width: 100px;
+            }
+            .info-value {
+              font-weight: 600;
+              color: #0f172a;
+            }
+            .student-photo {
+              width: 70px;
+              height: 80px;
+              border: 1px solid #cbd5e1;
+              border-radius: 3px;
+              overflow: hidden;
+              background: #e2e8f0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 9px;
+              color: #94a3b8;
+            }
+            .student-photo img {
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 14px;
+              font-size: 11px;
+            }
+            th {
+              background-color: #f1f5f9;
+              color: #0f172a;
+              font-weight: 700;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.3px;
+              border: 1px solid #cbd5e1;
+              padding: 6px 8px;
+            }
+            td {
+              border: 1px solid #cbd5e1;
+              padding: 6px 8px;
+            }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 8px;
+              margin-bottom: 24px;
+            }
+            .stat-card {
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-radius: 4px;
+              padding: 8px 10px;
+              text-align: center;
+            }
+            .stat-title {
+              font-size: 9px;
+              text-transform: uppercase;
+              font-weight: 600;
+              color: #64748b;
+              margin-bottom: 2px;
+            }
+            .stat-value {
+              font-size: 15px;
+              font-weight: 700;
+              color: #0f172a;
+            }
+            .signatures {
+              display: flex;
+              justify-content: space-between;
+              margin-top: 36px;
+              padding-top: 10px;
+            }
+            .sign-col {
+              text-align: center;
+              width: 180px;
+            }
+            .sign-line {
+              border-top: 1px dashed #64748b;
+              margin-bottom: 6px;
+            }
+            .sign-title {
+              font-size: 10px;
+              font-weight: 600;
+              color: #475569;
+              text-transform: uppercase;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header-container">
+            <div class="logo-box">
+              <img src="/logo.png" alt="Concordia College Peshawar" onerror="this.style.display='none'" />
+            </div>
+            <div class="header-text">
+              <div class="college-title">Concordia College Peshawar</div>
+              <div class="report-subtitle">Student Examination Report Card</div>
+            </div>
+          </div>
 
-      filledTemplate = filledTemplate.replace(/{{[^{}]+}}/g, "");
+          <div class="student-info-grid">
+            <div>
+              <div class="info-item"><span class="info-label">Student Name:</span> <span class="info-value">${getFullName(student)}</span></div>
+              <div class="info-item"><span class="info-label">Father Name:</span> <span class="info-value">${student.fatherOrguardian || student.fatherName || "—"}</span></div>
+              <div class="info-item"><span class="info-label">Roll Number:</span> <span class="info-value" style="font-family: monospace;">${student.rollNumber || "—"}</span></div>
+            </div>
+            <div>
+              <div class="info-item"><span class="info-label">Class & Program:</span> <span class="info-value">${className}${programName ? ` (${programName})` : ""}</span></div>
+              <div class="info-item"><span class="info-label">Section:</span> <span class="info-value">${sectionName || "N/A"}</span></div>
+              <div class="info-item"><span class="info-label">Exam & Session:</span> <span class="info-value">${exam.examName || "—"} (${exam.session || "—"})</span></div>
+            </div>
+            <div>
+              <div class="student-photo">
+                ${student.photo_url ? `<img src="${student.photo_url}" alt="Photo" />` : 'No Photo'}
+              </div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th style="text-align: left;">Subject</th>
+                <th style="width: 80px; text-align: center;">Total Marks</th>
+                <th style="width: 90px; text-align: center;">Obtained Marks</th>
+                <th style="width: 80px; text-align: center;">Percentage</th>
+                <th style="width: 70px; text-align: center;">Grade</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${marksRowsHtml}
+            </tbody>
+          </table>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-title">Total Marks</div>
+              <div class="stat-value">${result.totalMarks}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-title">Obtained Marks</div>
+              <div class="stat-value" style="color: #2563eb;">${result.obtainedMarks}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-title">Percentage</div>
+              <div class="stat-value">${(result.percentage || 0).toFixed(2)}%</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-title">Grade</div>
+              <div class="stat-value" style="color: ${isFail ? '#dc2626' : '#059669'};">${result.grade}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-title">Position</div>
+              <div class="stat-value">${position || "—"}</div>
+            </div>
+          </div>
+
+          <div class="signatures">
+            <div class="sign-col">
+              <div class="sign-line"></div>
+              <div class="sign-title">Class Incharge</div>
+            </div>
+            <div class="sign-col">
+              <div class="sign-line"></div>
+              <div class="sign-title">Controller of Examinations</div>
+            </div>
+            <div class="sign-col">
+              <div class="sign-line"></div>
+              <div class="sign-title">Principal</div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
 
       const printWin = window.open("", "_blank");
-      printWin?.document.write(filledTemplate);
+      printWin?.document.write(reportHtml);
       printWin?.document.close();
       printWin?.print();
     } catch (error) {
@@ -616,7 +1127,7 @@ export const ResultsTab = () => {
                   : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
               }`}
             >
-              <div className="flex gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div className="flex-1">
                   <Label>Session Filter</Label>
                   <Select
@@ -707,6 +1218,65 @@ export const ResultsTab = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="flex-1">
+                  <Label>Filter by Section</Label>
+                  <Select
+                    value={!allowSections ? "" : resultFilterSection}
+                    onValueChange={setResultFilterSection}
+                    disabled={!allowSections || !resultFilterClass || resultFilterClass === "*"}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          !allowSections
+                            ? "Not Applicable"
+                            : resultFilterClass && resultFilterClass !== "*"
+                            ? "All Sections"
+                            : "Select class first"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!allowSections ? (
+                        <SelectItem value="">Not Applicable</SelectItem>
+                      ) : (
+                        <>
+                          <SelectItem value="*">All Sections</SelectItem>
+                          {availableSections.map((section) => {
+                            const secId = extractId(section.id || section._id || section);
+                            return (
+                              <SelectItem key={secId} value={secId}>
+                                {section.name || section.sectionName || "Section"}
+                              </SelectItem>
+                            );
+                          })}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label>Filter by Exam</Label>
+                  <Select
+                    value={resultFilterExam}
+                    onValueChange={setResultFilterExam}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Exams" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="*">All Exams</SelectItem>
+                      {availableFilterExams.map((exam) => {
+                        const eId = extractId(exam.id || exam._id);
+                        return (
+                          <SelectItem key={eId} value={eId}>
+                            {exam.examName} - {exam.session} {exam.startDate ? `(${formatDateDisplay(exam.startDate)})` : ""}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -736,7 +1306,15 @@ export const ResultsTab = () => {
               </div>
             ) : (
               <>
-                {resultsSessionFilteredExams?.map((exam) => {
+                {resultsSessionFilteredExams
+                  ?.filter((exam) => {
+                    const examIdStr = extractId(exam.id || exam._id);
+                    if (resultFilterExam && resultFilterExam !== "*") {
+                      if (examIdStr !== resultFilterExam) return false;
+                    }
+                    return true;
+                  })
+                  .map((exam) => {
                   const examIdStr = extractId(exam.id || exam._id);
                   let examResults = results.filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === examIdStr);
 
@@ -751,6 +1329,13 @@ export const ResultsTab = () => {
                     examResults = examResults.filter((r) => {
                       const clsId = extractId(r.student?.classId || r.student?.class?.id || r.student?.class?._id || r.classId);
                       return clsId === resultFilterClass;
+                    });
+                  }
+
+                  if (allowSections && resultFilterSection && resultFilterSection !== "*") {
+                    examResults = examResults.filter((r) => {
+                      const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
+                      return secId === resultFilterSection;
                     });
                   }
                   if (examResults.length === 0) return null;
@@ -814,7 +1399,6 @@ export const ResultsTab = () => {
                               <TableHead className="py-2 px-3 text-sm">Obtained</TableHead>
                               <TableHead className="py-2 px-3 text-sm">Percentage</TableHead>
                               <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">GPA</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -845,11 +1429,8 @@ export const ResultsTab = () => {
                                     <TableCell className="py-2 px-3 text-sm">
                                       {(result.percentage || 0).toFixed(2)}%
                                     </TableCell>
-                                    <TableCell className="py-2 px-3 text-sm">
+                                    <TableCell className="py-2 px-3 text-sm font-semibold">
                                       {result.grade}
-                                    </TableCell>
-                                    <TableCell className="py-2 px-3 text-sm">
-                                      {(result.gpa || 0).toFixed(2)}
                                     </TableCell>
                                   </TableRow>
                                 );

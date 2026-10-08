@@ -118,7 +118,7 @@ class StudentService {
       andConditions.push({ gender: { $regex: new RegExp(`^${filters.gender}$`, 'i') } });
     }
 
-    const search = (filters.search || filters.searchQuery || '').trim();
+    const search = (filters.search || filters.searchQuery || filters.searchFor || '').trim();
     if (search) {
       const re = new RegExp(search, 'i');
       andConditions.push({

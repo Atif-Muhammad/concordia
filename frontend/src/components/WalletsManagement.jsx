@@ -83,6 +83,7 @@ import {
   getHostelFeeLogs,
   getTuitionFeeLogs,
   getWalletExpenseLogs,
+  getAllStaff,
 } from "../../config/apis";
 import { cn } from "@/lib/utils";
 import usePermissions from "@/hooks/usePermissions";
@@ -294,6 +295,62 @@ export default function WalletsManagement() {
           tx.destinationWallet === wId)
     );
   }, [walletDetailTransfersData, transactions, selectedWalletForDetail]);
+
+  // Fetch all staff to resolve designation for loggedBy / performedBy
+  const { data: allStaffData } = useQuery({
+    queryKey: ["allStaffForWallets"],
+    queryFn: () => getAllStaff(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const staffDesignationMap = useMemo(() => {
+    const list = Array.isArray(allStaffData)
+      ? allStaffData
+      : (allStaffData?.staff || allStaffData?.data || []);
+    const map = new Map();
+    list.forEach((s) => {
+      const des = (s.designation || "").trim();
+      if (!des) return;
+      if (s.name) map.set(s.name.trim().toLowerCase(), des);
+      if (s.email) map.set(s.email.trim().toLowerCase(), des);
+      if (s._id) map.set(String(s._id), des);
+      if (s.staffId) map.set(String(s.staffId).toLowerCase(), des);
+    });
+    return map;
+  }, [allStaffData]);
+
+  const renderLoggedBy = (performedByName, performedBy) => {
+    if (!performedByName && !performedBy) return <span className="text-muted-foreground">System</span>;
+    const raw = String(performedByName || performedBy?.name || "System").trim();
+    if (raw.toLowerCase() === "system") return <span className="text-muted-foreground">System</span>;
+
+    // Extract base name and any role inside parentheses, e.g. "Teacher 1 (TEACHER)" -> "Teacher 1"
+    const match = raw.match(/^(.*?)\s*\((.*?)\)$/);
+    const baseName = match ? match[1].trim() : (performedBy?.name || raw);
+    const roleInParens = match ? match[2].trim() : (performedBy?.role || "");
+
+    // Look up designation in staff map
+    let designation =
+      staffDesignationMap.get(baseName.toLowerCase()) ||
+      (performedBy?.email && staffDesignationMap.get(performedBy.email.toLowerCase())) ||
+      (performedBy?._id && staffDesignationMap.get(String(performedBy._id))) ||
+      performedBy?.designation;
+
+    if (!designation) {
+      if (roleInParens && !["TEACHER", "Teacher"].includes(roleInParens)) {
+        designation = roleInParens === "SUPER_ADMIN" ? "Super Admin" : roleInParens === "ADMIN" ? "Admin" : roleInParens;
+      } else {
+        designation = "Teacher";
+      }
+    }
+
+    return (
+      <div className="flex flex-col leading-tight">
+        <span className="font-medium text-foreground">{baseName}</span>
+        <span className="text-[10px] text-muted-foreground">({designation})</span>
+      </div>
+    );
+  };
 
   const handleOpenWalletDetail = (wallet) => {
     setSelectedWalletForDetail(wallet);
@@ -1210,7 +1267,7 @@ export default function WalletsManagement() {
                             </TableCell>
 
                             <TableCell className="py-2.5 text-muted-foreground text-[11px]">
-                              {tx.performedByName || tx.performedBy?.name || "System"}
+                              {renderLoggedBy(tx.performedByName, tx.performedBy)}
                             </TableCell>
                           </TableRow>
                         );
@@ -1972,7 +2029,7 @@ export default function WalletsManagement() {
                               </span>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {log.performedBy?.name || "System"}
+                              {renderLoggedBy(log.performedByName, log.performedBy)}
                             </TableCell>
                             <TableCell className="text-xs text-center">
                               <Button
@@ -2074,7 +2131,7 @@ export default function WalletsManagement() {
                               {tx.referenceNo || "—"}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {tx.performedBy?.name || "Admin"}
+                              {renderLoggedBy(tx.performedByName, tx.performedBy)}
                             </TableCell>
                           </TableRow>
                         );
@@ -2170,7 +2227,7 @@ export default function WalletsManagement() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {log.performedByName || log.performedBy?.name || 'System'}
+                              {renderLoggedBy(log.performedByName, log.performedBy)}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
                               {log.description || '—'}
@@ -2284,7 +2341,7 @@ export default function WalletsManagement() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {log.performedByName || log.performedBy?.name || 'System'}
+                              {renderLoggedBy(log.performedByName, log.performedBy)}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]" title={log.description}>
                               {log.description || '—'}
@@ -2406,7 +2463,7 @@ export default function WalletsManagement() {
                                 : '—'}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {log.performedByName || log.performedBy?.name || 'System'}
+                              {renderLoggedBy(log.performedByName, log.performedBy)}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">
                               {log.description || '—'}

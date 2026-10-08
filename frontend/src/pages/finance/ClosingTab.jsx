@@ -54,7 +54,9 @@ import {
   Wallet as WalletIcon,
   ShieldCheck,
   RotateCcw,
+  Loader2,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   getFinanceClosingDashboard,
@@ -140,6 +142,7 @@ export default function ClosingTab() {
   const {
     data: dashboardData,
     isLoading: isDashboardLoading,
+    isFetching: isDashboardFetching,
   } = useQuery({
     queryKey: ["financeClosingDashboard", closingDate],
     queryFn: () =>
@@ -147,6 +150,8 @@ export default function ClosingTab() {
         date: closingDate || undefined,
       }),
   });
+
+  const isDataLoading = isDashboardLoading || isDashboardFetching;
 
   // Fetch Academic Sessions for Session display
   const { data: academicSessions = [] } = useQuery({
@@ -188,8 +193,14 @@ export default function ClosingTab() {
   const closedDatesSet = new Set((allClosings || []).map((c) => c.date));
   const isExactCheckpoint = Boolean(dashboardData?.isExactCheckpoint);
 
-  // Extracted Detailed Data Arrays
-  const feeCollectionDetails = useMemo(() => dashboardData?.feeCollectionDetails || [], [dashboardData]);
+  // Extracted Detailed Data Arrays (only transactions with actual money ledger inflow/outflow)
+  const feeCollectionDetails = useMemo(() => {
+    return (dashboardData?.feeCollectionDetails || []).filter((c) => {
+      const isSettlement = c.receiptType === 'ADVANCE_SETTLEMENT' || c.receiptType === 'ARREARS_SETTLEMENT' || c.paymentMode === 'Advance Credit' || c.paymentMode === 'Arrears Transfer';
+      const isZeroPaid = Number(c.paidAmount || 0) <= 0;
+      return !(isSettlement || isZeroPaid);
+    });
+  }, [dashboardData]);
   const otherIncomeDetails = useMemo(() => dashboardData?.otherIncomeDetails || [], [dashboardData]);
   const payrollDetails = useMemo(() => dashboardData?.payrollDetails || [], [dashboardData]);
   const otherExpenseDetails = useMemo(() => dashboardData?.otherExpenseDetails || [], [dashboardData]);
@@ -565,25 +576,29 @@ export default function ClosingTab() {
                         <th style="width: 55px;" class="text-right">Gross</th>
                         <th style="width: 65px;" class="text-right" style="color: #059669;">Paid (Rs.)</th>
                         <th style="width: 80px;">Account</th>
+                        <th style="width: 85px;">Logged By</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${
                         feeCollectionDetails.length === 0
-                          ? `<tr><td colspan="9" class="text-center" style="color: #94a3b8; font-style: italic;">No fee collections recorded on this date.</td></tr>`
+                          ? `<tr><td colspan="10" class="text-center" style="color: #94a3b8; font-style: italic;">No fee collections recorded on this date.</td></tr>`
                           : feeCollectionDetails
                               .map(
                                 (c, idx) => `
                             <tr>
                               <td class="text-center font-mono">${idx + 1}</td>
-                              <td class="font-mono">#${c.challanNo}</td>
+                              <td class="font-mono">${c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
                               <td><strong>${c.studentName}</strong> (Father: ${c.fatherName} • Roll: ${c.rollNumber})</td>
                               <td class="text-right font-mono">${Number(c.baseAmount || 0).toLocaleString()}</td>
                               <td class="text-right font-mono">${Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
                               <td class="text-right font-mono">${Number(c.lateFeeFine || 0).toLocaleString()}</td>
                               <td class="text-right font-mono">${Number(c.totalAmount || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono font-bold" style="color: #059669;">${Number(c.paidAmount || 0).toLocaleString()}</td>
-                              <td>${c.walletName || "Cash in Hand"}</td>
+                              <td class="text-right font-mono font-bold" style="color: ${Number(c.paidAmount || 0) > 0 ? '#059669' : '#7c3aed'};">
+                                ${Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}
+                              </td>
+                              <td>${c.walletName || (Number(c.paidAmount || 0) > 0 ? "Cash in Hand" : "Non-Cash Settlement")}</td>
+                              <td>${c.loggedBy || "Super Admin"}</td>
                             </tr>
                           `
                               )
@@ -614,13 +629,14 @@ export default function ClosingTab() {
                         <th>Description / Remarks</th>
                         <th style="width: 110px;">Source / Ref</th>
                         <th style="width: 85px;">Account</th>
+                        <th style="width: 85px;">Logged By</th>
                         <th style="width: 75px;" class="text-right" style="color: #059669;">Amount (Rs.)</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${
                         otherIncomeDetails.length === 0
-                          ? `<tr><td colspan="6" class="text-center" style="color: #94a3b8; font-style: italic;">No other revenue recorded on this date.</td></tr>`
+                          ? `<tr><td colspan="7" class="text-center" style="color: #94a3b8; font-style: italic;">No other revenue recorded on this date.</td></tr>`
                           : otherIncomeDetails
                               .map(
                                 (inc, idx) => `
@@ -630,6 +646,7 @@ export default function ClosingTab() {
                               <td>${inc.remarks || inc.title || "—"}</td>
                               <td>${inc.source || "Direct Receipt"}</td>
                               <td>${inc.walletName || "Cash in Hand"}</td>
+                              <td>${inc.loggedBy || "Super Admin"}</td>
                               <td class="text-right font-mono font-bold" style="color: #059669;">${Number(inc.amount || 0).toLocaleString()}</td>
                             </tr>
                           `
@@ -686,12 +703,13 @@ export default function ClosingTab() {
                         <th style="width: 55px;" class="text-right">Allowances</th>
                         <th style="width: 65px;" class="text-right" style="color: #e11d48;">Net Paid</th>
                         <th style="width: 80px;">Account</th>
+                        <th style="width: 85px;">Disbursed By</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${
                         payrollDetails.length === 0
-                          ? `<tr><td colspan="8" class="text-center" style="color: #94a3b8; font-style: italic;">No payroll disbursements recorded on this date.</td></tr>`
+                          ? `<tr><td colspan="9" class="text-center" style="color: #94a3b8; font-style: italic;">No payroll disbursements recorded on this date.</td></tr>`
                           : payrollDetails
                               .map(
                                 (p, idx) => `
@@ -704,6 +722,7 @@ export default function ClosingTab() {
                               <td class="text-right font-mono">${Number(p.allowance || 0).toLocaleString()}</td>
                               <td class="text-right font-mono font-bold" style="color: #e11d48;">${Number(p.totalAmount || 0).toLocaleString()}</td>
                               <td>${p.walletName || "Cash in Hand"}</td>
+                              <td>${p.disbursedBy || "Admin"}</td>
                             </tr>
                           `
                               )
@@ -735,13 +754,14 @@ export default function ClosingTab() {
                         <th style="width: 70px;">Voucher #</th>
                         <th style="width: 100px;">Vendor / Payee</th>
                         <th style="width: 80px;">Account</th>
+                        <th style="width: 85px;">Disbursed By</th>
                         <th style="width: 70px;" class="text-right" style="color: #e11d48;">Amount (Rs.)</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${
                         otherExpenseDetails.length === 0
-                          ? `<tr><td colspan="7" class="text-center" style="color: #94a3b8; font-style: italic;">No operating expenses recorded on this date.</td></tr>`
+                          ? `<tr><td colspan="8" class="text-center" style="color: #94a3b8; font-style: italic;">No operating expenses recorded on this date.</td></tr>`
                           : otherExpenseDetails
                               .map(
                                 (exp, idx) => `
@@ -752,6 +772,7 @@ export default function ClosingTab() {
                               <td class="font-mono">#${exp.voucherNo}</td>
                               <td>${exp.vendor || "—"}</td>
                               <td>${exp.walletName || "Cash in Hand"}</td>
+                              <td>${exp.disbursedBy || "Admin"}</td>
                               <td class="text-right font-mono font-bold" style="color: #e11d48;">${Number(exp.amount || 0).toLocaleString()}</td>
                             </tr>
                           `
@@ -879,8 +900,11 @@ export default function ClosingTab() {
                     Session: {activeSessionName}
                   </Badge>
                   <span>•</span>
-                  <span className="font-semibold text-foreground">
+                  <span className="font-semibold text-foreground flex items-center gap-1.5">
                     Report Date: {formatReportDate(closingDate || todayDateStr)}
+                    {isDataLoading && (
+                      <Loader2 className="w-3 h-3 animate-spin text-primary inline-block" />
+                    )}
                   </span>
                   {isExactCheckpoint && (
                     <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 text-[10px] font-bold">
@@ -901,6 +925,9 @@ export default function ClosingTab() {
                   value={closingDate}
                   onChange={(e) => setClosingDate(e.target.value)}
                 />
+                {isDataLoading && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0 mr-1" />
+                )}
                 <Button
                   variant={closingDate === todayDateStr ? "default" : "ghost"}
                   size="sm"
@@ -968,9 +995,13 @@ export default function ClosingTab() {
           </div>
           <div className="text-right">
             <span className="text-[11px] sm:text-xs text-muted-foreground mr-1.5">Total Income:</span>
-            <span className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">
-              PKR {totalIncome.toLocaleString()}
-            </span>
+            {isDataLoading ? (
+              <Skeleton className="inline-block h-4 w-24 align-middle" />
+            ) : (
+              <span className="text-xs sm:text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                PKR {totalIncome.toLocaleString()}
+              </span>
+            )}
           </div>
         </CardHeader>
 
@@ -1014,12 +1045,20 @@ export default function ClosingTab() {
                     </div>
                   </TableCell>
                   <TableCell className="py-2.5 px-2.5 text-center">
-                    <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
-                      {feeCollectionDetails.length} {feeCollectionDetails.length === 1 ? "Challan" : "Challans"}
-                    </Badge>
+                    {isDataLoading ? (
+                      <Skeleton className="h-5 w-20 mx-auto rounded-full" />
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
+                        {feeCollectionDetails.length} {feeCollectionDetails.length === 1 ? "Challan" : "Challans"}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
-                    PKR {feeCollectionTotal.toLocaleString()}
+                    {isDataLoading ? (
+                      <Skeleton className="h-4 w-24 ml-auto" />
+                    ) : (
+                      `PKR ${feeCollectionTotal.toLocaleString()}`
+                    )}
                   </TableCell>
                 </TableRow>
 
@@ -1041,12 +1080,28 @@ export default function ClosingTab() {
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground text-right whitespace-nowrap">Gross</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-emerald-600 dark:text-emerald-400 font-bold text-right whitespace-nowrap">Paid (PKR)</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground whitespace-nowrap">Deposit Account</TableHead>
+                                <TableHead className="h-7 py-1 px-2 text-muted-foreground whitespace-nowrap">Logged By</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {feeCollectionDetails.length === 0 ? (
+                              {isDataLoading ? (
+                                [1, 2, 3].map((idx) => (
+                                  <TableRow key={idx} className="border-b border-border/30 text-[10.5px] sm:text-xs">
+                                    <TableCell className="text-center font-mono py-2 px-2 text-muted-foreground"><Skeleton className="h-3.5 w-3.5 mx-auto" /></TableCell>
+                                    <TableCell className="font-mono font-bold py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-16" /></TableCell>
+                                    <TableCell className="py-2 px-2 min-w-[170px]"><Skeleton className="h-3.5 w-32 mb-1" /><Skeleton className="h-3 w-44" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-10 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono font-bold py-2 px-2"><Skeleton className="h-3.5 w-16 ml-auto" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-5 w-20 rounded" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-24" /></TableCell>
+                                  </TableRow>
+                                ))
+                              ) : feeCollectionDetails.length === 0 ? (
                                 <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={9} className="text-center py-3.5 text-xs text-muted-foreground italic">
+                                  <TableCell colSpan={10} className="text-center py-3.5 text-xs text-muted-foreground italic">
                                     No fee collections recorded for this closing date.
                                   </TableCell>
                                 </TableRow>
@@ -1057,7 +1112,11 @@ export default function ClosingTab() {
                                       {idx + 1}
                                     </TableCell>
                                     <TableCell className="font-mono font-bold py-1.5 px-2 whitespace-nowrap">
-                                      #{c.challanNo}
+                                      {c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? (
+                                        <span>#{c.challanNo.replace(/^#/, "")}</span>
+                                      ) : (
+                                        <span className="text-muted-foreground font-mono font-normal">{c.receiptNo && c.receiptNo !== "—" ? c.receiptNo : "—"}</span>
+                                      )}
                                       {c.type !== "Tuition Challan" && (
                                         <Badge variant="outline" className="text-[8.5px] py-0 px-1 ml-1 uppercase">
                                           {c.type}
@@ -1086,12 +1145,31 @@ export default function ClosingTab() {
                                       {Number(c.totalAmount || 0).toLocaleString()}
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 py-1.5 px-2 whitespace-nowrap">
-                                      PKR {Number(c.paidAmount || 0).toLocaleString()}
+                                      {c.paymentMode === "Advance Credit" || c.receiptType === "ADVANCE_SETTLEMENT" ? (
+                                        <div className="flex flex-col items-end">
+                                          <span className="text-purple-600 font-semibold text-[10px]">PKR 0 (Advance)</span>
+                                          <span className="text-[9px] text-muted-foreground font-normal">Credit: {Number(c.advanceCreditUsed || 0).toLocaleString()}</span>
+                                        </div>
+                                      ) : (c.paymentMode === "Arrears Transfer" || c.receiptType === "ARREARS_SETTLEMENT") ? (
+                                        <div className="flex flex-col items-end">
+                                          <span className="text-amber-600 font-semibold text-[10px]">PKR 0 (Arrears)</span>
+                                          <span className="text-[9px] text-muted-foreground font-normal">Settled: {Number(c.settledViaArrearsAmount || 0).toLocaleString()}</span>
+                                        </div>
+                                      ) : (
+                                        `PKR ${Number(c.paidAmount || 0).toLocaleString()}`
+                                      )}
                                     </TableCell>
                                     <TableCell className="py-1.5 px-2 whitespace-nowrap">
                                       <Badge variant="secondary" className="text-[9.5px] font-mono py-0 px-1.5">
-                                        {c.walletName || "Cash in Hand"}
+                                        {c.paymentMode === "Advance Credit" || c.receiptType === "ADVANCE_SETTLEMENT"
+                                          ? "Advance Credit"
+                                          : (c.paymentMode === "Arrears Transfer" || c.receiptType === "ARREARS_SETTLEMENT"
+                                            ? "Arrears Settlement"
+                                            : (c.walletName || "Cash in Hand"))}
                                       </Badge>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 px-2 whitespace-nowrap text-muted-foreground">
+                                      {c.loggedBy || "Super Admin"}
                                     </TableCell>
                                   </TableRow>
                                 ))
@@ -1131,12 +1209,20 @@ export default function ClosingTab() {
                     </div>
                   </TableCell>
                   <TableCell className="text-center font-mono py-2.5 px-2.5">
-                    <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
-                      {otherIncomeDetails.length} {otherIncomeDetails.length === 1 ? "Entry" : "Entries"}
-                    </Badge>
+                    {isDataLoading ? (
+                      <Skeleton className="h-5 w-16 mx-auto rounded-full" />
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
+                        {otherIncomeDetails.length} {otherIncomeDetails.length === 1 ? "Entry" : "Entries"}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
-                    PKR {otherIncomeTotal.toLocaleString()}
+                    {isDataLoading ? (
+                      <Skeleton className="h-4 w-24 ml-auto" />
+                    ) : (
+                      `PKR ${otherIncomeTotal.toLocaleString()}`
+                    )}
                   </TableCell>
                 </TableRow>
 
@@ -1154,13 +1240,26 @@ export default function ClosingTab() {
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground min-w-[160px]">Description / Remarks</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[110px] whitespace-nowrap">Source / Reference</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[110px] whitespace-nowrap">Deposit Account</TableHead>
+                                <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[110px] whitespace-nowrap">Logged By</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-emerald-600 dark:text-emerald-400 font-bold w-[110px] text-right whitespace-nowrap">Amount (PKR)</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {otherIncomeDetails.length === 0 ? (
+                              {isDataLoading ? (
+                                [1, 2].map((idx) => (
+                                  <TableRow key={idx} className="border-b border-border/30 text-[10.5px] sm:text-xs">
+                                    <TableCell className="text-center font-mono py-2 px-2 text-muted-foreground"><Skeleton className="h-3.5 w-3.5 mx-auto" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="py-2 px-2 min-w-[160px]"><Skeleton className="h-3.5 w-36" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-5 w-20 rounded" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="text-right py-2 px-2"><Skeleton className="h-3.5 w-16 ml-auto" /></TableCell>
+                                  </TableRow>
+                                ))
+                              ) : otherIncomeDetails.length === 0 ? (
                                 <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={6} className="text-center py-3.5 text-xs text-muted-foreground italic">
+                                  <TableCell colSpan={8} className="text-center py-3.5 text-xs text-muted-foreground italic">
                                     No other revenue recorded for this closing date.
                                   </TableCell>
                                 </TableRow>
@@ -1185,6 +1284,9 @@ export default function ClosingTab() {
                                       <Badge variant="secondary" className="text-[9.5px] font-mono py-0 px-1.5">
                                         {inc.walletName || "Cash in Hand"}
                                       </Badge>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 px-2 whitespace-nowrap text-muted-foreground">
+                                      {inc.loggedBy || "Super Admin"}
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 py-1.5 px-2 whitespace-nowrap">
                                       PKR {Number(inc.amount || 0).toLocaleString()}
@@ -1231,9 +1333,13 @@ export default function ClosingTab() {
           </div>
           <div className="text-right">
             <span className="text-[11px] sm:text-xs text-muted-foreground mr-1.5">Total Expenses:</span>
-            <span className="text-xs sm:text-sm font-mono font-bold text-rose-600 dark:text-rose-400">
-              PKR {totalExpenses.toLocaleString()}
-            </span>
+            {isDataLoading ? (
+              <Skeleton className="inline-block h-4 w-24 align-middle" />
+            ) : (
+              <span className="text-xs sm:text-sm font-mono font-bold text-rose-600 dark:text-rose-400">
+                PKR {totalExpenses.toLocaleString()}
+              </span>
+            )}
           </div>
         </CardHeader>
 
@@ -1277,12 +1383,20 @@ export default function ClosingTab() {
                     </div>
                   </TableCell>
                   <TableCell className="text-center font-mono py-2.5 px-2.5">
-                    <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
-                      {payrollDetails.length} {payrollDetails.length === 1 ? "Staff" : "Staff"}
-                    </Badge>
+                    {isDataLoading ? (
+                      <Skeleton className="h-5 w-16 mx-auto rounded-full" />
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
+                        {payrollDetails.length} {payrollDetails.length === 1 ? "Staff" : "Staff"}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-rose-600 dark:text-rose-400">
-                    PKR {payrollTotal.toLocaleString()}
+                    {isDataLoading ? (
+                      <Skeleton className="h-4 w-24 ml-auto" />
+                    ) : (
+                      `PKR ${payrollTotal.toLocaleString()}`
+                    )}
                   </TableCell>
                 </TableRow>
 
@@ -1303,12 +1417,27 @@ export default function ClosingTab() {
                                 <TableHead className="h-7 py-1 px-2 text-emerald-600 text-right whitespace-nowrap">Allowances (PKR)</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-rose-600 dark:text-rose-400 font-bold text-right whitespace-nowrap">Net Paid (PKR)</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground whitespace-nowrap">Disbursed Account</TableHead>
+                                <TableHead className="h-7 py-1 px-2 text-muted-foreground whitespace-nowrap">Disbursed By</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {payrollDetails.length === 0 ? (
+                              {isDataLoading ? (
+                                [1, 2].map((idx) => (
+                                  <TableRow key={idx} className="border-b border-border/30 text-[10.5px] sm:text-xs">
+                                    <TableCell className="text-center font-mono py-2 px-2 text-muted-foreground"><Skeleton className="h-3.5 w-3.5 mx-auto" /></TableCell>
+                                    <TableCell className="py-2 px-2 min-w-[170px]"><Skeleton className="h-3.5 w-36 mb-1" /><Skeleton className="h-3 w-28" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-16" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono py-2 px-2"><Skeleton className="h-3.5 w-14 ml-auto" /></TableCell>
+                                    <TableCell className="text-right font-mono font-bold py-2 px-2"><Skeleton className="h-3.5 w-16 ml-auto" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-5 w-20 rounded" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-24" /></TableCell>
+                                  </TableRow>
+                                ))
+                              ) : payrollDetails.length === 0 ? (
                                 <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={8} className="text-center py-3.5 text-xs text-muted-foreground italic">
+                                  <TableCell colSpan={9} className="text-center py-3.5 text-xs text-muted-foreground italic">
                                     No payroll disbursements recorded for this closing date.
                                   </TableCell>
                                 </TableRow>
@@ -1348,6 +1477,9 @@ export default function ClosingTab() {
                                         {p.walletName || "Cash in Hand"}
                                       </Badge>
                                     </TableCell>
+                                    <TableCell className="py-1.5 px-2 whitespace-nowrap text-muted-foreground">
+                                      {p.disbursedBy || "Admin"}
+                                    </TableCell>
                                   </TableRow>
                                 ))
                               )}
@@ -1386,12 +1518,20 @@ export default function ClosingTab() {
                     </div>
                   </TableCell>
                   <TableCell className="text-center font-mono py-2.5 px-2.5">
-                    <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
-                      {otherExpenseDetails.length} {otherExpenseDetails.length === 1 ? "Voucher" : "Vouchers"}
-                    </Badge>
+                    {isDataLoading ? (
+                      <Skeleton className="h-5 w-16 mx-auto rounded-full" />
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] sm:text-[10.5px] font-mono py-0.5 px-2">
+                        {otherExpenseDetails.length} {otherExpenseDetails.length === 1 ? "Voucher" : "Vouchers"}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-rose-600 dark:text-rose-400">
-                    PKR {otherExpenseTotal.toLocaleString()}
+                    {isDataLoading ? (
+                      <Skeleton className="h-4 w-24 ml-auto" />
+                    ) : (
+                      `PKR ${otherExpenseTotal.toLocaleString()}`
+                    )}
                   </TableCell>
                 </TableRow>
 
@@ -1410,13 +1550,27 @@ export default function ClosingTab() {
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[90px] whitespace-nowrap">Voucher #</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[120px] whitespace-nowrap">Vendor / Payee</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[110px] whitespace-nowrap">Paid From Account</TableHead>
+                                <TableHead className="h-7 py-1 px-2 text-muted-foreground w-[110px] whitespace-nowrap">Disbursed By</TableHead>
                                 <TableHead className="h-7 py-1 px-2 text-rose-600 dark:text-rose-400 font-bold w-[110px] text-right whitespace-nowrap">Amount (PKR)</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {otherExpenseDetails.length === 0 ? (
+                              {isDataLoading ? (
+                                [1, 2].map((idx) => (
+                                  <TableRow key={idx} className="border-b border-border/30 text-[10.5px] sm:text-xs">
+                                    <TableCell className="text-center font-mono py-2 px-2 text-muted-foreground"><Skeleton className="h-3.5 w-3.5 mx-auto" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="py-2 px-2 min-w-[160px]"><Skeleton className="h-3.5 w-36" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-16" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-5 w-20 rounded" /></TableCell>
+                                    <TableCell className="py-2 px-2 whitespace-nowrap"><Skeleton className="h-3.5 w-20" /></TableCell>
+                                    <TableCell className="text-right py-2 px-2"><Skeleton className="h-3.5 w-16 ml-auto" /></TableCell>
+                                  </TableRow>
+                                ))
+                              ) : otherExpenseDetails.length === 0 ? (
                                 <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={7} className="text-center py-3.5 text-xs text-muted-foreground italic">
+                                  <TableCell colSpan={8} className="text-center py-3.5 text-xs text-muted-foreground italic">
                                     No operating expenses recorded for this closing date.
                                   </TableCell>
                                 </TableRow>
@@ -1444,6 +1598,9 @@ export default function ClosingTab() {
                                       <Badge variant="secondary" className="text-[9.5px] font-mono py-0 px-1.5">
                                         {exp.walletName || "Cash in Hand"}
                                       </Badge>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 px-2 whitespace-nowrap text-muted-foreground">
+                                      {exp.disbursedBy || "Admin"}
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 py-1.5 px-2 whitespace-nowrap">
                                       PKR {Number(exp.amount || 0).toLocaleString()}
@@ -1510,12 +1667,21 @@ export default function ClosingTab() {
                   <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
               </div>
-              <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-emerald-700 dark:text-emerald-300 mt-1.5">
-                PKR {totalIncome.toLocaleString()}
-              </div>
-              <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
-                Fee: PKR {feeCollectionTotal.toLocaleString()} + Other: PKR {otherIncomeTotal.toLocaleString()}
-              </div>
+              {isDataLoading ? (
+                <div className="space-y-2 mt-2">
+                  <Skeleton className="h-7 w-36" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              ) : (
+                <>
+                  <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-emerald-700 dark:text-emerald-300 mt-1.5">
+                    PKR {totalIncome.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
+                    Fee: PKR {feeCollectionTotal.toLocaleString()} + Other: PKR {otherIncomeTotal.toLocaleString()}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Total Expenses */}
@@ -1528,12 +1694,21 @@ export default function ClosingTab() {
                   <TrendingDown className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                 </div>
               </div>
-              <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-rose-700 dark:text-rose-300 mt-1.5">
-                PKR {totalExpenses.toLocaleString()}
-              </div>
-              <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
-                Payroll: PKR {payrollTotal.toLocaleString()} + Other: PKR {otherExpenseTotal.toLocaleString()}
-              </div>
+              {isDataLoading ? (
+                <div className="space-y-2 mt-2">
+                  <Skeleton className="h-7 w-36" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              ) : (
+                <>
+                  <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-rose-700 dark:text-rose-300 mt-1.5">
+                    PKR {totalExpenses.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
+                    Payroll: PKR {payrollTotal.toLocaleString()} + Other: PKR {otherExpenseTotal.toLocaleString()}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Net Balance / Cash in Hand */}
@@ -1546,12 +1721,21 @@ export default function ClosingTab() {
                   <WalletIcon className="w-3.5 h-3.5 text-primary" />
                 </div>
               </div>
-              <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-foreground mt-1.5">
-                PKR {netBalance.toLocaleString()}
-              </div>
-              <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
-                Net operational cashflow for this date
-              </div>
+              {isDataLoading ? (
+                <div className="space-y-2 mt-2">
+                  <Skeleton className="h-7 w-36" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              ) : (
+                <>
+                  <div className="text-lg sm:text-xl md:text-2xl font-mono font-extrabold text-foreground mt-1.5">
+                    PKR {netBalance.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 truncate">
+                    Net operational cashflow for this date
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -1587,7 +1771,32 @@ export default function ClosingTab() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {walletsDateBreakdown.length === 0 ? (
+                    {isDataLoading ? (
+                      <>
+                        {[1, 2, 3].map((i) => (
+                          <TableRow key={i} className="hover:bg-transparent border-b border-border/30">
+                            <TableCell className="text-center py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-4 mx-auto" />
+                            </TableCell>
+                            <TableCell className="py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-36" />
+                            </TableCell>
+                            <TableCell className="py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-16" />
+                            </TableCell>
+                            <TableCell className="text-right py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-24 ml-auto" />
+                            </TableCell>
+                            <TableCell className="text-right py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-24 ml-auto" />
+                            </TableCell>
+                            <TableCell className="text-right py-2.5 px-2.5">
+                              <Skeleton className="h-4 w-24 ml-auto" />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </>
+                    ) : walletsDateBreakdown.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-6 text-xs text-muted-foreground italic">
                           No active wallet accounts found.
@@ -1692,11 +1901,20 @@ export default function ClosingTab() {
                 </TableHeader>
                 <TableBody>
                   {isHistoryLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-6 text-xs text-muted-foreground">
-                        Loading checkpoints...
-                      </TableCell>
-                    </TableRow>
+                    <>
+                      {[1, 2, 3].map((i) => (
+                        <TableRow key={i} className="hover:bg-transparent border-b border-border/30">
+                          <TableCell className="py-2.5 px-2.5"><Skeleton className="h-4 w-32" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5"><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-6 w-16 ml-auto" /></TableCell>
+                        </TableRow>
+                      ))}
+                    </>
                   ) : closingsHistory.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-6 text-xs text-muted-foreground italic">
@@ -1832,23 +2050,25 @@ export default function ClosingTab() {
                             <th className="border border-slate-400 p-1 text-right w-16">Gross</th>
                             <th className="border border-slate-400 p-1 text-right w-20 text-emerald-700 font-bold">Paid (Rs.)</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Account</th>
+                            <th className="border border-slate-400 p-1 text-left w-24">Logged By</th>
                           </tr>
                         </thead>
                         <tbody>
                           {feeCollectionDetails.length === 0 ? (
-                            <tr><td colSpan={9} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No fee collections recorded.</td></tr>
+                            <tr><td colSpan={10} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No fee collections recorded.</td></tr>
                           ) : (
                             feeCollectionDetails.map((c, idx) => (
                               <tr key={idx}>
                                 <td className="border border-slate-400 p-1 text-center font-mono">{idx + 1}</td>
-                                <td className="border border-slate-400 p-1 font-mono">#{c.challanNo}</td>
+                                <td className="border border-slate-400 p-1 font-mono">{c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
                                 <td className="border border-slate-400 p-1"><strong>{c.studentName}</strong> <span className="text-slate-600">(Father: {c.fatherName || "—"}, Roll: {c.rollNumber || "—"})</span></td>
                                 <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.baseAmount || 0).toLocaleString()}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono">{Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.lateFeeFine || 0).toLocaleString()}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.totalAmount || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-emerald-700">{Number(c.paidAmount || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{c.walletName || "Cash in Hand"}</td>
+                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-emerald-700">{Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}</td>
+                                <td className="border border-slate-400 p-1 text-[9px]">{c.paymentMode === "Advance Credit" || c.receiptType === "ADVANCE_SETTLEMENT" ? "Advance Credit" : (c.paymentMode === "Arrears Transfer" || c.receiptType === "ARREARS_SETTLEMENT" ? "Arrears Settlement" : (c.walletName || "Cash in Hand"))}</td>
+                                <td className="border border-slate-400 p-1 text-[9px]">{c.loggedBy || "Super Admin"}</td>
                               </tr>
                             ))
                           )}
@@ -1877,12 +2097,13 @@ export default function ClosingTab() {
                             <th className="border border-slate-400 p-1 text-left">Description / Remarks</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Source / Ref</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Account</th>
+                            <th className="border border-slate-400 p-1 text-left w-24">Logged By</th>
                             <th className="border border-slate-400 p-1 text-right w-20 text-emerald-700 font-bold">Amount (Rs.)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {otherIncomeDetails.length === 0 ? (
-                            <tr><td colSpan={6} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No other revenue recorded.</td></tr>
+                            <tr><td colSpan={7} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No other revenue recorded.</td></tr>
                           ) : (
                             otherIncomeDetails.map((inc, idx) => (
                               <tr key={idx}>
@@ -1891,6 +2112,7 @@ export default function ClosingTab() {
                                 <td className="border border-slate-400 p-1">{inc.remarks || inc.title}</td>
                                 <td className="border border-slate-400 p-1">{inc.source || "Direct Receipt"}</td>
                                 <td className="border border-slate-400 p-1 text-[9px]">{inc.walletName || "Cash in Hand"}</td>
+                                <td className="border border-slate-400 p-1 text-[9px]">{inc.loggedBy || "Super Admin"}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono font-bold text-emerald-700">{Number(inc.amount || 0).toLocaleString()}</td>
                               </tr>
                             ))
@@ -1952,11 +2174,12 @@ export default function ClosingTab() {
                             <th className="border border-slate-400 p-1 text-right w-16">Allowances (Rs.)</th>
                             <th className="border border-slate-400 p-1 text-right w-20 text-rose-700 font-bold">Net Paid (Rs.)</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Account</th>
+                            <th className="border border-slate-400 p-1 text-left w-24">Disbursed By</th>
                           </tr>
                         </thead>
                         <tbody>
                           {payrollDetails.length === 0 ? (
-                            <tr><td colSpan={8} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No payroll disbursements recorded.</td></tr>
+                            <tr><td colSpan={9} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No payroll disbursements recorded.</td></tr>
                           ) : (
                             payrollDetails.map((p, idx) => (
                               <tr key={idx}>
@@ -1968,6 +2191,7 @@ export default function ClosingTab() {
                                 <td className="border border-slate-400 p-1 text-right font-mono">{Number(p.allowance || 0).toLocaleString()}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono font-bold text-rose-700">{Number(p.totalAmount || 0).toLocaleString()}</td>
                                 <td className="border border-slate-400 p-1 text-[9px]">{p.walletName || "Cash in Hand"}</td>
+                                <td className="border border-slate-400 p-1 text-[9px]">{p.disbursedBy || "Admin"}</td>
                               </tr>
                             ))
                           )}
@@ -1997,12 +2221,13 @@ export default function ClosingTab() {
                             <th className="border border-slate-400 p-1 text-left w-16">Voucher #</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Vendor / Payee</th>
                             <th className="border border-slate-400 p-1 text-left w-24">Account</th>
+                            <th className="border border-slate-400 p-1 text-left w-24">Disbursed By</th>
                             <th className="border border-slate-400 p-1 text-right w-20 text-rose-700 font-bold">Amount (Rs.)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {otherExpenseDetails.length === 0 ? (
-                            <tr><td colSpan={7} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No operating expenses recorded.</td></tr>
+                            <tr><td colSpan={8} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No operating expenses recorded.</td></tr>
                           ) : (
                             otherExpenseDetails.map((exp, idx) => (
                               <tr key={idx}>
@@ -2012,6 +2237,7 @@ export default function ClosingTab() {
                                 <td className="border border-slate-400 p-1 font-mono">#{exp.voucherNo}</td>
                                 <td className="border border-slate-400 p-1">{exp.vendor || "—"}</td>
                                 <td className="border border-slate-400 p-1 text-[9px]">{exp.walletName || "Cash in Hand"}</td>
+                                <td className="border border-slate-400 p-1 text-[9px]">{exp.disbursedBy || "Admin"}</td>
                                 <td className="border border-slate-400 p-1 text-right font-mono font-bold text-rose-700">{Number(exp.amount || 0).toLocaleString()}</td>
                               </tr>
                             ))

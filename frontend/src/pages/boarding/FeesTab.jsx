@@ -1483,6 +1483,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                         <Table>
                           <TableHeader className="bg-muted/40">
                             <TableRow className="h-8">
+                              <TableHead className="text-[11px] py-1">Receipt #</TableHead>
                               <TableHead className="text-[11px] py-1">Date</TableHead>
                               <TableHead className="text-[11px] py-1 text-right">Amount Paid</TableHead>
                               <TableHead className="text-[11px] py-1">Deposited Account / Wallet</TableHead>
@@ -1493,6 +1494,9 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                           <TableBody>
                             {payments.map((p, idx) => (
                               <TableRow key={p._id || idx} className="h-8 text-xs">
+                                <TableCell className="py-1 font-mono text-[11px] font-semibold text-primary">
+                                  {p.receiptNo || (p.referenceNo ? `#${p.referenceNo}` : '—')}
+                                </TableCell>
                                 <TableCell className="py-1 text-muted-foreground">
                                   {p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}
                                 </TableCell>

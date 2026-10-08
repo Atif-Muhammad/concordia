@@ -21,6 +21,7 @@ const UserSchema = new mongoose.Schema({
   isStaff: { type: Boolean, default: false },
   isTeaching: { type: Boolean, default: false },
   isNonTeaching: { type: Boolean, default: false },
+  designation: { type: String, default: '' },
   refId: { type: mongoose.Schema.Types.ObjectId }
 }, { timestamps: true });
 

@@ -12,6 +12,16 @@ class AttendanceController {
     }
   }
 
+  async getAttendanceReport(req, res, next) {
+    try {
+      const { start, end, classId, sectionId, sessionId, programId, studentId } = req.query;
+      const report = await attendanceService.getAttendanceReport({ start, end, classId, sectionId, sessionId, programId, studentId });
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async updateStudentAttendance(req, res, next) {
     try {
       const result = await attendanceService.updateStudentAttendance(req.body);

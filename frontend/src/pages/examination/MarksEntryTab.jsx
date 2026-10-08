@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -97,10 +97,9 @@ export const MarksEntryTab = () => {
   }, [marksSessionFilter]);
 
   // Auth / Roles
-  const { canCreate, canUpdate, canDelete, isSuperAdmin } = usePermissions("Examination", "marks");
-  const currentUser = queryClient.getQueryData(["currentUser"]);
+  const { canCreate, canUpdate, canDelete, isSuperAdmin, currentUser } = usePermissions("Examination", "marks");
   const isTeacherRole =
-    currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
+    currentUser?.role === "TEACHER" || currentUser?.role === "Teacher" || !!currentUser?.isTeaching;
   const dualRoleStaff = isDualRoleStaff(currentUser);
   const hasExaminationPermission = hasExplicitModuleAccess(currentUser, "Examination");
   const isTeacher = isTeacherRole && (!dualRoleStaff || !hasExaminationPermission);
@@ -108,11 +107,18 @@ export const MarksEntryTab = () => {
   const canEditMarks = isTeacher || isSuperAdmin || canUpdate;
   const canDeleteMarks = isSuperAdmin || canDelete;
 
-  const { data: teacherClassMappings = [] } = useQuery({
-    queryKey: ["teacherClasses"],
-    queryFn: getTeacherClasses,
-    enabled: isTeacher,
+  const teacherStaffId = currentUser?.refId || currentUser?.staffDbId || currentUser?.id;
+  const { data: rawTeacherClassMappings = [] } = useQuery({
+    queryKey: ["teacherClasses", teacherStaffId],
+    queryFn: () => getTeacherClasses(teacherStaffId),
+    enabled: isTeacher && !!teacherStaffId,
   });
+
+  const teacherClassMappings = useMemo(() => {
+    return Array.isArray(rawTeacherClassMappings)
+      ? rawTeacherClassMappings
+      : rawTeacherClassMappings?.data || [];
+  }, [rawTeacherClassMappings]);
 
   const { data: programs = [] } = useQuery({
     queryKey: ["programs"],
@@ -173,51 +179,184 @@ export const MarksEntryTab = () => {
       })
     : exams;
 
-  const availableClasses = isTeacher
-    ? teacherClassMappings
-        .filter((m) => !marksFilterProgram || marksFilterProgram === "*" || extractId(m.class?.programId || m.class?.program) === marksFilterProgram)
-        .map((m) => m.class)
-        .filter((c, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(c)) === idx)
-    : marksFilterProgram && marksFilterProgram !== "*"
-    ? classesData.filter((c) => extractId(c.programId || c.program) === marksFilterProgram)
-    : classesData;
+  // Available programs for filter
+  const availablePrograms = useMemo(() => {
+    if (!isTeacher) return programs;
+    const teacherProgMap = new Map();
+    teacherClassMappings.forEach((m) => {
+      const cls = m.class || m.classId;
+      const prog = cls?.programId || cls?.program || m.programId || m.program;
+      const pId = extractId(prog);
+      if (pId) {
+        teacherProgMap.set(
+          pId,
+          prog?.name ? prog : (programs.find((p) => extractId(p) === pId) || { _id: pId, id: pId, name: pId })
+        );
+      }
+    });
+    return Array.from(teacherProgMap.values());
+  }, [programs, isTeacher, teacherClassMappings]);
 
-  const selectedClassObj = classesData.find((c) => extractId(c) === marksFilterClass) ||
-    teacherClassMappings.find((m) => extractId(m.class) === marksFilterClass)?.class;
+  const availableClasses = useMemo(() => {
+    if (isTeacher) {
+      return teacherClassMappings
+        .filter((m) => {
+          if (!marksFilterProgram || marksFilterProgram === "*") return true;
+          const cls = m.class || m.classId;
+          const progId = extractId(cls?.programId || cls?.program || m.programId || m.program);
+          return progId === marksFilterProgram;
+        })
+        .map((m) => m.class || m.classId)
+        .filter(Boolean)
+        .filter((c, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(c)) === idx);
+    }
+    return marksFilterProgram && marksFilterProgram !== "*"
+      ? classesData.filter((c) => extractId(c.programId || c.program) === marksFilterProgram)
+      : classesData;
+  }, [isTeacher, teacherClassMappings, marksFilterProgram, classesData]);
+
+  const selectedClassObj =
+    classesData.find((c) => extractId(c) === marksFilterClass) ||
+    teacherClassMappings.find((m) => extractId(m.class || m.classId) === marksFilterClass)?.class;
   const isSectionApplicable = selectedClassObj ? selectedClassObj.allowSections !== false : true;
 
-  const availableSections = !isSectionApplicable
-    ? []
-    : isTeacher
-    ? teacherClassMappings
-        .filter((m) => extractId(m.class) === marksFilterClass && m.section)
-        .map((m) => m.section)
-        .filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx)
-    : sectionsData.filter((s) => extractId(s.classId || s.class) === marksFilterClass);
+  const availableSections = useMemo(() => {
+    if (!isSectionApplicable) return [];
+    if (isTeacher) {
+      const matching = teacherClassMappings.filter(
+        (m) => extractId(m.class || m.classId) === marksFilterClass
+      );
+      const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
+      const uniqueSecs = secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
+      if (uniqueSecs.length > 0) return uniqueSecs;
+      if (matching.some((m) => !(m.sectionId || m.section)) && selectedClassObj?.sections?.length) {
+        return selectedClassObj.sections;
+      }
+      return [];
+    }
+    return sectionsData.filter((s) => extractId(s.classId || s.class) === marksFilterClass);
+  }, [isSectionApplicable, isTeacher, teacherClassMappings, marksFilterClass, selectedClassObj, sectionsData]);
 
-  const availableExams = marksSessionFilteredExams.filter((exam) => {
-    if (marksFilterClass && marksFilterClass !== "*") {
-      return extractId(exam.classId || exam.class) === marksFilterClass;
-    }
-    if (marksFilterProgram && marksFilterProgram !== "*") {
-      return extractId(exam.programId || exam.program) === marksFilterProgram;
-    }
-    return true;
-  });
+  const teacherClassIds = useMemo(() => {
+    if (!isTeacher) return null;
+    return new Set(teacherClassMappings.map((m) => extractId(m.class || m.classId)).filter(Boolean));
+  }, [isTeacher, teacherClassMappings]);
+
+  const getTeacherAssignedSubjectsForClass = useCallback(
+    (cId, sId) => {
+      if (!isTeacher) return null;
+      const matching = teacherClassMappings.filter((m) => {
+        const classMatches = extractId(m.class || m.classId) === cId;
+        if (!classMatches) return false;
+        if (sId && sId !== "*" && (m.sectionId || m.section)) {
+          return extractId(m.sectionId || m.section) === sId;
+        }
+        return true;
+      });
+      const subSet = new Set();
+      matching.forEach((m) => {
+        (m.subjects || []).forEach((s) => subSet.add(extractId(s?._id || s?.id || s)));
+        (m.subjectIds || []).forEach((id) => subSet.add(extractId(id)));
+        if (m.subject || m.subjectId) subSet.add(extractId(m.subject?._id || m.subject?.id || m.subjectId || m.subject));
+      });
+      return subSet;
+    },
+    [isTeacher, teacherClassMappings]
+  );
+
+  const availableExams = useMemo(() => {
+    return marksSessionFilteredExams.filter((exam) => {
+      const examClassId = extractId(exam.classId || exam.class);
+      const examProgId = extractId(exam.programId || exam.program);
+
+      if (isTeacher && teacherClassIds) {
+        if (!teacherClassIds.has(examClassId)) return false;
+        const assignedSubSet = getTeacherAssignedSubjectsForClass(examClassId);
+        if (assignedSubSet && assignedSubSet.size > 0) {
+          const schedules = exam.schedule || exam.schedules || [];
+          if (schedules.length > 0) {
+            const hasAssignedSubject = schedules.some((s) => {
+              const sSubId = extractId(s.subjectId || s.subject || s.id || s._id);
+              return (
+                assignedSubSet.has(sSubId) ||
+                subjects.some(
+                  (sub) =>
+                    assignedSubSet.has(extractId(sub.id || sub._id)) &&
+                    (sub.name === s.name || sub.name === s.subjectName)
+                )
+              );
+            });
+            if (!hasAssignedSubject) return false;
+          }
+        }
+      }
+
+      if (marksFilterClass && marksFilterClass !== "*") {
+        if (examClassId !== marksFilterClass) return false;
+      }
+      if (marksFilterProgram && marksFilterProgram !== "*") {
+        if (examProgId !== marksFilterProgram) return false;
+      }
+      return true;
+    });
+  }, [
+    marksSessionFilteredExams,
+    isTeacher,
+    teacherClassIds,
+    getTeacherAssignedSubjectsForClass,
+    subjects,
+    marksFilterClass,
+    marksFilterProgram,
+  ]);
+
+  const hasActiveMarksFilter = Boolean(
+    (marksFilterExam && marksFilterExam !== "*") ||
+    (marksFilterClass && marksFilterClass !== "*") ||
+    (marksFilterProgram && marksFilterProgram !== "*")
+  );
 
   const { data: marks = [], isLoading: isLoadingMarks } = useQuery({
-    queryKey: ["marks", marksFilterExam, marksFilterSection, marksSessionFilter],
+    queryKey: ["marks", marksFilterExam, marksFilterSection, marksSessionFilter, marksFilterClass],
     queryFn: () =>
       getMarks(
         marksFilterExam && marksFilterExam !== "*" ? marksFilterExam : undefined,
         isSectionApplicable && marksFilterSection && marksFilterSection !== "*" ? marksFilterSection : undefined,
-        marksSessionFilter || undefined
+        marksSessionFilter || undefined,
+        marksFilterClass && marksFilterClass !== "*" ? marksFilterClass : undefined
       ),
+    enabled: hasActiveMarksFilter,
   });
 
   const filteredMarks = marks.filter((mark) => {
     if (marksFilterExam && marksFilterExam !== "*") {
       if (extractId(mark.examId || mark.exam) !== marksFilterExam) return false;
+    }
+    const clsId = extractId(
+      mark.classId ||
+      mark.student?.classId ||
+      mark.student?.class?.id ||
+      mark.student?.class?._id ||
+      mark.student?.class ||
+      mark.exam?.classId ||
+      mark.exam?.class
+    );
+    if (marksFilterClass && marksFilterClass !== "*") {
+      if (clsId && clsId !== marksFilterClass) return false;
+    }
+    if (isTeacher && teacherClassIds) {
+      if (!teacherClassIds.has(clsId)) return false;
+      const assignedSubSet = getTeacherAssignedSubjectsForClass(clsId);
+      if (assignedSubSet && assignedSubSet.size > 0) {
+        const markSubId = extractId(mark.subjectId || mark.subject);
+        const isAssigned =
+          assignedSubSet.has(markSubId) ||
+          subjects.some(
+            (s) =>
+              assignedSubSet.has(extractId(s.id || s._id)) &&
+              (s.name === mark.subject || s.name === mark.subjectName)
+          );
+        if (!isAssigned) return false;
+      }
     }
     if (marksFilterProgram && marksFilterProgram !== "*") {
       const progId = extractId(
@@ -229,18 +368,6 @@ export const MarksEntryTab = () => {
         mark.exam?.program
       );
       if (progId && progId !== marksFilterProgram) return false;
-    }
-    if (marksFilterClass && marksFilterClass !== "*") {
-      const clsId = extractId(
-        mark.classId ||
-        mark.student?.classId ||
-        mark.student?.class?.id ||
-        mark.student?.class?._id ||
-        mark.student?.class ||
-        mark.exam?.classId ||
-        mark.exam?.class
-      );
-      if (clsId && clsId !== marksFilterClass) return false;
     }
     if (isSectionApplicable && marksFilterSection && marksFilterSection !== "*") {
       const secId = extractId(
@@ -269,18 +396,15 @@ export const MarksEntryTab = () => {
   const { data: studentsForMarksEntry = [], isLoading: isLoadingStudents } = useQuery({
     queryKey: ["students", "marks-entry", extractId(selectedExamForMarks), bulkSectionId],
     queryFn: () =>
-      getStudents(
-        extractId(selectedExamForMarks?.programId || selectedExamForMarks?.program),
-        extractId(selectedExamForMarks?.classId || selectedExamForMarks?.class),
-        isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? bulkSectionId : "",
-        "",
-        "ACTIVE",
-        "",
-        "",
-        1,
-        1000
-      ),
-    enabled: !!selectedExamForMarks,
+      getStudents({
+        programId: extractId(selectedExamForMarks?.programId || selectedExamForMarks?.program),
+        classId: extractId(selectedExamForMarks?.classId || selectedExamForMarks?.class),
+        sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? bulkSectionId : undefined,
+        status: "ACTIVE",
+        page: 1,
+        limit: 1000,
+      }),
+    enabled: bulkMarksDialog && !!selectedExamForMarks,
   });
 
   const { data: existingMarksForBulk = [], isLoading: isLoadingExistingMarks } = useQuery({
@@ -421,7 +545,7 @@ export const MarksEntryTab = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="*">All Programs</SelectItem>
-                  {programs?.map((program) => (
+                  {availablePrograms?.map((program) => (
                     <SelectItem key={extractId(program)} value={extractId(program)}>
                       {program.name}{" "}
                       {program.department?.name ? `— ${program.department.name}` : ""}
@@ -567,7 +691,7 @@ export const MarksEntryTab = () => {
                           <SelectValue placeholder="Select examination" />
                         </SelectTrigger>
                         <SelectContent>
-                          {marksSessionFilteredExams?.map((exam) => (
+                          {availableExams?.map((exam) => (
                             <SelectItem key={extractId(exam)} value={extractId(exam)}>
                               {exam.examName} - {exam.session} ({exam.program?.name || exam.programId?.name}
                               {(exam.program?.department?.name || exam.programId?.department?.name)
@@ -685,6 +809,25 @@ export const MarksEntryTab = () => {
                             totalMarks: 100,
                           };
                         });
+                      }
+
+                      if (isTeacher) {
+                        const assignedSubSet = getTeacherAssignedSubjectsForClass(
+                          extractId(exam.classId || exam.class),
+                          bulkSectionId
+                        );
+                        if (assignedSubSet && assignedSubSet.size > 0) {
+                          examSubjects = examSubjects.filter((s) => {
+                            return (
+                              assignedSubSet.has(s.id) ||
+                              subjects.some(
+                                (sub) =>
+                                  assignedSubSet.has(extractId(sub.id || sub._id)) &&
+                                  (sub.name === s.name || sub.name === s.subjectName)
+                              )
+                            );
+                          });
+                        }
                       }
 
                       if (sectionStudents.length === 0) {
@@ -881,10 +1024,30 @@ export const MarksEntryTab = () => {
                       };
                     });
 
+                    let filteredExamSubjects = examSubjects;
+                    if (isTeacher) {
+                      const assignedSubSet = getTeacherAssignedSubjectsForClass(
+                        extractId(exam?.classId || exam?.class),
+                        bulkSectionId
+                      );
+                      if (assignedSubSet && assignedSubSet.size > 0) {
+                        filteredExamSubjects = examSubjects.filter((s) => {
+                          return (
+                            assignedSubSet.has(s.id) ||
+                            subjects.some(
+                              (sub) =>
+                                assignedSubSet.has(extractId(sub.id || sub._id)) &&
+                                (sub.name === s.name || sub.name === s.subjectName)
+                            )
+                          );
+                        });
+                      }
+                    }
+
                     const payload = [];
                     Object.entries(bulkMarksData).forEach(([studentId, subjectMarks]) => {
                       Object.entries(subjectMarks).forEach(([subjId, mVal]) => {
-                        const subj = examSubjects.find((es) => es.id === subjId || es.name === subjId);
+                        const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
                         const isAbs = bulkAbsentees[studentId]?.[subjId] || false;
                         if (subj) {
                           payload.push({
@@ -910,7 +1073,7 @@ export const MarksEntryTab = () => {
                             (p) => p.studentId === studentId && (p.subjectId === subjId || p.subject === subjId)
                           )
                         ) {
-                          const subj = examSubjects.find((es) => es.id === subjId || es.name === subjId);
+                          const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
                           if (subj) {
                             payload.push({
                               examId: bulkExamId,
@@ -952,7 +1115,13 @@ export const MarksEntryTab = () => {
       </CardHeader>
 
       <CardContent>
-        {isLoadingMarks ? (
+        {!hasActiveMarksFilter ? (
+          <div className="text-center py-16 text-muted-foreground flex flex-col items-center gap-2">
+            <SlidersHorizontal className="w-10 h-10 opacity-30 text-orange-600" />
+            <p className="text-base font-medium">Select filters to view marks</p>
+            <p className="text-sm">Please select a program, class, or exam above to display student marks.</p>
+          </div>
+        ) : isLoadingMarks ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
             <p className="text-sm">Loading examination marks...</p>

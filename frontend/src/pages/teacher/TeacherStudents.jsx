@@ -189,17 +189,14 @@ export default function TeacherStudents() {
   const { data: studentsResponse, isLoading: isStudentsLoading } = useQuery({
     queryKey: ['classStudents', selectedProgramId, selectedClassId, sectionParam],
     queryFn: () =>
-      getStudents(
-        selectedProgramId,
-        selectedClassId,
-        sectionParam,
-        '',
-        'ACTIVE',
-        '',
-        '',
-        1,
-        1000
-      ),
+      getStudents({
+        programId: selectedProgramId,
+        classId: selectedClassId,
+        sectionId: sectionParam || undefined,
+        status: 'ACTIVE',
+        page: 1,
+        limit: 1000,
+      }),
     enabled: !!selectedClassId,
   });
 

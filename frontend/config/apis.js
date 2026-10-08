@@ -1952,7 +1952,7 @@ export const rejoinStudent = async (studentID, reason, details = {}) => {
 // Search students by name or roll number
 export const searchStudents = async (query) => {
   try {
-    const { data } = await axios.get(`${base_url}/student/search?searchFor=${encodeURIComponent(query)}`, {
+    const { data } = await axios.get(`${base_url}/student/search?search=${encodeURIComponent(query)}&searchFor=${encodeURIComponent(query)}`, {
       withCredentials: true,
     });
     return data.students || data || [];
@@ -2225,12 +2225,14 @@ export const delEmp = async (empId) => {
 };
 
 // Attendance Report
-export const getAttendanceReport = async (start, end, classId, sectionId, sessionId) => {
+export const getAttendanceReport = async (start, end, classId, sectionId, sessionId, programId, studentId) => {
   try {
     const params = new URLSearchParams({ start, end });
     if (classId) params.append('classId', classId);
     if (sectionId) params.append('sectionId', sectionId);
     if (sessionId) params.append('sessionId', sessionId);
+    if (programId) params.append('programId', programId);
+    if (studentId) params.append('studentId', studentId);
 
     const response = await axios.get(
       `${base_url}/attendance/report?${params.toString()}`,
@@ -3159,25 +3161,46 @@ export const delMarks = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getMarks = async (examId, sectionId, sessionId) => {
+export const getMarks = async (examId, sectionId, sessionId, classId) => {
   try {
+    let eId = examId;
+    let sId = sectionId;
+    let sessId = sessionId;
+    let cId = classId;
+
+    if (examId && typeof examId === "object" && !examId.queryKey) {
+      if ("examId" in examId || "classId" in examId || "sectionId" in examId || "sessionId" in examId) {
+        eId = examId.examId;
+        sId = examId.sectionId;
+        sessId = examId.sessionId;
+        cId = examId.classId;
+      } else {
+        eId = examId.id || examId._id || undefined;
+      }
+    }
+
     const validExamId =
-      examId && typeof examId === "object"
-        ? (examId.queryKey ? undefined : examId.id || examId._id || undefined)
-        : examId;
+      eId && typeof eId === "object"
+        ? (eId.queryKey ? undefined : eId.id || eId._id || undefined)
+        : eId;
     const validSectionId =
-      sectionId && typeof sectionId === "object"
-        ? (sectionId.queryKey ? undefined : sectionId.id || sectionId._id || undefined)
-        : sectionId;
+      sId && typeof sId === "object"
+        ? (sId.queryKey ? undefined : sId.id || sId._id || undefined)
+        : sId;
     const validSessionId =
-      sessionId && typeof sessionId === "object"
-        ? (sessionId.queryKey ? undefined : sessionId.id || sessionId._id || undefined)
-        : sessionId;
+      sessId && typeof sessId === "object"
+        ? (sessId.queryKey ? undefined : sessId.id || sessId._id || undefined)
+        : sessId;
+    const validClassId =
+      cId && typeof cId === "object"
+        ? (cId.queryKey ? undefined : cId.id || cId._id || undefined)
+        : cId;
 
     const params = new URLSearchParams();
     if (validExamId && validExamId !== "*" && validExamId !== "all") params.append('examId', validExamId);
     if (validSectionId && validSectionId !== "*" && validSectionId !== "all") params.append('sectionId', validSectionId);
     if (validSessionId && validSessionId !== "*" && validSessionId !== "all" && validSessionId !== "__all__") params.append('sessionId', validSessionId);
+    if (validClassId && validClassId !== "*" && validClassId !== "all") params.append('classId', validClassId);
 
     const url = params.toString()
       ? `${base_url}/exams/marks?${params.toString()}`

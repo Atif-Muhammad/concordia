@@ -108,7 +108,7 @@ class ExaminationService {
           totalMarks: Number(s.totalMarks) || 100,
         }));
     }
-    return Exam.findByIdAndUpdate(id, cleanData, { new: true });
+    return Exam.findByIdAndUpdate(id, cleanData, { returnDocument: 'after' });
   }
 
   async deleteExam(id) {
@@ -240,7 +240,7 @@ class ExaminationService {
   }
 
   async updateMarks(id, data) {
-    return ExamMarks.findByIdAndUpdate(id, data, { new: true });
+    return ExamMarks.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteMarks(id) {
@@ -385,7 +385,7 @@ class ExaminationService {
       const saved = await ExamResult.findOneAndUpdate(
         { examId: resData.examId, studentId: resData.studentId },
         { $set: resData },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       ).populate({
         path: 'studentId',
         populate: [{ path: 'classId' }, { path: 'sectionId' }, { path: 'programId' }]
@@ -581,7 +581,7 @@ class ExaminationService {
   }
 
   async updateResult(id, data) {
-    return ExamResult.findByIdAndUpdate(id, data, { new: true });
+    return ExamResult.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteResult(id) {

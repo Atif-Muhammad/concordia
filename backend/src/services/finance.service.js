@@ -6,9 +6,11 @@ const {
   Wallet,
   WalletTransaction,
   User,
+  Staff,
   FeeChallan,
   ExtraChallan,
   HostelChallan,
+  FeePaymentReceipt,
   Payroll,
   InventoryExpense,
   HostelExpense,
@@ -93,7 +95,7 @@ class FinanceService {
         sourceModule: 'Finance Income',
         description: data.description || `Finance Income: ${data.category}`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterDestination: wallet.currentBalance,
       });
 
@@ -684,7 +686,99 @@ class FinanceService {
     }).lean().catch(() => []);
     const reversedChallanNos = new Set(reversalTxs.map(t => t.challanNumber).filter(Boolean));
 
-    // 1. Fee Collections Breakdown (Active, non-reversed paid challans)
+    // Load Staff records to correctly resolve staff designations for loggedBy and disbursedBy
+    const allStaff = await Staff.find({}, 'name email designation empDepartment specialization isTeaching').lean().catch(() => []);
+    const staffById = new Map();
+    const staffByEmail = new Map();
+    const staffByName = new Map();
+    for (const s of allStaff) {
+      if (s._id) staffById.set(String(s._id), s);
+      if (s.email) staffByEmail.set(s.email.toLowerCase().trim(), s);
+      if (s.name) staffByName.set(s.name.toLowerCase().trim(), s);
+    }
+
+    const formatStaffWithDesignation = (userOrStaff, fallbackName = '') => {
+      let name = '';
+      let email = '';
+      let desig = '';
+      let role = '';
+      let refId = '';
+
+      if (userOrStaff && typeof userOrStaff === 'object') {
+        name = userOrStaff.name || '';
+        email = userOrStaff.email || '';
+        desig = userOrStaff.designation || '';
+        role = userOrStaff.role || '';
+        refId = userOrStaff.refId ? String(userOrStaff.refId) : '';
+      } else if (typeof userOrStaff === 'string') {
+        name = userOrStaff;
+      }
+      if (!name && fallbackName) name = fallbackName;
+      if (!name) return 'Super Admin';
+
+      // Clean existing bracketed tag e.g. "(TEACHER)" or "(STAFF)" from name if present
+      let rawName = name;
+      const bracketMatch = rawName.match(/^(.*?)\s*\((.*?)\)$/);
+      if (bracketMatch) {
+        rawName = bracketMatch[1].trim();
+        if (!desig) desig = bracketMatch[2].trim();
+      }
+
+      // Check Staff document for real designation (from Staff record)
+      const staffDoc = (refId && staffById.get(refId)) ||
+        (email && staffByEmail.get(email.toLowerCase().trim())) ||
+        (rawName && staffByName.get(rawName.toLowerCase().trim()));
+
+      if (staffDoc && staffDoc.designation && staffDoc.designation.trim()) {
+        desig = staffDoc.designation.trim();
+      } else if (staffDoc?.specialization && staffDoc.specialization.trim()) {
+        desig = staffDoc.specialization.trim();
+      } else if (desig && desig.toUpperCase() !== 'TEACHER' && desig.toUpperCase() !== 'STAFF') {
+        // preserve specific user designation (e.g. "Accountant", "Vice Principal", "Registrar")
+      } else if (staffDoc?.empDepartment) {
+        desig = staffDoc.empDepartment;
+      } else if (role && role.toUpperCase() !== 'TEACHER' && role.toUpperCase() !== 'STAFF') {
+        desig = role.replace(/_/g, ' ');
+      } else if (desig) {
+        desig = desig.charAt(0).toUpperCase() + desig.slice(1).toLowerCase();
+      } else if (role) {
+        desig = role === 'TEACHER' ? 'Teacher' : (role === 'STAFF' ? 'Staff' : role);
+      }
+
+      // Title case if all-caps
+      if (desig && desig === desig.toUpperCase() && desig.length > 2) {
+        desig = desig.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      }
+
+      return desig ? `${rawName} (${desig})` : rawName;
+    };
+
+    // 1. Fee Collections Breakdown (Active, non-reversed payments and settlements)
+    const feeReceipts = await FeePaymentReceipt.find({
+      $or: [
+        { paidDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paidDate: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
+      ],
+    })
+      .populate({
+        path: 'challanId',
+        populate: {
+          path: 'studentId',
+          select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo'
+        }
+      })
+      .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
+      .populate('walletId', 'name type')
+      .populate('recordedBy', 'name role designation email refId')
+      .lean()
+      .catch(() => []);
+
+    const receiptChallanIds = new Set(
+      feeReceipts
+        .map(r => r.challanId?._id ? String(r.challanId._id) : (r.challanId ? String(r.challanId) : null))
+        .filter(Boolean)
+    );
+
     const feeChallans = await FeeChallan.find({
       status: { $in: ['PAID', 'PARTIAL'] },
       $or: [
@@ -693,6 +787,7 @@ class FinanceService {
       ],
     })
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
+      .populate('receivedBy', 'name role designation email refId')
       .lean()
       .catch(() => []);
 
@@ -704,6 +799,7 @@ class FinanceService {
       ],
     })
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
+      .populate('receivedBy', 'name role designation email refId')
       .lean()
       .catch(() => []);
 
@@ -715,23 +811,137 @@ class FinanceService {
       ],
     })
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
+      .populate('receivedBy', 'name role designation email refId')
       .lean()
       .catch(() => []);
 
     const feeCollectionDetails = [];
+    const seenReceiptIds = new Set();
     const seenChallans = new Set();
 
-    for (const c of [...feeChallans, ...extraChallans, ...hostelChallans]) {
-      const cNo = c.challanNo || c.challanNumber;
-      if (cNo && reversedChallanNos.has(cNo)) {
-        continue; // Exclude deleted / reversed challans
+    // Build lookup map for challans across all types
+    const challanMap = new Map();
+    feeChallans.forEach(c => challanMap.set(String(c._id), c));
+    extraChallans.forEach(c => challanMap.set(String(c._id), c));
+    hostelChallans.forEach(c => challanMap.set(String(c._id), c));
+
+    // Gather any unmapped challan IDs from receipts whose challanId was not populated
+    const unmappedChallanIds = [];
+    for (const r of feeReceipts) {
+      const rawChId = r.challanId?._id ? String(r.challanId._id) : (r.challanId ? String(r.challanId) : null);
+      if (rawChId && !challanMap.has(rawChId) && (!r.challanId?.challanNo && !r.challanId?.challanNumber)) {
+        unmappedChallanIds.push(rawChId);
       }
+    }
+
+    if (unmappedChallanIds.length > 0) {
+      const [fetchedFeeChallans, fetchedExtraChallans, fetchedHostelChallans] = await Promise.all([
+        FeeChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
+        ExtraChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
+        HostelChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
+      ]);
+      fetchedFeeChallans.forEach(c => challanMap.set(String(c._id), c));
+      fetchedExtraChallans.forEach(c => challanMap.set(String(c._id), c));
+      fetchedHostelChallans.forEach(c => challanMap.set(String(c._id), c));
+    }
+
+    // 1A. Process explicit immutable FeePaymentReceipts
+    for (const r of feeReceipts) {
+      const rawChId = r.challanId?._id ? String(r.challanId._id) : (r.challanId ? String(r.challanId) : null);
+      const ch = (r.challanId && r.challanId.challanNo)
+        ? r.challanId
+        : (rawChId ? challanMap.get(rawChId) : null);
+      const cNo = ch?.challanNo || ch?.challanNumber || r.challanNo || r.sourceChallanNo || '';
+      if (cNo && reversedChallanNos.has(cNo)) continue;
+
+      const rId = String(r._id);
+      if (seenReceiptIds.has(rId)) continue;
+      seenReceiptIds.add(rId);
+
+      const st = r.studentId || ch?.studentId || ch?.registrationId?.studentId || {};
+      const fName = st.fName || st.firstName || '';
+      const lName = st.lName || st.lastName || '';
+      const stName = `${fName} ${lName}`.trim() || ch?.studentName || 'Student';
+      const father = st.fatherOrguardian || st.fatherName || ch?.fatherName || '—';
+      const roll = st.rollNumber || st.rollNo || ch?.rollNumber || ch?.hostelRegNumber || '—';
+
+      const isAdvance = r.receiptType === 'ADVANCE_SETTLEMENT' || r.paymentMode === 'Advance Credit';
+      const isArrears = r.receiptType === 'ARREARS_SETTLEMENT' || r.paymentMode === 'Arrears Transfer';
+      const actualCashPaid = (isAdvance || isArrears) ? 0 : Math.max(0, Number(r.amountPaid || 0));
+
+      // Non-cash settlements (advance credit application / arrears settlement) carry zero financial inflow on this date.
+      // Closing is strictly for transactions that impact cash ledger flow of money on this date.
+      if (isAdvance || isArrears || actualCashPaid <= 0) continue;
+
+      const assignedWalletId = r.walletId?._id ? String(r.walletId._id) : (r.walletId ? String(r.walletId) : defaultWalletId);
+      const assignedWalletName = r.walletId?.name || (r.walletId ? wallets.find(w => String(w._id) === String(r.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+
+      const challanType = r.challanType || 'FeeChallan';
+      let entryType = 'Tuition Challan';
+      let headsStr = 'Tuition Fee';
+      let headsAmount = Number(ch?.headsAmount || 0);
+      let baseAmount = Number(ch?.basePayable || ch?.amount || 0);
+      let lateFeeFine = Number(r.allocatedToLateFee || ch?.lateFeeAmount || ch?.fineAmount || 0);
+      let totalAmount = Number(ch?.totalAmount || ch?.grossAmount || actualCashPaid);
+
+      if (challanType === 'ExtraChallan') {
+        entryType = 'Extra Challan';
+        headsStr = ch?.title || ch?.description || ch?.extraFeeType || 'Extra Fee';
+        baseAmount = Number(ch?.baseAmount || ch?.amount || actualCashPaid);
+        headsAmount = baseAmount;
+        lateFeeFine = Number(ch?.lateFeeFine || 0);
+        totalAmount = Number(ch?.totalAmount || (baseAmount + lateFeeFine) || actualCashPaid);
+      } else if (challanType === 'HostelChallan') {
+        entryType = 'Hostel Challan';
+        headsStr = ch?.month ? `Hostel Fee (${ch.month})` : 'Hostel Fee';
+        baseAmount = Number(ch?.rentAmount || ch?.totalAmount || actualCashPaid);
+        headsAmount = baseAmount;
+        lateFeeFine = Number(ch?.fineAmount || 0);
+        totalAmount = Number(ch?.totalAmount || actualCashPaid);
+      } else if (Array.isArray(ch?.challanHeads) && ch.challanHeads.length > 0) {
+        headsStr = ch.challanHeads.map(h => `${h.name || h.headName}: PKR ${Number(h.amount || 0).toLocaleString()}`).join(', ');
+      }
+
+      feeCollectionDetails.push({
+        id: rId,
+        challanNo: cNo || '—',
+        receiptNo: r.receiptNo || '—',
+        receiptType: r.receiptType || 'DIRECT',
+        studentName: stName,
+        fatherName: father,
+        rollNumber: roll,
+        compositeStudent: `${stName} • Father: ${father} • Roll: ${roll}`,
+        baseAmount,
+        heads: headsStr,
+        headsAmount,
+        lateFeeFine,
+        totalAmount,
+        paidAmount: actualCashPaid,
+        advanceCreditUsed: Number(r.advanceCreditUsed || 0),
+        settledViaArrearsAmount: Number(r.settledViaArrearsAmount || 0),
+        type: entryType,
+        paymentMode: r.paymentMode || 'Cash',
+        walletId: assignedWalletId,
+        walletName: assignedWalletName,
+        loggedBy: formatStaffWithDesignation(r.recordedBy, r.receivedByName || ch?.receivedByName || ch?.paidBy || 'Super Admin'),
+      });
+    }
+
+    // 1B. Fallback for ExtraChallans, HostelChallans, or legacy FeeChallans without receipts
+    for (const c of [...feeChallans, ...extraChallans, ...hostelChallans]) {
       const idStr = String(c._id);
+      if (receiptChallanIds.has(idStr)) continue; // Already accounted for by receipt!
       if (seenChallans.has(idStr)) continue;
       seenChallans.add(idStr);
 
-      const paidAmount = Number(c.paidAmount || c.amount || 0);
-      if (paidAmount <= 0) continue; // Exclude non-positive amounts
+      const cNo = c.challanNo || c.challanNumber;
+      if (cNo && reversedChallanNos.has(cNo)) continue;
+
+      const isAdvance = c.paidBy === 'Advance Credit' || c.paymentMode === 'Advance Credit';
+      const rawPaid = Number(c.directPaidAmount ?? c.paidAmount ?? 0);
+      const actualCashPaid = isAdvance ? 0 : Math.max(0, rawPaid - Number(c.advanceApplied || 0));
+
+      if (actualCashPaid <= 0 || isAdvance) continue;
 
       const st = c.studentId || {};
       const fName = st.fName || st.firstName || '';
@@ -768,15 +978,17 @@ class FinanceService {
         rollNumber: roll,
         compositeStudent: `${stName} • Father: ${father} • Roll: ${roll}`,
         baseAmount,
-        heads: headsStr,
+        heads: isAdvance ? 'Advance Credit Settlement' : headsStr,
         headsAmount: totalHeadsAmount,
         lateFeeFine: lateFee,
         totalAmount,
-        paidAmount,
+        paidAmount: actualCashPaid,
+        advanceCreditUsed: Number(c.advanceApplied || 0),
         type: c.challanNo?.startsWith('EX') ? 'Extra Challan' : (c.challanNo?.startsWith('HOS') ? 'Hostel Challan' : 'Tuition Challan'),
-        paymentMode: c.paymentMode || c.paidBy || 'Cash',
+        paymentMode: isAdvance ? 'Advance Credit' : (c.paymentMode || c.paidBy || 'Cash'),
         walletId: assignedWalletId,
-        walletName: assignedWalletName,
+        walletName: isAdvance ? 'Non-Cash Settlement' : assignedWalletName,
+        loggedBy: formatStaffWithDesignation(c.receivedBy, c.receivedByName || c.paidBy || 'Super Admin'),
       });
     }
 
@@ -788,7 +1000,10 @@ class FinanceService {
         { date: { $gte: queryDateFrom, $lte: queryDateTo } },
         { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
       ],
-    }).lean().catch(() => []);
+    })
+      .populate('transactionId', 'performedByName')
+      .lean()
+      .catch(() => []);
 
     const otherIncomeDetails = [];
     const seenIncomeIds = new Set();
@@ -813,6 +1028,7 @@ class FinanceService {
         walletName: assignedWalletName,
         date: inc.date || queryDateFrom,
         remarks: inc.description || inc.remarks || '—',
+        loggedBy: formatStaffWithDesignation(inc.transactionId?.performedByName, inc.source || 'Super Admin'),
       });
     }
 
@@ -826,7 +1042,10 @@ class FinanceService {
         { date: { $gte: queryDateFrom, $lte: queryDateTo } },
         { date: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
       ],
-    }).lean().catch(() => []);
+    })
+      .populate('performedBy', 'name role designation email refId')
+      .lean()
+      .catch(() => []);
 
     for (const dep of directDeposits) {
       const idStr = String(dep._id);
@@ -850,6 +1069,7 @@ class FinanceService {
         walletName: assignedWalletName,
         date: dep.date || queryDateFrom,
         remarks: dep.description || '—',
+        loggedBy: formatStaffWithDesignation(dep.performedBy, dep.performedByName || 'Super Admin'),
       });
     }
 
@@ -916,6 +1136,7 @@ class FinanceService {
         month: p.month || '',
         walletId: assignedWalletId,
         walletName: assignedWalletName,
+        disbursedBy: formatStaffWithDesignation(p.disbursedBy || p.paidBy, p.paidByName || p.disbursedByName || 'Admin'),
       });
     }
 
@@ -967,6 +1188,7 @@ class FinanceService {
         walletId: assignedWalletId,
         walletName: assignedWalletName,
         remarks: e.description || e.remarks || '—',
+        disbursedBy: formatStaffWithDesignation(null, e.approvedByName || e.createdByName || 'Admin'),
       });
     }
 
@@ -991,6 +1213,7 @@ class FinanceService {
         walletId: assignedWalletId,
         walletName: assignedWalletName,
         remarks: e.description || '—',
+        disbursedBy: formatStaffWithDesignation(null, e.performedByName || 'Admin'),
       });
     }
 
@@ -1015,6 +1238,7 @@ class FinanceService {
         walletId: assignedWalletId,
         walletName: assignedWalletName,
         remarks: e.description || '—',
+        disbursedBy: formatStaffWithDesignation(null, e.performedByName || 'Admin'),
       });
     }
 

@@ -43,7 +43,7 @@ class WalletService {
         referenceNo: 'OPENING-BAL',
         description: `Initial opening balance recorded (Debit: ${openingDebit}, Credit: ${openingCredit})`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterDestination: initialBalance,
       });
     }
@@ -145,7 +145,7 @@ class WalletService {
         referenceNo: 'ADJ-OPENING',
         description: `Opening balance updated from ${prevInitial} to ${newInitial} (Delta: ${balanceAdjustment})`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterDestination: wallet.currentBalance,
       });
     }
@@ -210,7 +210,7 @@ class WalletService {
       referenceNo: referenceNo || '',
       description: description || '',
       performedBy: userId || null,
-      performedByName: user ? `${user.name} (${user.role})` : 'Admin',
+      performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Admin'))})` : 'Admin',
       balanceAfterDestination: wallet.currentBalance,
     });
 
@@ -256,7 +256,7 @@ class WalletService {
     await sourceWallet.save();
     await destWallet.save();
 
-    const user = userId ? await User.findById(userId).select('name role') : null;
+    const user = userId ? await User.findById(userId).select('name role designation') : null;
 
     const transaction = await WalletTransaction.create({
       transactionType: 'CONTRA_TRANSFER',
@@ -267,7 +267,7 @@ class WalletService {
       referenceNo: referenceNo || '',
       description: description || '',
       performedBy: userId || null,
-      performedByName: user ? `${user.name} (${user.role})` : 'Admin',
+      performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Admin'))})` : 'Admin',
       balanceAfterSource: sourceWallet.currentBalance,
       balanceAfterDestination: destWallet.currentBalance,
     });
@@ -306,7 +306,7 @@ class WalletService {
     wallet.currentBalance = prevBalance - amount;
     await wallet.save();
 
-    const user = userId ? await User.findById(userId).select('name role') : null;
+    const user = userId ? await User.findById(userId).select('name role designation') : null;
     const paymentDate = date || new Date().toISOString().split('T')[0];
     const month = payrollMonth || (staffDetails[0]?.month || '');
 
@@ -323,7 +323,7 @@ class WalletService {
       referenceNo: referenceNo || '',
       description: remarks || `Payroll disbursement for ${month} (${staffDetails.length} staff) from ${wallet.name}`,
       performedBy: userId || null,
-      performedByName: user ? `${user.name} (${user.role})` : 'Admin',
+      performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Admin'))})` : 'Admin',
       balanceAfterSource: wallet.currentBalance,
     });
 

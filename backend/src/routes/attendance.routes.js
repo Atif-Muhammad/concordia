@@ -6,6 +6,7 @@ const { checkPermission } = require('../middlewares/rbac');
 
 // Student attendance
 router.get('/student/fetch', attendanceController.fetchStudentAttendance);
+router.get('/report', attendanceController.getAttendanceReport);
 router.patch('/student/update', authMiddleware, checkPermission('Attendance', 'mark', 'update'), attendanceController.updateStudentAttendance);
 router.delete('/student/record', authMiddleware, checkPermission('Attendance', 'mark', 'delete'), attendanceController.deleteStudentRecord);
 router.post('/generate', authMiddleware, checkPermission('Attendance', 'mark', 'create'), attendanceController.updateStudentAttendance);

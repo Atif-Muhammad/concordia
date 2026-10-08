@@ -141,13 +141,15 @@ export const normalizeChallan = (c) => {
   let basePayable = 0;
   let headsAmount = 0;
   let arrearsAmount = 0;
-  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(c.status);
+  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((c.status || '').toUpperCase()) ||
+    Boolean(c.paidDate) ||
+    (Number(c.paidAmount || 0) > 0 && Number(c.paidAmount || 0) >= Number(c.netPayable || c.totalAmount || 0));
   const existingFine = Number(c.lateFeeAmount ?? c.snapshotLateFee ?? c.lateFeeFine ?? c.fineAmount ?? 0);
   const rateCandidate = Number(c.lateFeeRatePerDay || inst.lateFeeRatePerDay || 0);
   const autoFine = (!isSettledOrVoid && c.dueDate && rateCandidate > 0)
     ? calculateLateFee(c.dueDate, rateCandidate)
     : 0;
-  const lateFeeFine = Math.max(existingFine, autoFine);
+  const lateFeeFine = isSettledOrVoid ? existingFine : Math.max(existingFine, autoFine);
   const discount = Number(c.discountAmount ?? c.discount ?? 0);
   const advanceAllocations = Array.isArray(c.advanceAllocations) ? c.advanceAllocations : [];
   const allocSum = advanceAllocations.reduce((sum, a) => sum + Number(a.amountApplied ?? a.amount ?? 0), 0);
@@ -280,7 +282,7 @@ export const normalizeChallan = (c) => {
     creditAdjustedTo,
     netPayable,
     totalAmount,
-    paidAmount: directPaidAmount,
+    paidAmount: directPaidAmount > 0 ? directPaidAmount : (advanceApplied > 0 ? advanceApplied : 0),
     directPaidAmount,
     settledViaArrearsAmount,
     totalSettledAmount,
@@ -290,7 +292,11 @@ export const normalizeChallan = (c) => {
     heads: headsList,
     challanHeads: challanHeadsList,
     arrearAllocations: Array.isArray(c.arrearAllocations) ? c.arrearAllocations : [],
-    status: c.status === 'SUPERSEDED' ? 'SUPERSEDED' : c.status === 'SETTLED' ? 'SETTLED' : (c.status ?? 'PENDING'),
+    status: c.status === 'SUPERSEDED' ? 'SUPERSEDED'
+      : c.status === 'SETTLED' ? 'SETTLED'
+      : c.status === 'PAID' ? 'PAID'
+      : (advanceApplied > 0 && (!c.status || c.status === 'PENDING')) ? (netPayable === 0 ? 'PAID' : 'PARTIAL')
+      : (c.status ?? 'PENDING'),
     coveredInstallments: null,
     challanType: isExtra ? 'FEE_HEADS_ONLY' : 'INSTALLMENT',
     type: isExtra ? 'EXTRA' : (c.type || 'INSTALLMENT'),
@@ -988,7 +994,9 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     ? 0
     : Number(challan.absenteeFineAmount ?? challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine ?? 0);
 
-  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED'].includes(challan.status);
+  const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
+    Boolean(challan.paidDate) ||
+    (Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0));
   const configuredRate = isExtraChallan
     ? (extraChallanLateFee || options.feeSettings?.extraChallanLateFee || 0)
     : (lateFeeRatePerDay || options.feeSettings?.lateFeeRatePerDay || 0);
@@ -1007,7 +1015,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   const autoFine = (!isSettledOrVoid && challan.dueDate && effectiveLateFeeRate > 0)
     ? calculateLateFee(challan.dueDate, effectiveLateFeeRate)
     : 0;
-  const lateFee = Math.max(existingFine, autoFine);
+  const lateFee = isSettledOrVoid ? existingFine : Math.max(existingFine, autoFine);
 
   const scholarship = Number(challan.snapshotDiscount) || Number(challan.discount) || Number(challan.installment?.discount) || 0;
   const originalArrears = isExtraChallan ? 0 : Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? getTotalArrears(challan) ?? 0);
@@ -1343,7 +1351,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
 
   const directInstallmentPayment = isInstallmentChallanType && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status) || appliedAdvance > 0);
   const nonInstallmentPayment = !isInstallmentChallanType && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
-  const shouldShowBalanceRows = directInstallmentPayment || nonInstallmentPayment;
+  const shouldShowBalanceRows = true;
 
   const injectPaidRows = (sourceHtml, rowsHtml) => {
     if (!rowsHtml) return sourceHtml.replace(/\{\{paidRow\}\}/g, '');
@@ -1353,16 +1361,21 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     return sourceHtml.replace(/(<tr[^>]*class=["']total-row["'][\s\S]*?<\/tr>)/gi, `${rowsHtml}\n$1`);
   };
 
+  const isActuallyFullyPaid = ['PAID', 'SETTLED'].includes(challan.status) || (alreadyPaid >= standardTotal && standardTotal > 0);
+
   if (shouldShowBalanceRows) {
     const isAdvanceCovered = appliedAdvance > 0 && standardTotal === 0;
-    const paidDisplay = isAdvanceCovered
+    const hasCashPayment = alreadyPaid > 0 && alreadyPaid !== appliedAdvance;
+    const paidDisplay = (isAdvanceCovered || (appliedAdvance > 0 && !hasCashPayment))
       ? `${appliedAdvance.toLocaleString()} (Advance)`
-      : (alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0');
-    const showTotalRowInPaid = isFullyPaid ? `
+      : (appliedAdvance > 0 && hasCashPayment)
+        ? `${(alreadyPaid + appliedAdvance).toLocaleString()} (incl. ${appliedAdvance.toLocaleString()} Advance)`
+        : (alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0');
+    const showTotalRowInPaid = `
       <tr style="font-weight: 700; border-top: 1px solid #cbd5e1; background-color: #f1f5f9; color: #000;">
         <td>Total Amount</td>
         <td>${standardTotal.toLocaleString()}</td>
-      </tr>` : '';
+      </tr>`;
 
     const excessPaid = (!isAdvanceCovered && appliedAdvance === 0) ? Math.max(0, alreadyPaid - standardTotal) : 0;
     const advanceGenerated = Number(challan.excessCreditGenerated || excessPaid || 0);
@@ -1374,6 +1387,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         <td style="font-size: 10px; text-align: right; color: #555; font-weight: normal;">${advanceGenerated.toLocaleString()}</td>
       </tr>` : '';
 
+    const showRemainingRow = isActuallyFullyPaid || !/<tr[^>]*>[\s\S]*?Total Payable within due date/i.test(html);
     const paidRowHtml = `
       ${showTotalRowInPaid}
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;">
@@ -1381,7 +1395,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         <td>${paidDisplay}</td>
       </tr>
       ${showAdvanceGeneratedRow}
-      ${challan.status !== 'PENDING' ? `
+      ${showRemainingRow ? `
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 700; border-top: 1px solid #cbd5e1;">
         <td>Remaining Balance</td>
         <td>${remainingPayable.toLocaleString()}</td>
@@ -1401,8 +1415,6 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   html = html.replace(/\{\{totalInWords\}\}/g, `<strong>${netInWords}</strong>`);
   html = html.replace(/\{\{paymentDetailsRow\}\}/g, '');
   const cellStyle = 'background-color: #e0e0e0; font-weight: bold;';
-
-  const isActuallyFullyPaid = ['PAID', 'SETTLED'].includes(challan.status) || (alreadyPaid >= standardTotal && standardTotal > 0);
 
   if (isFullyPaid) {
     let latestRemarks = challan.remarks || "";

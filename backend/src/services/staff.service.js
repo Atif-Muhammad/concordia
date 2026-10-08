@@ -111,6 +111,7 @@ class StaffService {
             isStaff: true,
             isTeaching: data.isTeaching,
             isNonTeaching: data.isNonTeaching,
+            designation: data.designation || '',
             permissions: data.permissions || { all: false, modules: [], subModules: {} }
           },
           { upsert: true }

@@ -107,17 +107,14 @@ export const StudentResultsTab = ({
   const { data: classStudentsData } = useQuery({
     queryKey: ["classStudentsResultTab", studentResultProgram, studentResultClass, studentResultSection],
     queryFn: () =>
-      getStudents(
-        studentResultProgram || "",
-        studentResultClass || "",
-        allowSections && studentResultSection && studentResultSection !== "*" ? studentResultSection : "",
-        "",
-        "ACTIVE",
-        "",
-        "",
-        1,
-        1000
-      ),
+      getStudents({
+        programId: studentResultProgram || undefined,
+        classId: studentResultClass || undefined,
+        sectionId: allowSections && studentResultSection && studentResultSection !== "*" ? studentResultSection : undefined,
+        status: "ACTIVE",
+        page: 1,
+        limit: 1000,
+      }),
     enabled: !!studentResultClass && !debouncedSearch,
   });
 
@@ -492,12 +489,7 @@ export const StudentResultsTab = ({
                     <p className="text-sm text-muted-foreground">Grade</p>
                     <p className="text-2xl font-bold">{studentResultData.result.grade}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">GPA</p>
-                    <p className="text-2xl font-bold">
-                      {(studentResultData.result.gpa || 0).toFixed(2)}
-                    </p>
-                  </div>
+                  {/* GPA hidden for now */}
                   {studentResultData.position && (
                     <div>
                       <p className="text-sm text-muted-foreground">Position</p>

@@ -213,8 +213,13 @@ StudentCreditLedgerSchema.set('toObject', { virtuals: true });
 // FeePaymentReceipt (Itemized payment transaction history)
 const FeePaymentReceiptSchema = new mongoose.Schema({
   receiptNo: { type: String, required: true, unique: true },
-  challanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeChallan', required: true },
-  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true },
+  challanType: {
+    type: String,
+    enum: ['FeeChallan', 'ExtraChallan', 'HostelChallan'],
+    default: 'FeeChallan'
+  },
+  challanId: { type: mongoose.Schema.Types.ObjectId, refPath: 'challanType', required: true },
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Student' },
   amountPaid: { type: Number, required: true },
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet' },
   paymentMode: { type: String, default: 'Cash' },
@@ -226,6 +231,14 @@ const FeePaymentReceiptSchema = new mongoose.Schema({
   allocatedToTuition: { type: Number, default: 0 },
   excessCredited: { type: Number, default: 0 },
   advanceCreditUsed: { type: Number, default: 0 },
+  receiptType: {
+    type: String,
+    enum: ['DIRECT', 'ADVANCE_SETTLEMENT', 'ARREARS_SETTLEMENT'],
+    default: 'DIRECT'
+  },
+  sourceChallanNo: { type: String, default: '' },
+  sourceChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeChallan' },
+  settledViaArrearsAmount: { type: Number, default: 0 },
   remarks: { type: String, default: '' }
 }, { timestamps: true });
 

@@ -224,7 +224,7 @@ class TeacherService {
       return Attendance.findOneAndUpdate(
         query,
         { ...query, status: (row.status || 'PRESENT').toUpperCase(), notes: row.notes, markedAt: new Date() },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     });
     return Promise.all(operations);
@@ -416,7 +416,7 @@ class TeacherService {
     const updated = await FrontOfficeComplaint.findByIdAndUpdate(
       complaintId,
       updateQuery,
-      { new: true }
+      { returnDocument: 'after' }
     ).populate('assignedToIds', 'name email empDepartment staffId');
 
     return updated;

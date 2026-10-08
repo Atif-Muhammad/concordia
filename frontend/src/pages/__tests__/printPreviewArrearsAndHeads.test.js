@@ -299,5 +299,60 @@ describe('Challan Print & Preview: Arrears, Head Names, Month/Installment', () =
     expect(html).toContain('Super Admin');
     expect(html).not.toMatch(/Paid By<\/td>\s*<td[^>]*>Cash<\/td>/);
   });
+
+  it('renders Total Amount row before Paid Amount row for all challan statuses and reflects partial advance', () => {
+    // 1. Partial advance challan (like 34 PKR advance on 8,166 PKR tuition)
+    const partialChallan = {
+      challanNumber: '62902251',
+      month: 'October',
+      session: '2026-2027',
+      installmentNumber: 2,
+      basePayable: 8166,
+      amount: 8166,
+      advanceApplied: 34,
+      advanceFromChallanNo: 'CH-62902250',
+      advanceFromMonth: 'September',
+      status: 'PENDING',
+      paidAmount: 0,
+      student: { fName: 'John', lName: 'Doe' },
+    };
+
+    const partialHtml = generateChallanHtml(partialChallan, sampleTemplate);
+
+    // Must have Total Amount row (8,132) before Paid Amount row (34 (Advance))
+    expect(partialHtml).toContain('<td>Total Amount</td>');
+    expect(partialHtml).toContain('<td>8,132</td>');
+    expect(partialHtml).toContain('<td>Paid Amount</td>');
+    expect(partialHtml).toContain('<td>34 (Advance)</td>');
+
+    const totalIdx = partialHtml.indexOf('<td>Total Amount</td>');
+    const paidIdx = partialHtml.indexOf('<td>Paid Amount</td>');
+    expect(totalIdx).toBeGreaterThan(-1);
+    expect(paidIdx).toBeGreaterThan(totalIdx);
+
+    // 2. Unpaid PENDING challan without advance
+    const pendingChallan = {
+      challanNumber: '12345678',
+      month: 'November',
+      session: '2026-2027',
+      installmentNumber: 3,
+      basePayable: 10000,
+      amount: 10000,
+      status: 'PENDING',
+      paidAmount: 0,
+      student: { fName: 'Jane', lName: 'Doe' },
+    };
+
+    const pendingHtml = generateChallanHtml(pendingChallan, sampleTemplate);
+    expect(pendingHtml).toContain('<td>Total Amount</td>');
+    expect(pendingHtml).toContain('<td>10,000</td>');
+    expect(pendingHtml).toContain('<td>Paid Amount</td>');
+    expect(pendingHtml).toContain('<td>0</td>');
+
+    const pTotalIdx = pendingHtml.indexOf('<td>Total Amount</td>');
+    const pPaidIdx = pendingHtml.indexOf('<td>Paid Amount</td>');
+    expect(pTotalIdx).toBeGreaterThan(-1);
+    expect(pPaidIdx).toBeGreaterThan(pTotalIdx);
+  });
 });
 

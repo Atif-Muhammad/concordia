@@ -10,7 +10,8 @@ const {
   InstituteSettings,
   Wallet,
   WalletTransaction,
-  User
+  User,
+  FeePaymentReceipt
 } = require('../models');
 
 const MONTH_NAMES = [
@@ -648,7 +649,7 @@ class HostelService {
         sourceModule: 'Hostel Expense',
         description: expenseData.remarks || `Hostel Expense: ${expenseData.expenseTitle}`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterSource: wallet.currentBalance,
       });
 
@@ -721,7 +722,7 @@ class HostelService {
         sourceModule: 'Hostel Expense',
         description: updateData.remarks || `Hostel Expense: ${updateData.expenseTitle}`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterSource: newWallet.currentBalance,
       });
 
@@ -829,7 +830,7 @@ class HostelService {
         sourceModule: 'Hostel Inventory',
         description: `Hostel Inventory: ${itemData.itemName} (${itemData.quantity || 1} qty)`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterSource: wallet.currentBalance,
       });
 
@@ -899,7 +900,7 @@ class HostelService {
         sourceModule: 'Hostel Inventory',
         description: `Hostel Inventory: ${updateData.itemName || item.itemName} (${updateData.quantity || item.quantity || 1} qty)`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterSource: newWallet.currentBalance,
       });
 
@@ -1379,7 +1380,7 @@ class HostelService {
       advanceApplied: advanceToApply,
       amount: netAmount,
       totalAmount: netAmount,
-      paidAmount: isFullyPaidByAdvance ? advanceToApply : 0,
+      paidAmount: 0,
       paidDate: isFullyPaidByAdvance ? new Date() : undefined,
       paidAt: isFullyPaidByAdvance ? new Date() : undefined,
       paidBy: isFullyPaidByAdvance ? 'Advance Credit' : (data.paidBy || 'Cash'),
@@ -1542,7 +1543,37 @@ class HostelService {
             }
           }
         }
+      } else if (challan.walletId && Number(challan.paidAmount || 0) > 0) {
+        const wallet = await Wallet.findById(challan.walletId);
+        if (wallet) {
+          const paidAmt = Number(challan.paidAmount || 0);
+          wallet.currentBalance = (Number(wallet.currentBalance) || 0) - paidAmt;
+          await wallet.save();
+
+          await WalletTransaction.create({
+            transactionType: 'HOSTEL_FEE',
+            category: 'HOSTEL_FEE',
+            destinationWallet: wallet._id,
+            amount: -Math.abs(paidAmt),
+            date: new Date().toISOString().split('T')[0],
+            month: challan.month || '',
+            referenceNo: `REV-${challanNo || challan._id}`,
+            challanId: challan._id,
+            challanNumber: challanNo,
+            sourceCategory: 'HOSTEL_FEE_REVERSAL',
+            sourceModule: 'Hostel Fee',
+            paymentMode: challan.paymentMode || 'Reversal',
+            description: `Reversal: Hostel Challan #${challanNo} deleted - fee reversed from ${wallet.name}`,
+            performedBy: userId || null,
+            performedByName: userName,
+            balanceAfterDestination: wallet.currentBalance,
+            isReversal: true,
+          });
+        }
       }
+
+      // Clean up any receipts created for this hostel challan
+      await FeePaymentReceipt.deleteMany({ challanId: id }).catch(() => null);
 
       // 1. Restore Advance Credit if this challan consumed any advance credit
       if (challan.advanceApplied > 0) {
@@ -1650,7 +1681,7 @@ class HostelService {
         paymentMode: paymentMode || paidBy || (walletRecord.type === 'BANK' ? 'Bank Transfer' : 'Cash'),
         description: remarks || `Hostel fee collection for Challan #${challan.challanNumber || challan.challanNo} (${challan.month || ''}) - ${studentName}`,
         performedBy: userId || null,
-        performedByName: user ? `${user.name} (${user.role})` : 'System',
+        performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
         balanceAfterDestination: wallet.currentBalance,
       });
     }
@@ -1666,6 +1697,34 @@ class HostelService {
       walletType: walletRecord ? walletRecord.type : '',
       transactionId: walletTx ? walletTx._id : null,
     };
+
+    const reg = challan.registrationId || challan.hostelRegistrationId;
+    const stId = reg?.studentId?._id || reg?.studentId || challan.studentId || null;
+    const cNo = challan.challanNumber || challan.challanNo || String(challan._id).slice(-6);
+    const receiptNo = `REC-HST-${cNo}-${Date.now().toString().slice(-4)}`;
+
+    let receiptDoc = null;
+    try {
+      receiptDoc = await FeePaymentReceipt.create({
+        receiptNo,
+        challanType: 'HostelChallan',
+        challanId: challan._id,
+        studentId: stId || undefined,
+        receiptType: 'DIRECT',
+        amountPaid: payAmount,
+        walletId: walletRecord ? walletRecord._id : (walletId || undefined),
+        paymentMode: paymentRecord.paymentMethod,
+        paidDate: paymentRecord.paymentDate,
+        recordedBy: userId || null,
+        allocatedToHeads: payAmount,
+        remarks: remarks || `Hostel fee collection for Challan #${cNo}`
+      });
+    } catch (recErr) {
+      console.error('Failed to create FeePaymentReceipt for hostel payment:', recErr);
+    }
+
+    paymentRecord.receiptId = receiptDoc ? receiptDoc._id : null;
+    paymentRecord.receiptNo = receiptDoc ? receiptDoc.receiptNo : receiptNo;
 
     if (!Array.isArray(challan.payments)) challan.payments = [];
     challan.payments.push(paymentRecord);
@@ -1858,6 +1917,19 @@ class HostelService {
             }
           } catch (e) {
             console.error('Error reverting wallet on payment delete:', e);
+          }
+        }
+
+        if (removed.receiptId || removed.receiptNo) {
+          try {
+            await FeePaymentReceipt.findOneAndDelete({
+              $or: [
+                ...(removed.receiptId ? [{ _id: removed.receiptId }] : []),
+                ...(removed.receiptNo ? [{ receiptNo: removed.receiptNo }] : [])
+              ]
+            });
+          } catch (delRecErr) {
+            console.error('Error deleting FeePaymentReceipt on hostel payment delete:', delRecErr);
           }
         }
         c.paidAmount = Math.max(0, (c.paidAmount || 0) - (removed.amount || 0));

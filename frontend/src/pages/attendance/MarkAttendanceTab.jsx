@@ -249,14 +249,16 @@ export default function MarkAttendanceTab() {
   // Programs for selection
   const availablePrograms = useMemo(() => {
     if (!isTeacherScoped) return programs;
-    const teacherProgIds = new Set(
-      teacherClassMappings.map(m => {
-        const cls = m.classId || m.class;
-        return extractId(cls?.programId || cls?.program || m.programId || m.program);
-      }).filter(Boolean)
-    );
-    if (!teacherProgIds.size) return programs;
-    return programs.filter(p => teacherProgIds.has(extractId(p)));
+    const teacherProgMap = new Map();
+    teacherClassMappings.forEach(m => {
+      const cls = m.classId || m.class;
+      const prog = cls?.programId || cls?.program || m.programId || m.program;
+      const pId = extractId(prog);
+      if (pId) {
+        teacherProgMap.set(pId, prog?.name ? prog : (programs.find(p => extractId(p) === pId) || { _id: pId, id: pId, name: pId }));
+      }
+    });
+    return Array.from(teacherProgMap.values());
   }, [programs, isTeacherScoped, teacherClassMappings]);
 
   // Unique classes for teachers
@@ -297,6 +299,10 @@ export default function MarkAttendanceTab() {
         .filter(Boolean);
       const uniqueSecs = secs.filter((section, idx, arr) => arr.findIndex(s => extractId(s) === extractId(section)) === idx);
       if (uniqueSecs.length > 0) return uniqueSecs;
+      if (matchingMappings.some(m => !(m.sectionId || m.section)) && selectedClass?.sections?.length) {
+        return selectedClass.sections;
+      }
+      return [];
     }
     if (selectedClass?.sections?.length) {
       return selectedClass.sections;
@@ -318,18 +324,18 @@ export default function MarkAttendanceTab() {
     );
     const teacherAssignedSubjects = [];
     matchingClassMappings.forEach(m => {
+      const addSub = (s) => {
+        if (!s) return;
+        const sId = extractId(s._id || s.id || s);
+        if (sId && !teacherAssignedSubjects.some(existing => existing.id === sId)) {
+          teacherAssignedSubjects.push({ id: sId, name: s.name || s.subjectName || "Subject" });
+        }
+      };
       if (Array.isArray(m.subjects)) {
-        m.subjects.forEach(s => {
-          if (s && !teacherAssignedSubjects.some(existing => extractId(existing) === extractId(s))) {
-            teacherAssignedSubjects.push({ id: extractId(s), name: s.name });
-          }
-        });
+        m.subjects.forEach(addSub);
       }
       if (m.subjectId || m.subject) {
-        const s = m.subjectId || m.subject;
-        if (s && !teacherAssignedSubjects.some(existing => extractId(existing) === extractId(s))) {
-          teacherAssignedSubjects.push({ id: extractId(s), name: s.name });
-        }
+        addSub(m.subjectId || m.subject);
       }
     });
 
@@ -350,7 +356,7 @@ export default function MarkAttendanceTab() {
       if (fromClassSubjects.length > 0) return fromClassSubjects;
     }
 
-    return subjects.map(scm => ({ id: extractId(scm.subject), name: scm.subject?.name || scm.name }));
+    return [];
   }, [subjects, isTeacherScoped, currentUser, teacherClassMappings, selectedClassId, selectedSectionId]);
 
   const selectedClassHasWideTeacherMapping = isTeacherScoped && teacherClassMappings.some(
@@ -404,6 +410,16 @@ export default function MarkAttendanceTab() {
       setSelectedSectionId(allowedIds[0]);
     }
   }, [isTeacherScoped, selectedClassId, selectedSectionId, selectedClassHasWideTeacherMapping, isSectionApplicable, availableSections]);
+
+  useEffect(() => {
+    if (filteredSubjects.length === 1) {
+      if (selectedSubjectId !== filteredSubjects[0].id) {
+        setSelectedSubjectId(filteredSubjects[0].id);
+      }
+    } else if (selectedSubjectId && !filteredSubjects.some(s => s.id === selectedSubjectId)) {
+      setSelectedSubjectId("");
+    }
+  }, [filteredSubjects, selectedSubjectId]);
 
   const handleStatusChange = async (student, status) => {
     if (isDateHoliday) {

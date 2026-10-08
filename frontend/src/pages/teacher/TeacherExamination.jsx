@@ -266,17 +266,14 @@ export default function TeacherExamination() {
       sectionQueryParam,
     ],
     queryFn: () =>
-      getStudents(
-        activeSubjectForMarks.programId,
-        activeSubjectForMarks.classId,
-        sectionQueryParam,
-        '',
-        'ACTIVE',
-        '',
-        '',
-        1,
-        500
-      ),
+      getStudents({
+        programId: activeSubjectForMarks.programId,
+        classId: activeSubjectForMarks.classId,
+        sectionId: sectionQueryParam || undefined,
+        status: 'ACTIVE',
+        page: 1,
+        limit: 1000,
+      }),
     enabled: !!activeSubjectForMarks && marksDialogOpen,
   });
 

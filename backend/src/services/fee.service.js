@@ -533,6 +533,21 @@ class FeeService {
         }
       }
 
+      if (advanceApplied > 0 && (!c.status || c.status === 'PENDING')) {
+        c.status = (netPayable === 0 ? 'PAID' : 'PARTIAL');
+        FeeChallan.updateOne(
+          { _id: c._id },
+          { $set: { status: c.status } }
+        ).exec();
+        if (c.studentId) {
+          const sid = c.studentId._id || c.studentId;
+          Student.updateOne(
+            { _id: sid, 'installments.installmentNumber': c.installmentNumber },
+            { $set: { 'installments.$.status': c.status, 'installments.$.paidAmount': advanceApplied } }
+          ).exec();
+        }
+      }
+
       const directPaidAmount = Number(c.paidAmount || 0);
       const revInfo = reverseArrearMap[c._id?.toString()];
       let settledViaArrearsAmount = Number(c.settledViaArrearsAmount || (revInfo ? revInfo.settledAmount : 0) || 0);
@@ -615,7 +630,8 @@ class FeeService {
         creditAdjustedTo,
         grossAmount,
         netPayable,
-        paidAmount: directPaidAmount,
+        status: c.status,
+        paidAmount: directPaidAmount > 0 ? directPaidAmount : (advanceApplied > 0 ? advanceApplied : 0),
         directPaidAmount,
         settledViaArrearsAmount,
         totalSettledAmount,
@@ -982,6 +998,26 @@ class FeeService {
       return ExtraChallan.findByIdAndUpdate(id, data, { new: true });
     }
 
+    if (['PAID', 'SETTLED', 'VOID'].includes((challan.status || '').toUpperCase())) {
+      throw new Error('Challan is locked (PAID or SETTLED) and cannot be updated');
+    }
+
+    if (data.amount !== undefined) {
+      const amt = Math.max(0, Math.round(Number(data.amount) || 0));
+      challan.basePayable = amt;
+      challan.amount = amt;
+    }
+
+    if (data.discount !== undefined || data.discountAmount !== undefined) {
+      const disc = Math.max(0, Math.round(Number(data.discount !== undefined ? data.discount : data.discountAmount) || 0));
+      challan.discount = disc;
+      challan.discountAmount = disc;
+    }
+
+    if (data.remarks !== undefined) {
+      challan.remarks = data.remarks;
+    }
+
     if (data.dueDate) {
       challan.dueDate = new Date(data.dueDate);
       const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
@@ -1207,12 +1243,20 @@ class FeeService {
       const nowPKT = new Date(todayPKTStr + 'T00:00:00Z');
 
       const eligibleChallans = await FeeChallan.find({
-        status: { $nin: ['PAID', 'SETTLED', 'VOID'] },
+        status: { $nin: ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'] },
+        paidDate: { $in: [null, undefined] },
         dueDate: { $exists: true, $ne: null }
       });
 
       let updatedCount = 0;
       for (const c of eligibleChallans) {
+        const statusUpper = (c.status || '').toUpperCase();
+        if (['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes(statusUpper)) continue;
+        if (c.paidDate) continue;
+        const paidSoFar = Number(c.paidAmount || 0) + Number(c.advanceApplied || 0);
+        const targetDue = Number(c.netPayable ?? c.totalAmount ?? 0);
+        if (paidSoFar >= targetDue && targetDue > 0) continue;
+
         const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
         if (effectiveRate <= 0 || !c.dueDate) continue;
 
@@ -1786,6 +1830,24 @@ class FeeService {
                 }
                 await anc.save();
 
+                if (ancAlloc > 0) {
+                  const arrRecNo = `REC-ARR-${anc.challanNo || anc._id.toString().slice(-4)}-${Date.now().toString().slice(-4)}`;
+                  await FeePaymentReceipt.create({
+                    receiptNo: arrRecNo,
+                    challanId: anc._id,
+                    studentId: anc.studentId,
+                    receiptType: 'ARREARS_SETTLEMENT',
+                    amountPaid: 0,
+                    settledViaArrearsAmount: ancAlloc,
+                    sourceChallanId: challan._id,
+                    sourceChallanNo: challan.challanNo,
+                    paymentMode: 'Arrears Transfer',
+                    paidDate: challan.paidDate || new Date(),
+                    recordedBy: userId || null,
+                    remarks: `Settled via arrears on Challan #${challan.challanNo}`
+                  }).catch(() => null);
+                }
+
                 // Update installment on Student
                 if (anc.studentId) {
                   const student = await Student.findById(anc.studentId);
@@ -1969,26 +2031,27 @@ class FeeService {
     }
 
     // Create itemized FeePaymentReceipt
-    if (!isExtra) {
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await FeePaymentReceipt.create({
-        receiptNo,
-        challanId: challan._id,
-        studentId: challan.studentId,
-        amountPaid: payAmount,
-        walletId: walletId || undefined,
-        paymentMode: resolvedMode,
-        paidDate: challan.paidDate,
-        recordedBy: userId || null,
-        allocatedToArrears,
-        allocatedToLateFee,
-        allocatedToHeads,
-        allocatedToTuition,
-        excessCredited,
-        advanceCreditUsed: advanceDeducted,
-        remarks: remarks || ''
-      });
-    }
+    const receiptPrefix = isExtra ? 'REC-EXT' : 'REC';
+    const receiptNo = `${receiptPrefix}-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    await FeePaymentReceipt.create({
+      receiptNo,
+      challanType: isExtra ? 'ExtraChallan' : 'FeeChallan',
+      challanId: challan._id,
+      studentId: challan.studentId,
+      receiptType: payAmount > 0 ? 'DIRECT' : 'ADVANCE_SETTLEMENT',
+      amountPaid: payAmount,
+      walletId: walletId || undefined,
+      paymentMode: resolvedMode,
+      paidDate: challan.paidDate,
+      recordedBy: userId || null,
+      allocatedToArrears: isExtra ? 0 : allocatedToArrears,
+      allocatedToLateFee: isExtra ? Number(challan.lateFeeFine || 0) : allocatedToLateFee,
+      allocatedToHeads: isExtra ? Number(challan.amount || payAmount) : allocatedToHeads,
+      allocatedToTuition: isExtra ? 0 : allocatedToTuition,
+      excessCredited: isExtra ? 0 : excessCredited,
+      advanceCreditUsed: isExtra ? 0 : advanceDeducted,
+      remarks: remarks || ''
+    });
 
     // Deposit to wallet if payAmount > 0 (defaults to United Bank Limited / main bank wallet)
     if (payAmount > 0) {
@@ -2032,7 +2095,7 @@ class FeeService {
             paymentMode: paymentMode || paidBy || (wallet.type === 'BANK' ? 'Bank Transfer' : 'Cash'),
             description: remarks || `${isExtra ? 'Extra' : 'Tuition'} fee collection for Challan #${challanNo} (${challan.month || ''}) - ${studentName}`,
             performedBy: userId || null,
-            performedByName: user ? `${user.name} (${user.role})` : 'System',
+            performedByName: user ? `${user.name} (${user.designation || (user.role === 'TEACHER' ? 'Teacher' : (user.role || 'Staff'))})` : 'System',
             balanceAfterDestination: wallet.currentBalance,
           });
 
@@ -3223,6 +3286,7 @@ class FeeService {
         const advanceToApply = Math.min(grossAmount, totalAvailableCredit);
         const netPayable = Math.max(0, grossAmount - advanceToApply);
         const isFullyPaidByAdvance = (netPayable === 0 && advanceToApply > 0);
+        const isPartiallyPaidByAdvance = (advanceToApply > 0 && !isFullyPaidByAdvance);
 
         const challanNo = await this.generate8DigitChallanNo();
 
@@ -3247,10 +3311,11 @@ class FeeService {
           installmentId: matchingInst._id,
           arrearAllocations,
           supersedes: supersededChallanIds,
-          status: isFullyPaidByAdvance ? 'PAID' : 'PENDING',
-          paidAmount: isFullyPaidByAdvance ? advanceToApply : 0,
-          paidDate: isFullyPaidByAdvance ? new Date() : undefined,
-          paidBy: isFullyPaidByAdvance ? 'Advance Credit' : 'Cash',
+          status: isFullyPaidByAdvance ? 'PAID' : (isPartiallyPaidByAdvance ? 'PARTIAL' : 'PENDING'),
+          paidAmount: 0,
+          paidDate: isFullyPaidByAdvance ? new Date() : (isPartiallyPaidByAdvance ? new Date() : undefined),
+          paidBy: advanceToApply > 0 ? 'Advance Credit' : 'Cash',
+          paymentMode: advanceToApply > 0 ? 'Advance Credit' : 'Cash',
           absenteeCount,
           absenteeFineAmount,
           absenteeMonth: absenteeCount > 0 ? prevMonthName : '',
@@ -3324,6 +3389,19 @@ class FeeService {
             createdChallan.advanceFromChallanId = advanceAllocations[0].sourceChallanId || null;
           }
           await createdChallan.save();
+
+          const advRecNo = `REC-ADV-${createdChallan.challanNo || createdChallan._id.toString().slice(-4)}`;
+          await FeePaymentReceipt.create({
+            receiptNo: advRecNo,
+            challanId: createdChallan._id,
+            studentId: createdChallan.studentId,
+            receiptType: 'ADVANCE_SETTLEMENT',
+            amountPaid: 0,
+            advanceCreditUsed: advanceToApply,
+            paymentMode: 'Advance Credit',
+            paidDate: createdChallan.paidDate || new Date(),
+            remarks: 'Settled via advance credit from student credit ledger',
+          }).catch(() => null);
         }
 
         // 5. Update matching installment on Student
@@ -3332,6 +3410,11 @@ class FeeService {
           if (isFullyPaidByAdvance) {
             matchingInst.status = 'PAID';
             matchingInst.paidAmount = advanceToApply;
+            matchingInst.pendingAmount = 0;
+          } else if (isPartiallyPaidByAdvance) {
+            matchingInst.status = 'PARTIAL';
+            matchingInst.paidAmount = advanceToApply;
+            matchingInst.pendingAmount = netPayable;
           }
           await student.save();
         }
@@ -3400,7 +3483,7 @@ class FeeService {
   async getChallanReceipts(challanId) {
     if (!challanId) return [];
     const receipts = await FeePaymentReceipt.find({ challanId })
-      .populate('recordedBy', 'name role email')
+      .populate('recordedBy', 'name role designation email')
       .populate('walletId', 'name type')
       .sort({ createdAt: -1 })
       .lean();
@@ -3412,7 +3495,7 @@ class FeeService {
     // Fallback 1: WalletTransaction
     const walletTxs = await WalletTransaction.find({ challanId })
       .populate('destinationWallet', 'name type')
-      .populate('performedBy', 'name role email')
+      .populate('performedBy', 'name role designation email')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -3430,8 +3513,9 @@ class FeeService {
     }
 
     // Fallback 2: Check challan itself if direct payment was recorded
-    const challan = await FeeChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role').lean() ||
-                    await ExtraChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role').lean();
+    const challan = await FeeChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role designation').lean() ||
+                    await ExtraChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role designation').lean() ||
+                    await HostelChallan.findById(challanId).populate('walletId', 'name type').populate('receivedBy', 'name role designation').lean();
     if (challan && Number(challan.paidAmount) > 0) {
       return [{
         _id: challan._id,

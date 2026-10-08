@@ -5,7 +5,8 @@ const {
   AttendanceSkip,
   Student,
   Staff,
-  Class
+  Class,
+  Subject
 } = require('../models');
 
 const getDateRangeStrings = (startStr, endStr) => {
@@ -180,7 +181,7 @@ class AttendanceService {
           markedBy: teacherId || data.userId || null,
           markedAt: new Date()
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     });
     return Promise.all(ops);
@@ -325,7 +326,7 @@ class AttendanceService {
                 notes: leave.reason || 'Approved Leave',
                 markedAt: new Date()
               },
-              { upsert: true, new: true }
+              { upsert: true, returnDocument: 'after' }
             );
           }
         }
@@ -356,7 +357,7 @@ class AttendanceService {
               notes: leave.reason || 'Approved Staff Leave',
               markedAt: new Date()
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
           );
         }
       } catch (syncErr) {
@@ -512,7 +513,7 @@ class AttendanceService {
       return Attendance.findOneAndUpdate(
         query,
         updateData,
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     });
     const results = await Promise.all(ops);
@@ -784,6 +785,89 @@ class AttendanceService {
       },
       records: dayRows,
     };
+  }
+
+  async getAttendanceReport({ start, end, classId, sectionId, sessionId, programId, studentId }) {
+    if (!start || !end) return [];
+
+    const studentFilter = {};
+    if (studentId) {
+      studentFilter._id = studentId;
+    } else {
+      studentFilter.status = { $in: ['ACTIVE', 'Active'] };
+      if (classId && classId !== '*' && classId !== 'all') {
+        studentFilter.classId = classId;
+      }
+      if (sectionId && sectionId !== '*' && sectionId !== 'all') {
+        studentFilter.sectionId = sectionId;
+      }
+      if (programId && programId !== '*' && programId !== 'all') {
+        studentFilter.programId = programId;
+      }
+      if (sessionId && sessionId !== 'all') {
+        studentFilter.sessionId = sessionId;
+      }
+    }
+
+    const students = await Student.find(studentFilter)
+      .populate('classId', '_id name allowSections')
+      .populate('sectionId', '_id name')
+      .populate('programId', '_id name code')
+      .sort({ rollNumber: 1 });
+
+    if (!students || students.length === 0) return [];
+
+    const studentIds = students.map(s => s._id);
+
+    const attFilter = {
+      role: 'STUDENT',
+      studentId: { $in: studentIds },
+      date: { $gte: start, $lte: end }
+    };
+    if (sessionId && sessionId !== 'all') {
+      attFilter.sessionId = sessionId;
+    }
+
+    const attendanceRecords = await Attendance.find(attFilter).populate('subjectId', '_id name');
+
+    const recordMap = new Map();
+    attendanceRecords.forEach(r => {
+      const sId = String(r.studentId);
+      if (!recordMap.has(sId)) recordMap.set(sId, new Map());
+      const subMap = recordMap.get(sId);
+      const subId = r.subjectId?._id ? String(r.subjectId._id) : (r.subjectId ? String(r.subjectId) : 'general');
+      const subName = r.subjectId?.name || 'General';
+      if (!subMap.has(subId)) {
+        subMap.set(subId, { subjectId: subId, subjectName: subName, attendance: [] });
+      }
+      subMap.get(subId).attendance.push({
+        date: r.date,
+        status: (r.status || 'present').toLowerCase(),
+        notes: r.notes || ''
+      });
+    });
+
+    return students.map(s => {
+      const sId = String(s._id || s.id);
+      const subMap = recordMap.get(sId);
+      let subjects = subMap ? Array.from(subMap.values()) : [];
+      if (subjects.length === 0) {
+        subjects = [{ subjectId: 'general', subjectName: 'General', attendance: [] }];
+      }
+      return {
+        id: sId,
+        _id: s._id,
+        rollNumber: s.rollNumber || '',
+        name: `${s.fName || ''} ${s.lName || ''}`.trim(),
+        fName: s.fName || '',
+        lName: s.lName || '',
+        fatherName: s.fatherOrguardian || s.parentOrGuardianName || s.fatherName || '',
+        class: s.classId ? { id: s.classId._id?.toString(), _id: s.classId._id, name: s.classId.name } : null,
+        section: s.sectionId ? { id: s.sectionId._id?.toString(), _id: s.sectionId._id, name: s.sectionId.name } : null,
+        program: s.programId ? { id: s.programId._id?.toString(), _id: s.programId._id, name: s.programId.name } : null,
+        subjects
+      };
+    });
   }
 }
 

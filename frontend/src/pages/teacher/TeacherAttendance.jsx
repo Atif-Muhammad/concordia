@@ -39,6 +39,7 @@ export default function TeacherAttendance() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedClassData, setSelectedClassData] = useState('');
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [attendanceState, setAttendanceState] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
@@ -87,6 +88,26 @@ export default function TeacherAttendance() {
     }
   }, [selectedClassData]);
 
+  const assignedSubjects = useMemo(() => {
+    if (!selectedClassDetails) return [];
+    const subs = selectedClassDetails.subjects || (selectedClassDetails.subject ? [selectedClassDetails.subject] : []);
+    return subs.map((s) => ({
+      id: (s?._id || s?.id || s)?.toString(),
+      name: s?.name || s?.subjectName || 'Subject',
+    })).filter((s) => Boolean(s.id));
+  }, [selectedClassDetails]);
+
+  // Auto-select first subject when class changes
+  useEffect(() => {
+    if (assignedSubjects.length > 0) {
+      if (!selectedSubjectId || !assignedSubjects.some((s) => s.id === selectedSubjectId)) {
+        setSelectedSubjectId(assignedSubjects[0].id);
+      }
+    } else {
+      setSelectedSubjectId('');
+    }
+  }, [assignedSubjects, selectedSubjectId]);
+
   const classId = selectedClassDetails?.classId?._id || selectedClassDetails?.classId || selectedClassDetails?.class?._id;
   const sectionId = selectedClassDetails?.sectionId?._id || selectedClassDetails?.sectionId || selectedClassDetails?.section?._id;
   const targetId = sectionId || classId;
@@ -107,8 +128,8 @@ export default function TeacherAttendance() {
 
   // 3. Fetch attendance records for this class & date
   const { data: attendanceData, isLoading: isAttendanceLoading } = useQuery({
-    queryKey: ['classAttendance', targetId, date, fetchFor],
-    queryFn: () => getClasseOrSectionAttendance(targetId, date, fetchFor),
+    queryKey: ['classAttendance', targetId, date, fetchFor, selectedSubjectId],
+    queryFn: () => getClasseOrSectionAttendance(targetId, date, fetchFor, selectedSubjectId),
     enabled: !!targetId && !!date,
   });
 
@@ -199,13 +220,13 @@ export default function TeacherAttendance() {
   }, [attendanceData]);
 
   const updateMutation = useMutation({
-    mutationFn: (payload) => updateAttendance(classId, sectionId, null, date, payload),
-    onSuccess: () => {
+    mutationFn: (payload) => updateAttendance(classId, sectionId, selectedSubjectId || undefined, date, payload),
+    onSuccess: () => { 
       toast({ 
         title: 'Attendance Saved', 
         description: `Successfully recorded attendance for ${date}.` 
       });
-      queryClient.invalidateQueries(['classAttendance', targetId, date, fetchFor]);
+      queryClient.invalidateQueries(['classAttendance', targetId, date, fetchFor, selectedSubjectId]);
     },
     onError: (error) => {
       toast({ 
@@ -269,6 +290,7 @@ export default function TeacherAttendance() {
     const payload = {
       classId,
       sectionId,
+      subjectId: selectedSubjectId || undefined,
       date,
       rows: students.map(record => {
         const student = record.student || record.studentId;
@@ -276,7 +298,8 @@ export default function TeacherAttendance() {
         const status = attendanceState[studentId] || 'Present';
         return {
           studentId,
-          status: status.toUpperCase()
+          status: status.toUpperCase(),
+          subjectId: selectedSubjectId || undefined,
         };
       }),
       attendanceRecords: students.map(record => {
@@ -285,7 +308,8 @@ export default function TeacherAttendance() {
         const status = attendanceState[studentId] || 'Present';
         return {
           studentId,
-          status: status.toUpperCase()
+          status: status.toUpperCase(),
+          subjectId: selectedSubjectId || undefined,
         };
       })
     };
@@ -381,6 +405,23 @@ export default function TeacherAttendance() {
                 </SelectContent>
               </Select>
             </div>
+            {assignedSubjects.length > 0 && (
+              <div className="w-full sm:w-[220px] space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Subject</Label>
+                <Select onValueChange={setSelectedSubjectId} value={selectedSubjectId}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Select Subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignedSubjects.map((sub) => (
+                      <SelectItem key={sub.id} value={sub.id}>
+                        {sub.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="w-full sm:w-[220px] space-y-1.5">
               <Label className="text-xs font-medium text-muted-foreground">Date</Label>
               <div className="relative">

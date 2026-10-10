@@ -275,48 +275,6 @@ export const StudentsTableTab = ({
             <SlidersHorizontal className="w-4 h-4" />
             {showFilters ? "Hide Filters" : "Filters"}
           </Button>
-          {onOpenDocumentReport && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                onOpenDocumentReport(studentsData, {
-                  filterProgram,
-                  filterClass,
-                  filterSection,
-                  filterSessionId,
-                  status,
-                  searchQuery,
-                })
-              }
-              className="gap-2 border-slate-300 text-slate-700 hover:text-slate-900"
-              title="Student Document Submission Report"
-            >
-              <FileText className="w-4 h-4 text-orange-600" />
-              Document Report
-            </Button>
-          )}
-          {onOpenStudentDataExport && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                onOpenStudentDataExport(studentsData, {
-                  filterProgram,
-                  filterClass,
-                  filterSection,
-                  filterSessionId,
-                  status,
-                  searchQuery,
-                })
-              }
-              className="gap-2 border-slate-300 text-slate-700 hover:text-slate-900"
-              title="Export Student Data with Fee Installment Plans"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Export Students
-            </Button>
-          )}
           {status === "ACTIVE" && canUpdate && onPromote && (
             <Button size="sm" onClick={onPromote} variant="outline" className="gap-2">
               <TrendingUp className="w-4 h-4" /> Promote
@@ -648,7 +606,7 @@ export const StudentsTableTab = ({
                                       <Printer className="w-3.5 h-3.5" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Print Profile Form</TooltipContent>
+                                  <TooltipContent>Print / Export Student Report</TooltipContent>
                                 </Tooltip>
                               )}
                             </div>

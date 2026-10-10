@@ -2250,6 +2250,73 @@ export const getAttendanceReport = async (start, end, classId, sectionId, sessio
   }
 };
 
+// Missing Attendance Audits
+export const getMissingAttendanceClassesSummary = async ({ programId, date, sessionId } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (programId && programId !== '*' && programId !== 'all') params.append('programId', programId);
+    if (date) params.append('date', date);
+    if (sessionId && sessionId !== 'all') params.append('sessionId', sessionId);
+
+    const response = await axios.get(
+      `${base_url}/attendance/missing/classes-summary?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to fetch missing attendance classes summary";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getMissingAttendanceSubjectsSummary = async ({ classId, sectionId, date, sessionId } = {}) => {
+  try {
+    const params = new URLSearchParams({ classId });
+    if (sectionId && sectionId !== '*' && sectionId !== 'all') params.append('sectionId', sectionId);
+    if (date) params.append('date', date);
+    if (sessionId && sessionId !== 'all') params.append('sessionId', sessionId);
+
+    const response = await axios.get(
+      `${base_url}/attendance/missing/subjects-summary?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to fetch missing attendance subjects summary";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getMissingAttendanceStudentsSummary = async ({ classId, sectionId, subjectId, date, sessionId } = {}) => {
+  try {
+    const params = new URLSearchParams({ classId, subjectId });
+    if (sectionId && sectionId !== '*' && sectionId !== 'all') params.append('sectionId', sectionId);
+    if (date) params.append('date', date);
+    if (sessionId && sessionId !== 'all') params.append('sessionId', sessionId);
+
+    const response = await axios.get(
+      `${base_url}/attendance/missing/students-summary?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to fetch missing attendance students summary";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const getEmp = async (dept) => {
   try {
     const url = dept ? `${base_url}/hr/get/employees?dept=${dept}` : `${base_url}/hr/get/employees`;

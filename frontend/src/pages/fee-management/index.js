@@ -3,6 +3,7 @@ export { ExtraChallansTab } from "./ExtraChallansTab";
 export { FeeHeadsTab } from "./FeeHeadsTab";
 export { FeeStructuresTab } from "./FeeStructuresTab";
 export { FeeReportsTab } from "./FeeReportsTab";
+export { StudentInstallmentReportsTab } from "./StudentInstallmentReportsTab";
 export { FeeSettingsTab } from "./FeeSettingsTab";
 export { StudentHistoryTab } from "./StudentHistoryTab";
 export { PaymentDialog } from "./PaymentDialog";

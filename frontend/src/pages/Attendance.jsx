@@ -7,8 +7,7 @@ import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import {
   MarkAttendanceTab,
   LeaveTab,
-  AttendanceReportsTab,
-  IndividualReportsTab,
+  AttendanceReportsHub,
 } from "./attendance/index.js";
 
 const Attendance = () => {
@@ -55,11 +54,11 @@ const Attendance = () => {
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
-            <AttendanceReportsTab />
+            <AttendanceReportsHub />
           </TabsContent>
 
           <TabsContent value="individual-reports">
-            <IndividualReportsTab />
+            <AttendanceReportsHub initialReport="individual" />
           </TabsContent>
         </Tabs>
       </div>

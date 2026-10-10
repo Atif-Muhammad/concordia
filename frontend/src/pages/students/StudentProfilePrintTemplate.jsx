@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -10,12 +10,42 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Printer, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Printer,
+  Loader2,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+  SlidersHorizontal,
+  Search,
+  Eye,
+  PanelLeftClose,
+  PanelLeftOpen,
+  FileText,
+  User,
+  GraduationCap,
+  Users,
+  Award,
+  CheckCircle2,
+  DollarSign,
+  FileCheck,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { resolveFileUrl } from "@/lib/utils";
 import { getStudentFeeHistory, getStudentById } from "../../../config/apis";
 import { StudentProfilePrintSkeleton } from "@/skeletons/StudentProfilePrintSkeleton";
+import {
+  REPORT_SECTIONS,
+  getDefaultReportFieldSelection,
+  exportStudentReportToExcel,
+} from "./studentReportFieldsConfig";
 
 export const STANDARD_DOCUMENTS = [
   {
@@ -447,6 +477,8 @@ export const getStudentProfileFormStyles = () => `
     font-size: 10px;
     margin-bottom: 10px;
     font-weight: 600;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .student-profile-preview .meta-strip span strong {
@@ -664,10 +696,45 @@ export const getStudentProfileFormStyles = () => `
 `;
 
 /**
- * Generates the inner body HTML representing the official student profile form.
+ * Helper to render key-value items into a balanced 2-column or 4-column grid table.
  */
-export const generateStudentProfileFormBodyHtml = ({ data, formattedPrintDate, logoUrl }) => {
-  // Default User Icon as clean vector SVG
+const renderFieldGridTable = (items) => {
+  if (!items || items.length === 0) return "";
+  let rowsHtml = "";
+  let i = 0;
+  while (i < items.length) {
+    const cur = items[i];
+    if (cur.isWide) {
+      rowsHtml += `<tr><td class="lbl">${cur.label}</td><td class="val" colspan="3">${cur.value}</td></tr>`;
+      i++;
+    } else if (i + 1 < items.length && !items[i + 1].isWide) {
+      const next = items[i + 1];
+      rowsHtml += `<tr><td class="lbl">${cur.label}</td><td class="val">${cur.value}</td><td class="lbl">${next.label}</td><td class="val">${next.value}</td></tr>`;
+      i += 2;
+    } else {
+      rowsHtml += `<tr><td class="lbl">${cur.label}</td><td class="val" colspan="3">${cur.value}</td></tr>`;
+      i++;
+    }
+  }
+  return `<table class="form-grid">${rowsHtml}</table>`;
+};
+
+/**
+ * Generates the inner body HTML representing the student profile form,
+ * respecting the user's granular field selection configuration.
+ */
+export const generateStudentProfileFormBodyHtml = ({
+  data,
+  formattedPrintDate,
+  logoUrl,
+  fieldSelection = null,
+}) => {
+  const isDefault = !fieldSelection;
+  const sections = fieldSelection?.sections || {};
+  const fields = fieldSelection?.fields || {};
+
+  // Photo
+  const showPhoto = isDefault || (sections.personalInfo !== false && fields.personalInfo?.photo !== false);
   const defaultUserSvg = `
     <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
       <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
@@ -676,100 +743,338 @@ export const generateStudentProfileFormBodyHtml = ({ data, formattedPrintDate, l
     <div style="font-size: 8px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">Student Photo</div>
   `;
 
-  const photoHtml = data.photoUrl
+  const photoBoxHtml = showPhoto
     ? `
-      <img
-        src="${data.photoUrl}"
-        alt="Student Photo"
-        style="width: 100%; height: 100%; object-fit: cover; display: block;"
-        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
-      />
-      <div style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc;">
-        ${defaultUserSvg}
+      <div class="photo-box">
+        ${
+          data.photoUrl
+            ? `
+          <img
+            src="${data.photoUrl}"
+            alt="Student Photo"
+            style="width: 100%; height: 100%; object-fit: cover; display: block;"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+          />
+          <div style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc;">
+            ${defaultUserSvg}
+          </div>
+        `
+            : `
+          <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc;">
+            ${defaultUserSvg}
+          </div>
+        `
+        }
       </div>
     `
-    : `
-      <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc;">
-        ${defaultUserSvg}
-      </div>
-    `;
+    : "";
 
-  // Documents Rows
-  const documentsRowsHtml = data.docsList
-    .map(
-      (doc, idx) => `
-      <tr>
-        <td style="text-align: center; font-weight: 600; width: 35px;">${idx + 1}</td>
-        <td style="font-weight: 600; color: #0f172a;">${doc.label}</td>
-        <td style="text-align: center; width: 90px; color: #475569; font-size: 10px;">${doc.requirement}</td>
-        <td style="text-align: center; width: 110px;">
-          ${
-            doc.isSubmitted
-              ? `<span class="badge-submitted">[✓] SUBMITTED</span>`
-              : `<span class="badge-pending">[ ] PENDING</span>`
-          }
-        </td>
-        <td style="color: #475569; font-size: 10px;">${doc.remarks}</td>
-      </tr>
-    `
-    )
-    .join("");
+  // Metadata Strip
+  const showRollMeta = isDefault || (sections.academicInfo !== false && fields.academicInfo?.rollNumber !== false);
+  const showFormMeta = isDefault || (sections.academicInfo !== false && fields.academicInfo?.admissionFormNumber !== false);
+  const showStatusMeta = isDefault || (sections.academicInfo !== false && fields.academicInfo?.status !== false);
 
-  // Installments Rows
-  const installmentsRowsHtml =
-    data.installments.length > 0
-      ? data.installments
-          .map((inst) => {
-            let statusBadge = "";
-            if (inst.status === "PAID") {
-              statusBadge = `<span class="status-badge status-paid">PAID</span>`;
-            } else if (inst.status === "SETTLED") {
-              statusBadge = `<span class="status-badge status-settled">SETTLED</span>`;
-            } else if (inst.status === "PARTIAL") {
-              statusBadge = `<span class="status-badge status-partial">PARTIAL</span>`;
-            } else {
-              statusBadge = `<span class="status-badge status-pending">PENDING</span>`;
-            }
+  const metaParts = [];
+  if (showRollMeta) metaParts.push(`<span>Roll No: <strong>${data.rollNumber}</strong></span>`);
+  if (showFormMeta) metaParts.push(`<span>Form Ref: <strong>${data.admissionFormNumber}</strong></span>`);
+  if (showStatusMeta) metaParts.push(`<span>Status: <strong>${data.status}</strong></span>`);
+  metaParts.push(`<span>Issue Date: <strong>${formattedPrintDate}</strong></span>`);
 
-            return `
-            <tr>
-              <td style="text-align: center; font-weight: 700; width: 45px;">#${inst.installmentNumber}</td>
-              <td style="font-weight: 600;">${inst.month}</td>
-              <td style="text-align: center; width: 95px; color: #334155;">${inst.dueDate}</td>
-              <td style="text-align: right; font-family: monospace; font-weight: 700;">PKR ${formatAmountSafe(inst.planAmount)}</td>
-              <td style="text-align: right; font-family: monospace; font-weight: 600;">PKR ${formatAmountSafe(inst.paidAmount)}</td>
-              <td style="text-align: right; font-family: monospace; font-weight: 600;">PKR ${formatAmountSafe(inst.balance)}</td>
-              <td style="text-align: center; width: 90px;">${statusBadge}</td>
-            </tr>
-          `;
-          })
-          .join("")
-      : `
-        <tr>
-          <td colspan="7" style="text-align: center; padding: 14px; color: #64748b;">
-            No structured fee installment plan configured for this student.
-          </td>
-        </tr>
+  const metaStripHtml = metaParts.length > 0 ? `<div class="meta-strip">${metaParts.join("")}</div>` : "";
+
+  // 1. Academic & Enrollment Details Section
+  let academicSectionHtml = "";
+  if (isDefault || sections.academicInfo !== false) {
+    const f = fields.academicInfo || {};
+    const items = [];
+    if (isDefault || f.rollNumber !== false) items.push({ label: "Student Roll No", value: data.rollNumber });
+    if (isDefault || f.sessionName !== false) items.push({ label: "Academic Session", value: data.sessionName });
+    if (isDefault || f.programName !== false) items.push({ label: "Program", value: data.programName });
+
+    const showClass = isDefault || f.className !== false;
+    const showSec = isDefault || f.sectionName !== false;
+    if (showClass || showSec) {
+      const val = `${showClass ? data.className : ""} ${showSec && data.sectionName && data.sectionName !== "—" ? `(${data.sectionName})` : ""}`.trim();
+      items.push({
+        label: showClass && showSec ? "Class & Section" : showClass ? "Class" : "Section",
+        value: val || "—",
+      });
+    }
+
+    if (isDefault || f.admissionDate !== false) items.push({ label: "Admission Date", value: data.admissionDate });
+    if (isDefault || f.status !== false) items.push({ label: "Enrollment Status", value: data.status });
+
+    if (items.length > 0) {
+      academicSectionHtml = `
+        <div class="section-bar">1. Academic &amp; Enrollment Details</div>
+        ${renderFieldGridTable(items)}
       `;
+    }
+  }
 
-  const previousEducationRow =
-    data.previousBoardName !== "—" || data.previousBoardRollNumber !== "—" || data.obtainedMarks
-      ? `
-      <tr>
-        <td class="lbl">Previous Board / Inst.</td>
-        <td class="val">${data.previousBoardName}</td>
-        <td class="lbl">Previous Roll / Marks</td>
-        <td class="val">
-          ${data.previousBoardRollNumber !== "—" ? `Roll: ${data.previousBoardRollNumber} ` : ""}
-          ${
-            data.obtainedMarks
-              ? `Marks: ${data.obtainedMarks}${data.totalMarks ? ` / ${data.totalMarks}` : ""}`
-              : ""
-          }
-        </td>
-      </tr>
-    `
-      : "";
+  // 2. Personal & Contact Information Section
+  let personalSectionHtml = "";
+  if (isDefault || sections.personalInfo !== false) {
+    const f = fields.personalInfo || {};
+    const items = [];
+    if (isDefault || f.fullName !== false) items.push({ label: "Student Full Name", value: data.fullName });
+    if (isDefault || f.fatherOrguardian !== false) items.push({ label: "Father / Guardian", value: data.fatherOrguardian });
+    if (isDefault || f.studentCnic !== false) items.push({ label: "CNIC / Form B", value: data.studentCnic });
+    if (isDefault || f.dob !== false) items.push({ label: "Date of Birth", value: data.dob });
+    if (isDefault || f.gender !== false) items.push({ label: "Gender", value: data.gender });
+    if (isDefault || f.religion !== false) items.push({ label: "Religion", value: data.religion });
+    if (isDefault || f.phone !== false) items.push({ label: "Contact Phone", value: data.phone });
+    if (isDefault || f.email !== false) items.push({ label: "Email Address", value: data.email });
+    if (isDefault || f.address !== false) items.push({ label: "Residential Address", value: data.address, isWide: true });
+
+    if (items.length > 0) {
+      personalSectionHtml = `
+        <div class="section-bar">2. Personal &amp; Contact Information</div>
+        ${renderFieldGridTable(items)}
+      `;
+    }
+  }
+
+  // 3. Parent / Guardian Information Section
+  let guardianSectionHtml = "";
+  if (isDefault || sections.guardianInfo !== false) {
+    const f = fields.guardianInfo || {};
+    const items = [];
+    if (isDefault || f.fatherOrguardian !== false) items.push({ label: "Guardian Name", value: data.fatherOrguardian });
+    if (isDefault || f.parentCNIC !== false) items.push({ label: "Guardian CNIC", value: data.parentCNIC });
+    if (isDefault || f.emergencyPhone !== false) items.push({ label: "Emergency Phone", value: data.phone });
+    if (isDefault || f.guardianEmail !== false) items.push({ label: "Guardian Email", value: data.email });
+
+    if (items.length > 0) {
+      guardianSectionHtml = `
+        <div class="section-bar">3. Parent / Guardian Information</div>
+        ${renderFieldGridTable(items)}
+      `;
+    }
+  }
+
+  // 4. Previous Education Record Section
+  let previousEducationHtml = "";
+  if (isDefault || sections.previousEducation !== false) {
+    const f = fields.previousEducation || {};
+    const items = [];
+    if (isDefault || f.previousBoardName !== false) {
+      if (data.previousBoardName && data.previousBoardName !== "—") {
+        items.push({ label: "Previous Board / Inst.", value: data.previousBoardName });
+      }
+    }
+    if (isDefault || f.previousBoardRollNumber !== false) {
+      if (data.previousBoardRollNumber && data.previousBoardRollNumber !== "—") {
+        items.push({ label: "Previous Board Roll", value: data.previousBoardRollNumber });
+      }
+    }
+    if (isDefault || f.marks !== false) {
+      if (data.obtainedMarks != null || data.totalMarks != null) {
+        items.push({
+          label: "Obtained / Total Marks",
+          value: `${data.obtainedMarks ?? "—"} ${data.totalMarks ? `/ ${data.totalMarks}` : ""}`,
+        });
+      }
+    }
+
+    if (items.length > 0) {
+      previousEducationHtml = `
+        <div class="section-bar">Previous Academic Record</div>
+        ${renderFieldGridTable(items)}
+      `;
+    }
+  }
+
+  // 5. Required Documents Checklist Section
+  let documentsSectionHtml = "";
+  if (isDefault || sections.documentsChecklist !== false) {
+    const docFields = fields.documentsChecklist || {};
+    const filteredDocs = (data.docsList || []).filter(
+      (d) => isDefault || docFields[d.key] !== false
+    );
+
+    if (filteredDocs.length > 0) {
+      const rowsHtml = filteredDocs
+        .map(
+          (doc, idx) => `
+          <tr>
+            <td style="text-align: center; font-weight: 600; width: 35px;">${idx + 1}</td>
+            <td style="font-weight: 600; color: #0f172a;">${doc.label}</td>
+            <td style="text-align: center; width: 90px; color: #475569; font-size: 10px;">${doc.requirement}</td>
+            <td style="text-align: center; width: 110px;">
+              ${
+                doc.isSubmitted
+                  ? `<span class="badge-submitted">[✓] SUBMITTED</span>`
+                  : `<span class="badge-pending">[ ] PENDING</span>`
+              }
+            </td>
+            <td style="color: #475569; font-size: 10px;">${doc.remarks}</td>
+          </tr>
+        `
+        )
+        .join("");
+
+      documentsSectionHtml = `
+        <div class="section-bar">4. Required Documents Verification Checklist</div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 35px; text-align: center;">#</th>
+              <th>Document Description</th>
+              <th style="width: 90px; text-align: center;">Requirement</th>
+              <th style="width: 110px; text-align: center;">Verification</th>
+              <th>Status / Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+  }
+
+  // 6. Fee Installment Plan & Financial Schedule Section
+  let feeScheduleSectionHtml = "";
+  if (isDefault || sections.feeSchedule !== false) {
+    const f = fields.feeSchedule || {};
+    const showTable = isDefault || f.installmentTable !== false;
+    const showSummary = isDefault || f.feeSummary !== false;
+
+    if (showTable || showSummary) {
+      let feeRows = "";
+      if (showTable) {
+        feeRows =
+          data.installments.length > 0
+            ? data.installments
+                .map((inst) => {
+                  let statusBadge = "";
+                  if (inst.status === "PAID") {
+                    statusBadge = `<span class="status-badge status-paid">PAID</span>`;
+                  } else if (inst.status === "SETTLED") {
+                    statusBadge = `<span class="status-badge status-settled">SETTLED</span>`;
+                  } else if (inst.status === "PARTIAL") {
+                    statusBadge = `<span class="status-badge status-partial">PARTIAL</span>`;
+                  } else {
+                    statusBadge = `<span class="status-badge status-pending">PENDING</span>`;
+                  }
+                  return `
+                  <tr>
+                    <td style="text-align: center; font-weight: 700; width: 45px;">#${inst.installmentNumber}</td>
+                    <td style="font-weight: 600;">${inst.month}</td>
+                    <td style="text-align: center; width: 95px; color: #334155;">${inst.dueDate}</td>
+                    <td style="text-align: right; font-family: monospace; font-weight: 700;">PKR ${formatAmountSafe(inst.planAmount)}</td>
+                    <td style="text-align: right; font-family: monospace; font-weight: 600;">PKR ${formatAmountSafe(inst.paidAmount)}</td>
+                    <td style="text-align: right; font-family: monospace; font-weight: 600;">PKR ${formatAmountSafe(inst.balance)}</td>
+                    <td style="text-align: center; width: 90px;">${statusBadge}</td>
+                  </tr>
+                `;
+                })
+                .join("")
+            : `
+              <tr>
+                <td colspan="7" style="text-align: center; padding: 14px; color: #64748b;">
+                  No structured fee installment plan configured for this student.
+                </td>
+              </tr>
+            `;
+      }
+
+      let feeTfoot = "";
+      if (showSummary) {
+        feeTfoot = `
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align: right; font-weight: 800; text-transform: uppercase;">
+                Total Financial Summary:
+              </td>
+              <td style="text-align: right; font-family: monospace; font-weight: 800;">
+                PKR ${formatAmountSafe(data.totalPlanAmount)}
+              </td>
+              <td style="text-align: right; font-family: monospace; font-weight: 800;">
+                PKR ${formatAmountSafe(data.totalPaidAmount)}
+              </td>
+              <td style="text-align: right; font-family: monospace; font-weight: 800;">
+                PKR ${formatAmountSafe(data.totalBalance)}
+              </td>
+              <td style="text-align: center; font-size: 8.5px; font-weight: 700;">
+                ${data.totalBalance === 0 && data.totalPlanAmount > 0 ? "ALL CLEARED" : "OUTSTANDING"}
+              </td>
+            </tr>
+          </tfoot>
+        `;
+      }
+
+      feeScheduleSectionHtml = `
+        <div class="section-bar fee-section-bar">5. Fee Installment Plan &amp; Financial Schedule</div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 45px; text-align: center;">Inst. #</th>
+              <th>Billing Period / Month</th>
+              <th style="width: 95px; text-align: center;">Due Date</th>
+              <th style="text-align: right; width: 100px;">Plan Amount</th>
+              <th style="text-align: right; width: 100px;">Paid Amount</th>
+              <th style="text-align: right; width: 100px;">Balance</th>
+              <th style="width: 90px; text-align: center;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${feeRows}
+          </tbody>
+          ${feeTfoot}
+        </table>
+      `;
+    }
+  }
+
+  // 7. Undertaking & Official Signatures Section
+  let undertakingSectionHtml = "";
+  if (isDefault || sections.undertakingSignatures !== false) {
+    const f = fields.undertakingSignatures || {};
+    const showText = isDefault || f.undertakingText !== false;
+    const showSigs = isDefault || f.signatureBoxes !== false;
+
+    let decBox = "";
+    if (showText) {
+      decBox = `
+        <div class="declaration-box">
+          <strong>Undertaking &amp; Declaration:</strong> I hereby solemnly declare that all particulars stated in this admission and student profile record are authentic, complete, and correct to the best of my knowledge. I promise to abide by all the rules, regulations, discipline policies, and fee deadlines of Concordia College Peshawar.
+        </div>
+      `;
+    }
+
+    let sigGrid = "";
+    if (showSigs) {
+      sigGrid = `
+        <div class="signature-grid">
+          <div class="sig-cell">
+            Student's Signature
+            <div class="sig-sub">Candidate Signature</div>
+          </div>
+          <div class="sig-cell">
+            Guardian's Signature
+            <div class="sig-sub">Father / Mother / Guardian</div>
+          </div>
+          <div class="sig-cell">
+            Accounts In-Charge
+            <div class="sig-sub">Fee Clearance Verification</div>
+          </div>
+          <div class="sig-cell">
+            Principal / Director
+            <div class="sig-sub">Official Stamp &amp; Seal</div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (showText || showSigs) {
+      undertakingSectionHtml = `
+        ${decBox}
+        ${sigGrid}
+      `;
+    }
+  }
 
   return `
     <div class="form-container">
@@ -782,176 +1087,25 @@ export const generateStudentProfileFormBodyHtml = ({ data, formattedPrintDate, l
             <div class="tagline">A Project of Beaconhouse Group</div>
           </div>
         </div>
-        <div class="photo-box">
-          ${photoHtml}
-        </div>
+        ${photoBoxHtml}
       </div>
 
-      <!-- CENTERED CALLIGRAPHY TITLE (NO BLACK BG) -->
+      <!-- CENTERED CALLIGRAPHY TITLE -->
       <div class="center-calligraphy-title">
         Student Profile &amp; Admission Record
       </div>
 
       <!-- METADATA STRIP -->
-      <div class="meta-strip">
-        <span>Roll No: <strong>${data.rollNumber}</strong></span>
-        <span>Form Ref: <strong>${data.admissionFormNumber}</strong></span>
-        <span>Status: <strong>${data.status}</strong></span>
-        <span>Issue Date: <strong>${formattedPrintDate}</strong></span>
-      </div>
+      ${metaStripHtml}
 
-      <!-- 1. ACADEMIC & ENROLLMENT INFORMATION -->
-      <div class="section-bar">1. Academic & Enrollment Details</div>
-      <table class="form-grid">
-        <tr>
-          <td class="lbl">Student Roll No</td>
-          <td class="val">${data.rollNumber}</td>
-          <td class="lbl">Academic Session</td>
-          <td class="val">${data.sessionName}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Program</td>
-          <td class="val">${data.programName}</td>
-          <td class="lbl">Class & Section</td>
-          <td class="val">${data.className} ${data.sectionName && data.sectionName !== "—" ? `(${data.sectionName})` : ""}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Admission Date</td>
-          <td class="val">${data.admissionDate}</td>
-          <td class="lbl">Enrollment Status</td>
-          <td class="val">${data.status}</td>
-        </tr>
-        ${previousEducationRow}
-      </table>
-
-      <!-- 2. STUDENT PERSONAL DETAILS -->
-      <div class="section-bar">2. Personal & Contact Information</div>
-      <table class="form-grid">
-        <tr>
-          <td class="lbl">Student Full Name</td>
-          <td class="val">${data.fullName}</td>
-          <td class="lbl">Father / Guardian</td>
-          <td class="val">${data.fatherOrguardian}</td>
-        </tr>
-        <tr>
-          <td class="lbl">CNIC / Form B</td>
-          <td class="val">${data.studentCnic}</td>
-          <td class="lbl">Date of Birth</td>
-          <td class="val">${data.dob}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Gender</td>
-          <td class="val">${data.gender}</td>
-          <td class="lbl">Religion</td>
-          <td class="val">${data.religion}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Contact Phone</td>
-          <td class="val">${data.phone}</td>
-          <td class="lbl">Email Address</td>
-          <td class="val">${data.email}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Residential Address</td>
-          <td class="val" colspan="3">${data.address}</td>
-        </tr>
-      </table>
-
-      <!-- 3. PARENT / GUARDIAN INFORMATION -->
-      <div class="section-bar">3. Parent / Guardian Information</div>
-      <table class="form-grid">
-        <tr>
-          <td class="lbl">Guardian Name</td>
-          <td class="val">${data.fatherOrguardian}</td>
-          <td class="lbl">Guardian CNIC</td>
-          <td class="val">${data.parentCNIC}</td>
-        </tr>
-        <tr>
-          <td class="lbl">Emergency Phone</td>
-          <td class="val">${data.phone}</td>
-          <td class="lbl">Guardian Email</td>
-          <td class="val">${data.email}</td>
-        </tr>
-      </table>
-
-      <!-- 4. DOCUMENTS VERIFICATION CHECKLIST -->
-      <div class="section-bar">4. Required Documents Verification Checklist</div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th style="width: 35px; text-align: center;">#</th>
-            <th>Document Description</th>
-            <th style="width: 90px; text-align: center;">Requirement</th>
-            <th style="width: 110px; text-align: center;">Verification</th>
-            <th>Status / Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${documentsRowsHtml}
-        </tbody>
-      </table>
-
-      <!-- 5. FEE INSTALLMENT SCHEDULE (STARTS ON 2ND PAGE IN PRINT) -->
-      <div class="section-bar fee-section-bar">5. Fee Installment Plan &amp; Financial Schedule</div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th style="width: 45px; text-align: center;">Inst. #</th>
-            <th>Billing Period / Month</th>
-            <th style="width: 95px; text-align: center;">Due Date</th>
-            <th style="text-align: right; width: 100px;">Plan Amount</th>
-            <th style="text-align: right; width: 100px;">Paid Amount</th>
-            <th style="text-align: right; width: 100px;">Balance</th>
-            <th style="width: 90px; text-align: center;">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${installmentsRowsHtml}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colspan="3" style="text-align: right; font-weight: 800; text-transform: uppercase;">
-              Total Financial Summary:
-            </td>
-            <td style="text-align: right; font-family: monospace; font-weight: 800;">
-              PKR ${formatAmountSafe(data.totalPlanAmount)}
-            </td>
-            <td style="text-align: right; font-family: monospace; font-weight: 800;">
-              PKR ${formatAmountSafe(data.totalPaidAmount)}
-            </td>
-            <td style="text-align: right; font-family: monospace; font-weight: 800;">
-              PKR ${formatAmountSafe(data.totalBalance)}
-            </td>
-            <td style="text-align: center; font-size: 8.5px; font-weight: 700;">
-              ${data.totalBalance === 0 && data.totalPlanAmount > 0 ? "ALL CLEARED" : "OUTSTANDING"}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-
-      <!-- 6. UNDERTAKING & OFFICIAL SIGNATURES -->
-      <div class="declaration-box">
-        <strong>Undertaking &amp; Declaration:</strong> I hereby solemnly declare that all particulars stated in this admission and student profile record are authentic, complete, and correct to the best of my knowledge. I promise to abide by all the rules, regulations, discipline policies, and fee deadlines of Concordia College Peshawar.
-      </div>
-
-      <div class="signature-grid">
-        <div class="sig-cell">
-          Student's Signature
-          <div class="sig-sub">Candidate Signature</div>
-        </div>
-        <div class="sig-cell">
-          Guardian's Signature
-          <div class="sig-sub">Father / Mother / Guardian</div>
-        </div>
-        <div class="sig-cell">
-          Accounts In-Charge
-          <div class="sig-sub">Fee Clearance Verification</div>
-        </div>
-        <div class="sig-cell">
-          Principal / Director
-          <div class="sig-sub">Official Stamp &amp; Seal</div>
-        </div>
-      </div>
+      <!-- SECTIONS -->
+      ${academicSectionHtml}
+      ${personalSectionHtml}
+      ${guardianSectionHtml}
+      ${previousEducationHtml}
+      ${documentsSectionHtml}
+      ${feeScheduleSectionHtml}
+      ${undertakingSectionHtml}
 
       <!-- FOOTER -->
       <div class="form-footer">
@@ -974,6 +1128,7 @@ export const generateStudentProfilePrintHtml = ({
   academicSessions = [],
   feeChallans = [],
   printDate = new Date(),
+  fieldSelection = null,
 }) => {
   const data = resolveStudentProfileData({
     student,
@@ -988,7 +1143,12 @@ export const generateStudentProfilePrintHtml = ({
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const logoUrl = `${origin}/logo.png`;
 
-  const bodyHtml = generateStudentProfileFormBodyHtml({ data, formattedPrintDate, logoUrl });
+  const bodyHtml = generateStudentProfileFormBodyHtml({
+    data,
+    formattedPrintDate,
+    logoUrl,
+    fieldSelection,
+  });
   const styles = getStudentProfileFormStyles();
 
   return `
@@ -1030,9 +1190,9 @@ export const generateStudentProfilePrintHtml = ({
 };
 
 /**
- * On-screen preview modal component.
- * Displays the form in clean paper-style layout with [Print / Save as PDF] and [Close] actions.
- * Directly renders into the DOM (no iframe traps) so native scrolling is 100% smooth and continuous.
+ * Enhanced on-screen dialog component for individual student report export.
+ * Features granular section & field selection with real-time preview, actual data indicators,
+ * Excel (.xlsx) export, and high-fidelity managed printing / PDF generation.
  */
 export const StudentProfilePrintDialog = ({
   open,
@@ -1047,6 +1207,10 @@ export const StudentProfilePrintDialog = ({
 }) => {
   const { toast } = useToast();
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [mobileTab, setMobileTab] = useState("fields"); // "fields" | "preview"
 
   const studentId = extractId(student?.id || student?._id);
 
@@ -1069,7 +1233,10 @@ export const StudentProfilePrintDialog = ({
   });
 
   const effectiveChallans = propFeeChallans || fetchedFeeChallans || [];
-  const isLoading = open && ((detailsLoading && !studentDetails) || (!propFeeChallans && challansLoading && fetchedFeeChallans.length === 0));
+  const isLoading =
+    open &&
+    ((detailsLoading && !studentDetails) ||
+      (!propFeeChallans && challansLoading && fetchedFeeChallans.length === 0));
 
   const resolvedData = useMemo(() => {
     if (!activeStudent) return null;
@@ -1083,46 +1250,199 @@ export const StudentProfilePrintDialog = ({
     });
   }, [activeStudent, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
 
+  // Field selection state & expansion state
+  const [fieldSelection, setFieldSelection] = useState(null);
+  const [expandedSections, setExpandedSections] = useState({});
+
+  useEffect(() => {
+    if (open && resolvedData) {
+      setFieldSelection((prev) => {
+        if (prev) return prev;
+        return getDefaultReportFieldSelection(resolvedData.docsList || []);
+      });
+      setExpandedSections((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+        const exp = {};
+        REPORT_SECTIONS.forEach((s) => {
+          exp[s.key] = true;
+        });
+        return exp;
+      });
+    }
+    if (!open) {
+      setFieldSelection(null);
+      setExpandedSections({});
+      setSearchQuery("");
+      setMobileTab("fields");
+    }
+  }, [open, resolvedData]);
+
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const logoUrl = `${origin}/logo.png`;
   const formattedPrintDate = useMemo(() => format(new Date(), "dd/MM/yyyy HH:mm"), []);
 
+  // Real-time live body HTML
   const bodyHtml = useMemo(() => {
     if (!resolvedData) return "";
     return generateStudentProfileFormBodyHtml({
       data: resolvedData,
       formattedPrintDate,
       logoUrl,
+      fieldSelection,
     });
-  }, [resolvedData, formattedPrintDate, logoUrl]);
+  }, [resolvedData, formattedPrintDate, logoUrl, fieldSelection]);
 
-  const fullPrintHtml = useMemo(() => {
-    if (!activeStudent) return "";
-    return generateStudentProfilePrintHtml({
-      student: activeStudent,
-      programData,
-      classesData,
-      sectionsData,
-      academicSessions,
-      feeChallans: effectiveChallans,
+
+  // Toggling Section Checkbox (auto expands when checked as requested)
+  const handleToggleSection = (sectionKey, checked) => {
+    setFieldSelection((prev) => {
+      const current = prev || getDefaultReportFieldSelection(resolvedData?.docsList || []);
+      return {
+        ...current,
+        sections: {
+          ...current.sections,
+          [sectionKey]: checked,
+        },
+      };
     });
-  }, [activeStudent, programData, classesData, sectionsData, academicSessions, effectiveChallans]);
 
+    // Auto expand/reveal section fields when checked; collapse when unchecked
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionKey]: checked,
+    }));
+  };
+
+  // Toggling Section Expansion manually
+  const toggleSectionExpand = (sectionKey) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey],
+    }));
+  };
+
+  // Toggling individual field
+  const handleToggleField = (sectionKey, fieldKey, checked) => {
+    setFieldSelection((prev) => {
+      const current = prev || getDefaultReportFieldSelection(resolvedData?.docsList || []);
+      const secFields = { ...(current.fields[sectionKey] || {}) };
+      secFields[fieldKey] = checked;
+
+      const newSections = { ...current.sections };
+      if (checked && !newSections[sectionKey]) {
+        newSections[sectionKey] = true;
+      }
+
+      return {
+        ...current,
+        sections: newSections,
+        fields: {
+          ...current.fields,
+          [sectionKey]: secFields,
+        },
+      };
+    });
+  };
+
+  // Select all fields in section
+  const handleSelectAllFieldsInSection = (sectionKey) => {
+    setFieldSelection((prev) => {
+      const current = prev || getDefaultReportFieldSelection(resolvedData?.docsList || []);
+      const sec = REPORT_SECTIONS.find((s) => s.key === sectionKey);
+      const secFields = { ...(current.fields[sectionKey] || {}) };
+
+      if (sec?.isDocumentsSection) {
+        (resolvedData?.docsList || []).forEach((d) => {
+          secFields[d.key] = true;
+        });
+      } else if (sec?.fields) {
+        sec.fields.forEach((f) => {
+          secFields[f.key] = true;
+        });
+      }
+
+      return {
+        ...current,
+        sections: { ...current.sections, [sectionKey]: true },
+        fields: { ...current.fields, [sectionKey]: secFields },
+      };
+    });
+    setExpandedSections((prev) => ({ ...prev, [sectionKey]: true }));
+  };
+
+  // Deselect all fields in section
+  const handleDeselectAllFieldsInSection = (sectionKey) => {
+    setFieldSelection((prev) => {
+      const current = prev || getDefaultReportFieldSelection(resolvedData?.docsList || []);
+      const sec = REPORT_SECTIONS.find((s) => s.key === sectionKey);
+      const secFields = { ...(current.fields[sectionKey] || {}) };
+
+      if (sec?.isDocumentsSection) {
+        (resolvedData?.docsList || []).forEach((d) => {
+          secFields[d.key] = false;
+        });
+      } else if (sec?.fields) {
+        sec.fields.forEach((f) => {
+          secFields[f.key] = false;
+        });
+      }
+
+      return {
+        ...current,
+        fields: { ...current.fields, [sectionKey]: secFields },
+      };
+    });
+  };
+
+  // Global selection actions
+  const handleSelectAllSections = () => {
+    const full = getDefaultReportFieldSelection(resolvedData?.docsList || []);
+    setFieldSelection(full);
+    const exp = {};
+    REPORT_SECTIONS.forEach((s) => {
+      exp[s.key] = true;
+    });
+    setExpandedSections(exp);
+  };
+
+  const handleDeselectAllSections = () => {
+    const full = getDefaultReportFieldSelection(resolvedData?.docsList || []);
+    const emptySections = {};
+    REPORT_SECTIONS.forEach((s) => {
+      emptySections[s.key] = false;
+    });
+    setFieldSelection({
+      ...full,
+      sections: emptySections,
+    });
+    setExpandedSections({});
+  };
+
+  // Print Handler
   const handlePrint = async () => {
-    if (!fullPrintHtml) return;
+    if (!activeStudent || !resolvedData) return;
     setIsPrinting(true);
     try {
+      const html = generateStudentProfilePrintHtml({
+        student: activeStudent,
+        programData,
+        classesData,
+        sectionsData,
+        academicSessions,
+        feeChallans: effectiveChallans,
+        fieldSelection,
+      });
       const studentName = `${activeStudent?.fName || "Student"}_${activeStudent?.lName || ""}`.trim();
       const docTitle = `Student_Profile_${studentName}_${activeStudent?.rollNumber || ""}`.trim();
       const opened = await openManagedPrintWindow({
-        html: fullPrintHtml,
+        html,
         title: docTitle,
         toast,
       });
       if (opened) {
         toast({
           title: "Print window opened",
-          description: "To save as PDF, select 'Save as PDF' in the printer destination dropdown.",
+          description: "To save as PDF, select 'Save as PDF' in the destination dropdown.",
         });
       }
     } catch (err) {
@@ -1137,75 +1457,551 @@ export const StudentProfilePrintDialog = ({
     }
   };
 
+  // Excel Export Handler
+  const handleExportExcel = async () => {
+    if (!resolvedData) return;
+    setIsExportingExcel(true);
+    try {
+      exportStudentReportToExcel({
+        data: resolvedData,
+        fieldSelection,
+        formattedPrintDate,
+      });
+      toast({
+        title: "Excel export completed",
+        description: "Student profile report downloaded as .xlsx spreadsheet.",
+      });
+    } catch (err) {
+      console.error("Failed to export to Excel:", err);
+      toast({
+        title: "Export failed",
+        description: "Could not export student report to Excel.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  // Filter sections by search query
+  const filteredSections = useMemo(() => {
+    if (!searchQuery.trim()) return REPORT_SECTIONS;
+    const q = searchQuery.toLowerCase();
+    return REPORT_SECTIONS.filter((sec) => {
+      if (sec.title.toLowerCase().includes(q) || sec.shortTitle.toLowerCase().includes(q)) return true;
+      if (sec.fields && sec.fields.some((f) => f.label.toLowerCase().includes(q))) return true;
+      if (sec.isDocumentsSection && (resolvedData?.docsList || []).some((d) => d.label.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [searchQuery, resolvedData]);
+
+  // Summary counts
+  const activeSectionCount = useMemo(() => {
+    if (!fieldSelection?.sections) return REPORT_SECTIONS.length;
+    return REPORT_SECTIONS.filter((s) => fieldSelection.sections[s.key] !== false).length;
+  }, [fieldSelection]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!overflow-hidden flex flex-col h-dvh max-h-dvh sm:max-w-4xl p-0 gap-0 border shadow-2xl">
+      <DialogContent
+        className="!overflow-hidden flex flex-col p-0 gap-0 border shadow-2xl rounded-xl"
+        bodyClassName="!p-0 !gap-0 flex-1 min-h-0 !overflow-hidden flex flex-col h-full"
+        style={{
+          height: "92vh",
+          maxHeight: "92vh",
+          minHeight: "92vh",
+          width: "96vw",
+          maxWidth: "1400px",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        <style>{`
+          ${getStudentProfileFormStyles()}
+
+          .report-scroll-container {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #94a3b8 transparent !important;
+            -webkit-overflow-scrolling: touch !important;
+            overscroll-behavior: contain !important;
+          }
+
+          .report-scroll-container::-webkit-scrollbar {
+            width: 6px !important;
+            height: 6px !important;
+          }
+
+          .report-scroll-container::-webkit-scrollbar-track {
+            background: transparent !important;
+          }
+
+          .report-scroll-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1 !important;
+            border-radius: 9999px !important;
+          }
+
+          .report-scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8 !important;
+          }
+
+          .report-scroll-container:focus {
+            outline: none !important;
+          }
+        `}</style>
         {/* Sticky Dialog Header */}
-        <DialogHeader className="bg-white border-b px-6 py-4 flex flex-row items-center justify-between space-y-0 shrink-0">
-          <div>
-            <div className="flex items-center gap-2">
-              <DialogTitle className="text-lg font-bold text-slate-900">
-                {isNewlyCreated ? "Student Created Successfully" : "Student Profile Form"}
-              </DialogTitle>
-              {activeStudent?.rollNumber && (
-                <Badge variant="outline" className="font-mono text-xs font-semibold bg-slate-50">
-                  {activeStudent.rollNumber}
-                </Badge>
-              )}
+        <DialogHeader className="bg-white border-b px-4 sm:px-6 py-3.5 flex flex-row items-center justify-between space-y-0 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg text-orange-600 shrink-0 hidden sm:flex">
+              <FileText className="w-5 h-5" />
             </div>
-            <DialogDescription className="text-xs text-slate-500 mt-0.5">
-              {isNewlyCreated
-                ? "Admission record saved. You can now preview, print, or save the official profile form as PDF."
-                : "Official admission and profile form with documents checklist and fee installment schedule."}
-            </DialogDescription>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 truncate">
+                  {isNewlyCreated ? "Admission Saved • Profile Report Export" : "Individual Student Report Export"}
+                </DialogTitle>
+                {activeStudent?.rollNumber && (
+                  <Badge variant="outline" className="font-mono text-xs font-semibold bg-slate-50 border-slate-300">
+                    {activeStudent.rollNumber}
+                  </Badge>
+                )}
+                <Badge
+                  className="text-[10px] uppercase font-semibold"
+                  variant={activeStudent?.status === "ACTIVE" ? "default" : "secondary"}
+                >
+                  {activeStudent?.status || "ACTIVE"}
+                </Badge>
+              </div>
+              <DialogDescription className="text-xs text-slate-500 mt-0.5 truncate hidden sm:block">
+                Select sections and granular fields with live student data preview to include in the exported report or official printout.
+              </DialogDescription>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 mr-6">
+          <div className="flex items-center gap-2 mr-6 shrink-0">
+            {/* Toggle sidebar button (desktop only) */}
             <Button
               size="sm"
-              onClick={handlePrint}
-              disabled={isPrinting || isLoading || !fullPrintHtml}
-              className="gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs"
+              variant="outline"
+              onClick={() => setShowSidebar((s) => !s)}
+              className="hidden lg:flex items-center gap-1.5 text-xs text-slate-700 hover:bg-slate-100"
+              title={showSidebar ? "Hide Field Selection Sidebar" : "Show Field Selection Sidebar"}
             >
-              {isPrinting ? (
+              {showSidebar ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Preparing View...
+                  <PanelLeftClose className="w-4 h-4 text-slate-500" />
+                  <span>Hide Sidebar</span>
                 </>
               ) : (
                 <>
-                  <Printer className="w-4 h-4 text-orange-400" /> Print / Save as PDF
+                  <PanelLeftOpen className="w-4 h-4 text-slate-500" />
+                  <span>Customize Fields</span>
                 </>
               )}
             </Button>
+
+            {/* Export Excel Button */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={isExportingExcel || isLoading || !resolvedData}
+              className="gap-1.5 text-xs font-medium border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+            >
+              {isExportingExcel ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              )}
+              <span className="hidden sm:inline">Export Excel</span>
+            </Button>
+
+            {/* Print / Save as PDF Button */}
+            <Button
+              size="sm"
+              onClick={handlePrint}
+              disabled={isPrinting || isLoading || !resolvedData || !bodyHtml}
+              className="gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs text-xs"
+            >
+              {isPrinting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing...
+                </>
+              ) : (
+                <>
+                  <Printer className="w-3.5 h-3.5 text-orange-400" /> Print / PDF
+                </>
+              )}
+            </Button>
+
             <Button
               size="sm"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              className="text-slate-700 hover:bg-slate-100"
+              className="text-slate-700 hover:bg-slate-100 text-xs"
             >
               Close
             </Button>
           </div>
         </DialogHeader>
 
-        {/* Scrollable Preview Canvas with thin & visible scrollbar - native DOM, no iframe scroll trap */}
-        <div className="min-h-0 flex-1 overflow-y-auto max-h-[calc(100dvh-85px)] h-[calc(100dvh-85px)] p-4 sm:p-6 bg-slate-100 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.5)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors">
-          <style>{getStudentProfileFormStyles()}</style>
-          {isLoading ? (
-            <StudentProfilePrintSkeleton />
-          ) : bodyHtml ? (
-            <div
-              className="student-profile-preview shadow-md border border-slate-300 mx-auto bg-white select-text"
-              style={{ maxWidth: "820px" }}
-              dangerouslySetInnerHTML={{ __html: bodyHtml }}
-            />
-          ) : (
-            <div className="p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-              <p className="text-sm">Preparing student profile form preview...</p>
-            </div>
-          )}
+        {/* Mobile View Toggle Bar */}
+        <div className="lg:hidden flex items-center justify-between border-b px-4 py-2 bg-slate-50 shrink-0">
+          <div className="flex items-center gap-1 bg-slate-200/70 p-0.5 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setMobileTab("fields")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                mobileTab === "fields"
+                  ? "bg-white text-slate-900 shadow-xs font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Field Selection ({activeSectionCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab("preview")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                mobileTab === "preview"
+                  ? "bg-white text-slate-900 shadow-xs font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Live Document Preview
+            </button>
+          </div>
+          <span className="text-xs text-slate-500 font-mono">
+            {activeSectionCount} / {REPORT_SECTIONS.length} Sections
+          </span>
         </div>
+
+        {/* Main Body (Split Panel on desktop, tabbed on mobile) */}
+        {isLoading || !resolvedData || !fieldSelection ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-12 bg-slate-50 gap-3">
+            <div className="p-3 bg-orange-100 border border-orange-200 rounded-full animate-bounce">
+              <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
+            </div>
+            <div className="text-base font-bold text-slate-800">
+              Processing Student Record &amp; Building Report...
+            </div>
+            <div className="text-xs text-slate-500 max-w-sm text-center">
+              Resolving fee installments, academic details, and documents verification. Please wait a moment.
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 w-full flex flex-col lg:flex-row overflow-hidden bg-slate-100">
+            {/* ───────────────────────────────────────────────────────────── */}
+            {/* LEFT SIDEBAR: FIELD & SECTION SELECTION DRAWER */}
+            {/* ───────────────────────────────────────────────────────────── */}
+            <div
+              className={`w-full lg:w-[420px] shrink-0 border-r border-slate-200 bg-white flex flex-col h-full min-h-0 overflow-hidden transition-all duration-200 ${
+                !showSidebar ? "lg:hidden" : ""
+              } ${mobileTab === "preview" ? "hidden lg:flex" : "flex"}`}
+            >
+              {/* Sidebar Header & Global Controls */}
+              <div className="p-3.5 border-b border-slate-200 bg-slate-50/80 shrink-0 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-4 h-4 text-slate-700" />
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      Report Sections &amp; Fields
+                    </span>
+                  </div>
+                  <Badge variant="secondary" className="text-[10px] font-semibold bg-slate-200/80 text-slate-700">
+                    {activeSectionCount} of {REPORT_SECTIONS.length} Active
+                  </Badge>
+                </div>
+
+                {/* Quick Actions toolbar */}
+                <div className="flex items-center justify-between gap-1 pt-0.5">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleSelectAllSections}
+                      className="h-6 text-[11px] px-2 text-slate-700 hover:bg-slate-200"
+                    >
+                      <CheckSquare className="w-3 h-3 mr-1 text-slate-600" /> Select All
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleDeselectAllSections}
+                      className="h-6 text-[11px] px-2 text-slate-700 hover:bg-slate-200"
+                    >
+                      <Square className="w-3 h-3 mr-1 text-slate-600" /> Deselect All
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleSelectAllSections}
+                    className="h-6 text-[11px] px-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200"
+                    title="Reset to default selection"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" /> Reset
+                  </Button>
+                </div>
+
+                {/* Field filter input */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                  <Input
+                    type="text"
+                    placeholder="Filter fields (e.g. CNIC, Roll, DOB)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-8 pl-8 text-xs bg-white border-slate-200"
+                  />
+                </div>
+              </div>
+
+              {/* Scrollable list of Section Cards with thin scrollbar */}
+              <div
+                className="report-scroll-container flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5"
+                tabIndex={0}
+              >
+                {filteredSections.map((sec, secIdx) => {
+                  const isSectionChecked = fieldSelection?.sections?.[sec.key] !== false;
+                  const isExpanded = !!expandedSections[sec.key];
+                  const secFieldsState = fieldSelection?.fields?.[sec.key] || {};
+
+                  // Count selected fields inside this section
+                  let totalFieldsCount = 0;
+                  let selectedFieldsCount = 0;
+
+                  if (sec.isDocumentsSection) {
+                    const docs = resolvedData?.docsList || [];
+                    totalFieldsCount = docs.length;
+                    selectedFieldsCount = docs.filter((d) => secFieldsState[d.key] !== false).length;
+                  } else if (sec.fields) {
+                    totalFieldsCount = sec.fields.length;
+                    selectedFieldsCount = sec.fields.filter((f) => secFieldsState[f.key] !== false).length;
+                  }
+
+                  return (
+                    <div
+                      key={sec.key}
+                      className={`rounded-lg border transition-all ${
+                        isSectionChecked
+                          ? "border-slate-300 bg-white shadow-xs"
+                          : "border-slate-200/80 bg-slate-50/60 opacity-80"
+                      }`}
+                    >
+                      {/* Section Header with Master Checkbox */}
+                      <div
+                        className={`flex items-center justify-between p-2.5 rounded-t-lg transition-colors ${
+                          isSectionChecked ? "bg-slate-100/60" : "bg-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Checkbox
+                            id={`sec-${sec.key}`}
+                            checked={isSectionChecked}
+                            onCheckedChange={(val) => handleToggleSection(sec.key, Boolean(val))}
+                            className="data-[state=checked]:bg-slate-900 data-[state=checked]:border-slate-900 shrink-0"
+                          />
+                          <label
+                            htmlFor={`sec-${sec.key}`}
+                            className="text-xs font-bold text-slate-800 cursor-pointer select-none truncate"
+                          >
+                            {sec.title}
+                          </label>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isSectionChecked && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[9px] font-mono font-medium px-1.5 py-0 bg-slate-200 text-slate-700"
+                            >
+                              {selectedFieldsCount}/{totalFieldsCount}
+                            </Badge>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toggleSectionExpand(sec.key)}
+                            className="h-6 w-6 p-0 text-slate-500 hover:text-slate-800"
+                            title={isExpanded ? "Collapse section fields" : "Expand section fields"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Section Body: Revealed upon checking section checkbox (as requested) */}
+                      {isExpanded && (
+                        <div className="p-2.5 pt-1.5 border-t border-slate-100 bg-slate-50/40 space-y-2">
+                          {/* Section Sub-actions */}
+                          <div className="flex items-center justify-between text-[11px] px-1 text-slate-500 pb-1 border-b border-slate-100">
+                            <span className="text-[10px] font-medium text-slate-400">
+                              Include in Report &amp; Preview:
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSelectAllFieldsInSection(sec.key)}
+                                className="text-blue-600 hover:underline hover:text-blue-800 font-medium"
+                              >
+                                All
+                              </button>
+                              <span>•</span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeselectAllFieldsInSection(sec.key)}
+                                className="text-slate-600 hover:underline hover:text-slate-800 font-medium"
+                              >
+                                None
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* List of Fields with Preview/Actual Data */}
+                          <div className="space-y-1.5">
+                            {sec.isDocumentsSection ? (
+                              (resolvedData?.docsList || []).map((doc) => {
+                                const isChecked = isSectionChecked && secFieldsState[doc.key] !== false;
+                                return (
+                                  <div
+                                    key={doc.key}
+                                    className="flex items-center justify-between gap-2 p-1.5 rounded hover:bg-slate-100/70 text-xs transition-colors"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Checkbox
+                                        id={`doc-${doc.key}`}
+                                        checked={isChecked}
+                                        onCheckedChange={(val) =>
+                                          handleToggleField(sec.key, doc.key, Boolean(val))
+                                        }
+                                        className="data-[state=checked]:bg-slate-900 shrink-0"
+                                      />
+                                      <label
+                                        htmlFor={`doc-${doc.key}`}
+                                        className="text-xs text-slate-800 font-medium cursor-pointer select-none truncate"
+                                        title={doc.label}
+                                      >
+                                        {doc.label}
+                                      </label>
+                                    </div>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[9px] shrink-0 font-semibold px-1.5 py-0 ${
+                                        doc.isSubmitted
+                                          ? "border-emerald-500 text-emerald-700 bg-emerald-50"
+                                          : "border-slate-300 text-slate-500 bg-white"
+                                      }`}
+                                    >
+                                      {doc.isSubmitted ? "[✓] Submitted" : "[ ] Pending"}
+                                    </Badge>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              sec.fields?.map((f) => {
+                                const isChecked = isSectionChecked && secFieldsState[f.key] !== false;
+                                const previewVal = resolvedData ? f.getValue(resolvedData) : "—";
+                                const hasVal = previewVal && previewVal !== "—";
+
+                                return (
+                                  <div
+                                    key={f.key}
+                                    className="flex items-center justify-between gap-2 p-1.5 rounded hover:bg-slate-100/70 text-xs transition-colors"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Checkbox
+                                        id={`fld-${sec.key}-${f.key}`}
+                                        checked={isChecked}
+                                        onCheckedChange={(val) =>
+                                          handleToggleField(sec.key, f.key, Boolean(val))
+                                        }
+                                        className="data-[state=checked]:bg-slate-900 shrink-0"
+                                      />
+                                      <label
+                                        htmlFor={`fld-${sec.key}-${f.key}`}
+                                        className="text-xs text-slate-800 font-medium cursor-pointer select-none truncate"
+                                        title={f.label}
+                                      >
+                                        {f.label}
+                                      </label>
+                                    </div>
+
+                                    {/* Actual / Preview Value pill */}
+                                    <div className="shrink-0 max-w-[170px] truncate text-right">
+                                      {hasVal ? (
+                                        <span
+                                          className="inline-block text-[10.5px] font-mono font-medium text-slate-800 bg-white border border-slate-200/90 rounded px-1.5 py-0.5 truncate max-w-[170px]"
+                                          title={String(previewVal)}
+                                        >
+                                          {String(previewVal)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-slate-400 italic">
+                                          Not provided
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ───────────────────────────────────────────────────────────── */}
+            {/* RIGHT MAIN PANEL: LIVE PAPER-STYLE DOCUMENT PREVIEW */}
+            {/* ───────────────────────────────────────────────────────────── */}
+            <div
+              className={`flex-1 min-h-0 h-full flex flex-col overflow-hidden bg-slate-200/60 ${
+                mobileTab === "fields" ? "hidden lg:flex" : "flex"
+              }`}
+            >
+              {/* Preview Toolbar */}
+              <div className="px-4 py-2 bg-white border-b border-slate-200 flex items-center justify-between text-xs text-slate-600 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="font-semibold text-slate-800">
+                    Live Report Preview (A4 Canvas)
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-[11px] text-slate-500">
+                    Reflects selected sections &amp; fields in real-time
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-mono font-normal bg-slate-50">
+                    A4 Portrait • {activeSectionCount} Section(s) Active
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Scrollable Preview Canvas with thin scrollbar */}
+              <div
+                className="report-scroll-container flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 flex justify-center items-start"
+                tabIndex={0}
+              >
+                <div
+                  className="student-profile-preview shadow-xl border border-slate-300 w-full bg-white select-text mb-8 shrink-0"
+                  style={{ maxWidth: "820px" }}
+                  dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

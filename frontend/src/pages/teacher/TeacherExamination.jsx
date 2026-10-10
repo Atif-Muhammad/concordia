@@ -760,7 +760,7 @@ export default function TeacherExamination() {
             </div>
 
             {/* Student Marks Entry Table */}
-            <div className="flex-1 overflow-y-auto min-h-[260px] border rounded-lg">
+            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-[260px] border rounded-lg">
               {isClassStudentsLoading || isExistingMarksLoading ? (
                 <div className="flex h-48 items-center justify-center">
                   <Loader2 className="h-7 w-7 animate-spin text-primary" />
@@ -771,7 +771,7 @@ export default function TeacherExamination() {
                   <p className="text-sm font-medium">No active students enrolled in this class/section.</p>
                 </div>
               ) : (
-                <Table>
+                <Table className="min-w-[560px]">
                   <TableHeader className="sticky top-0 bg-muted/90 backdrop-blur-xs z-10">
                     <TableRow>
                       <TableHead className="w-[50px] text-xs font-semibold">#</TableHead>
@@ -869,11 +869,11 @@ export default function TeacherExamination() {
               )}
             </div>
 
-            <DialogFooter className="pt-3 border-t flex flex-row items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                Total Students: <span className="font-semibold text-foreground">{studentsList.length}</span>
+            <DialogFooter className="px-3 py-2.5 sm:px-6 sm:py-3 border-t border-border bg-background/95 backdrop-blur-xs sticky bottom-0 z-30 flex flex-row items-center justify-between gap-2 shrink-0">
+              <p className="text-xs text-muted-foreground truncate mr-1">
+                Total: <span className="font-semibold text-foreground">{studentsList.length}</span>
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <Button
                   variant="outline"
                   size="sm"

@@ -297,7 +297,7 @@ DialogHeader.displayName = "DialogHeader";
 const DialogFooter = ({ className, ...props }) => (
   <div
     className={cn(
-      "px-6 py-4 border-t border-border flex items-center justify-end gap-2 shrink-0 mt-auto",
+      "px-6 py-4 border-t border-border flex items-center justify-end gap-2 shrink-0 mt-auto sticky bottom-0 bg-background/95 backdrop-blur-xs z-20",
       className
     )}
     {...props}

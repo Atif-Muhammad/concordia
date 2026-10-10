@@ -16,9 +16,16 @@ export {
   resolveStudentProfileData,
 } from "./StudentProfilePrintTemplate";
 export {
+  REPORT_SECTIONS,
+  getDefaultReportFieldSelection,
+  exportStudentReportToExcel,
+} from "./studentReportFieldsConfig";
+export {
   StudentDocumentReportDialog,
   generateStudentDocumentReportPrintHtml,
   resolveStudentDocumentData,
 } from "./StudentDocumentReportTemplate";
 export { StudentDataExportDialog } from "./StudentDataExportDialog";
+export { StudentReportsTab } from "./StudentReportsTab";
 export * from "./studentFinancialUtils";
+

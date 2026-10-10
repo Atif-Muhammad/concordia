@@ -212,7 +212,7 @@ describe('Challan Print & Preview: Arrears, Head Names, Month/Installment', () =
     expect(html).toContain('>-10,000<');
     expect(html).toContain('Total Amount');
     expect(html).toContain('>0<');
-    expect(html).toContain('10,000 (Advance)');
+    expect(html).not.toContain('<td>Paid Amount</td>');
   });
 
   it('resolves Paid By to staff/admin name instead of payment mode "Cash"', () => {
@@ -300,8 +300,8 @@ describe('Challan Print & Preview: Arrears, Head Names, Month/Installment', () =
     expect(html).not.toMatch(/Paid By<\/td>\s*<td[^>]*>Cash<\/td>/);
   });
 
-  it('renders Total Amount row before Paid Amount row for all challan statuses and reflects partial advance', () => {
-    // 1. Partial advance challan (like 34 PKR advance on 8,166 PKR tuition)
+  it('renders Total Amount row and handles advance-only and unpaid challans according to print treatment', () => {
+    // 1. Partial advance challan (like 34 PKR advance on 8,166 PKR tuition, advance-only transaction)
     const partialChallan = {
       challanNumber: '62902251',
       month: 'October',
@@ -319,18 +319,12 @@ describe('Challan Print & Preview: Arrears, Head Names, Month/Installment', () =
 
     const partialHtml = generateChallanHtml(partialChallan, sampleTemplate);
 
-    // Must have Total Amount row (8,132) before Paid Amount row (34 (Advance))
+    // Must have Total Amount row (8,132), but Paid Amount is hidden for advance-only transaction
     expect(partialHtml).toContain('<td>Total Amount</td>');
     expect(partialHtml).toContain('<td>8,132</td>');
-    expect(partialHtml).toContain('<td>Paid Amount</td>');
-    expect(partialHtml).toContain('<td>34 (Advance)</td>');
+    expect(partialHtml).not.toContain('<td>Paid Amount</td>');
 
-    const totalIdx = partialHtml.indexOf('<td>Total Amount</td>');
-    const paidIdx = partialHtml.indexOf('<td>Paid Amount</td>');
-    expect(totalIdx).toBeGreaterThan(-1);
-    expect(paidIdx).toBeGreaterThan(totalIdx);
-
-    // 2. Unpaid PENDING challan without advance
+    // 2. Unpaid PENDING challan without advance (completely unpaid)
     const pendingChallan = {
       challanNumber: '12345678',
       month: 'November',
@@ -346,13 +340,24 @@ describe('Challan Print & Preview: Arrears, Head Names, Month/Installment', () =
     const pendingHtml = generateChallanHtml(pendingChallan, sampleTemplate);
     expect(pendingHtml).toContain('<td>Total Amount</td>');
     expect(pendingHtml).toContain('<td>10,000</td>');
-    expect(pendingHtml).toContain('<td>Paid Amount</td>');
-    expect(pendingHtml).toContain('<td>0</td>');
+    expect(pendingHtml).not.toContain('<td>Paid Amount</td>');
 
-    const pTotalIdx = pendingHtml.indexOf('<td>Total Amount</td>');
-    const pPaidIdx = pendingHtml.indexOf('<td>Paid Amount</td>');
-    expect(pTotalIdx).toBeGreaterThan(-1);
-    expect(pPaidIdx).toBeGreaterThan(pTotalIdx);
+    // 3. Paid Challan with cash/direct payment -> Paid Amount row is rendered
+    const paidChallan = {
+      challanNumber: '99887766',
+      month: 'December',
+      session: '2026-2027',
+      installmentNumber: 4,
+      basePayable: 10000,
+      amount: 10000,
+      status: 'PAID',
+      paidAmount: 10000,
+      student: { fName: 'Jane', lName: 'Doe' },
+    };
+    const paidHtml = generateChallanHtml(paidChallan, sampleTemplate);
+    expect(paidHtml).toContain('<td>Total Amount</td>');
+    expect(paidHtml).toContain('<td>Paid Amount</td>');
+    expect(paidHtml).toContain('<td>10,000</td>');
   });
 });
 

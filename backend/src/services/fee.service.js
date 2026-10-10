@@ -283,10 +283,17 @@ class FeeService {
     }).populate('recordedBy', 'name role email').sort({ createdAt: -1 }).lean();
 
     const receiptMap = {};
+    const receiptsByChallan = {};
     for (const r of paymentReceipts) {
       const cId = r.challanId ? r.challanId.toString() : null;
-      if (cId && !receiptMap[cId]) {
-        receiptMap[cId] = r;
+      if (cId) {
+        if (!receiptMap[cId]) {
+          receiptMap[cId] = r;
+        }
+        if (!receiptsByChallan[cId]) {
+          receiptsByChallan[cId] = [];
+        }
+        receiptsByChallan[cId].push(r);
       }
     }
 
@@ -443,7 +450,10 @@ class FeeService {
       }
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
+      const hasDirectPayment = Number(c.paidAmount || 0) > 0;
+      const isSettledOrSuperseded = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status) || Boolean(c.supersededBy) || Boolean(c.settledByChallanId);
+      const isFullyPaidByAdvance = Number(c.advanceApplied || 0) >= (Number(c.grossAmount || c.totalAmount || 0)) && (Number(c.grossAmount || c.totalAmount || 0) > 0);
+      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status) && !isSettledOrSuperseded && !hasDirectPayment && !isFullyPaidByAdvance;
       let fineUpdated = false;
       const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
 
@@ -603,6 +613,8 @@ class FeeService {
 
       return {
         ...c,
+        receipts: sId ? (receiptsByChallan[sId] || []) : [],
+        studentAdvanceBalance: Number(student?.advanceBalance || 0),
         receivedByName: resolvedReceivedByName,
         paidBy: resolvedPaidBy,
         paymentMode: resolvedPaymentMode,
@@ -710,7 +722,10 @@ class FeeService {
     const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
     const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
     const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
-    const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
+    const hasDirectPayment = Number(c.paidAmount || 0) > 0;
+    const isSettledOrSuperseded = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status) || Boolean(c.supersededBy) || Boolean(c.settledByChallanId);
+    const isFullyPaidByAdvance = Number(c.advanceApplied || 0) >= (Number(c.grossAmount || c.totalAmount || 0)) && (Number(c.grossAmount || c.totalAmount || 0) > 0);
+    const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status) && !isSettledOrSuperseded && !hasDirectPayment && !isFullyPaidByAdvance;
     let fineUpdated = false;
 
     if (isEligibleForAutoFine && c.dueDate && effectiveRate > 0) {
@@ -960,18 +975,139 @@ class FeeService {
             appliedAt: new Date()
           });
           data.headsAmount = (Number(data.headsAmount) || 0) + fine;
-          const basePay = Number(data.basePayable ?? data.amount ?? 0);
-          const arrears = Number(data.arrearsAmount || 0);
-          const heads = Number(data.headsAmount || 0);
-          data.grossAmount = basePay + arrears + heads;
-          data.netPayable = Math.max(0, data.grossAmount - (Number(data.advanceApplied) || 0) - (Number(data.discountAmount) || 0));
-          data.totalAmount = data.netPayable;
         }
       } catch (err) {
         console.error('Error auto-calculating absentee fine in createChallan:', err);
       }
     }
-    return FeeChallan.create(data);
+
+    // Ensure grossAmount and netPayable are properly computed
+    const basePay = Number(data.basePayable ?? data.amount ?? 0);
+    data.amount = data.amount ?? basePay;
+    data.basePayable = data.basePayable ?? basePay;
+    const arrears = Number(data.arrearsAmount || 0);
+    const heads = Number(data.headsAmount || 0);
+    data.grossAmount = basePay + arrears + heads;
+
+    let appliedAdvanceInfo = null;
+    if ((!data.advanceApplied || Number(data.advanceApplied) === 0) && data.studentId) {
+      try {
+        const rawCredits = await StudentCreditLedger.find({
+          studentId: data.studentId,
+          status: 'AVAILABLE',
+          remainingAmount: { $gt: 0 }
+        }).sort({ createdAt: 1 });
+
+        const availableCredits = [];
+        for (const cr of rawCredits) {
+          if (cr.sourceChallanId) {
+            const srcExists = await FeeChallan.exists({ _id: cr.sourceChallanId });
+            if (!srcExists) {
+              await StudentCreditLedger.findByIdAndDelete(cr._id);
+              continue;
+            }
+          }
+          availableCredits.push(cr);
+        }
+
+        const totalAvailableCredit = availableCredits.reduce((sum, r) => sum + (Number(r.remainingAmount) || 0), 0);
+        if (totalAvailableCredit > 0) {
+          const discountAmount = Number(data.discountAmount || data.discount || 0);
+          const netBeforeAdvance = Math.max(0, data.grossAmount - discountAmount);
+          const advanceToApply = Math.min(netBeforeAdvance, totalAvailableCredit);
+          if (advanceToApply > 0) {
+            data.advanceApplied = advanceToApply;
+            appliedAdvanceInfo = { availableCredits, advanceToApply };
+          }
+        }
+      } catch (crErr) {
+        console.error('Error auto-applying advance credit in createChallan:', crErr);
+      }
+    }
+
+    const advanceApplied = Number(data.advanceApplied || 0);
+    const discountAmount = Number(data.discountAmount || data.discount || 0);
+    data.netPayable = Math.max(0, data.grossAmount - advanceApplied - discountAmount);
+    data.totalAmount = data.netPayable;
+
+    if (data.netPayable === 0 && advanceApplied > 0) {
+      data.status = 'PAID';
+      data.paidDate = new Date();
+      data.paidBy = 'Advance Credit';
+      data.paymentMode = 'Advance Credit';
+    } else if (advanceApplied > 0) {
+      data.status = 'PARTIAL';
+      data.paidDate = new Date();
+      data.paidBy = 'Advance Credit';
+      data.paymentMode = 'Advance Credit';
+    }
+
+    const createdChallan = await FeeChallan.create(data);
+
+    // If advance credit was applied, deduct from StudentCreditLedger and issue ADVANCE_SETTLEMENT receipt
+    if (appliedAdvanceInfo && appliedAdvanceInfo.advanceToApply > 0) {
+      try {
+        let remToDeduct = appliedAdvanceInfo.advanceToApply;
+        const advanceAllocations = [];
+        for (const record of appliedAdvanceInfo.availableCredits) {
+          if (remToDeduct <= 0) break;
+          const take = Math.min(remToDeduct, record.remainingAmount);
+          record.remainingAmount -= take;
+          record.allocations.push({
+            targetChallanId: createdChallan._id,
+            targetChallanNo: createdChallan.challanNo,
+            amountApplied: take,
+            appliedAt: new Date()
+          });
+          if (record.remainingAmount === 0) record.status = 'EXHAUSTED';
+          await record.save();
+
+          let sourceMonth = '';
+          if (record.sourceChallanId) {
+            const srcCh = await FeeChallan.findById(record.sourceChallanId).select('month installmentNumber').lean();
+            sourceMonth = srcCh?.month || (srcCh?.installmentNumber ? `Inst #${srcCh.installmentNumber}` : '');
+          }
+
+          advanceAllocations.push({
+            sourceChallanId: record.sourceChallanId,
+            sourceChallanNo: record.sourceChallanNo,
+            sourceMonth,
+            amountApplied: take,
+            appliedAt: new Date()
+          });
+          remToDeduct -= take;
+        }
+
+        createdChallan.advanceAllocations = advanceAllocations;
+        if (advanceAllocations.length > 0) {
+          createdChallan.advanceFromChallanNo = advanceAllocations.map(a => a.sourceChallanNo).filter(Boolean).join(', ');
+          createdChallan.advanceFromMonth = advanceAllocations[0].sourceMonth || '';
+          createdChallan.advanceFromChallanId = advanceAllocations[0].sourceChallanId || null;
+        }
+        await createdChallan.save();
+
+        const advRecNo = `REC-ADV-${createdChallan.challanNo || createdChallan._id.toString().slice(-4)}`;
+        await FeePaymentReceipt.create({
+          receiptNo: advRecNo,
+          challanId: createdChallan._id,
+          studentId: createdChallan.studentId,
+          receiptType: 'ADVANCE_SETTLEMENT',
+          amountPaid: 0,
+          advanceCreditUsed: appliedAdvanceInfo.advanceToApply,
+          paymentMode: 'Advance Credit',
+          paidDate: createdChallan.paidDate || new Date(),
+          remarks: 'Settled via advance credit from student credit ledger',
+        }).catch(() => null);
+
+        if (createdChallan.studentId) {
+          await this.syncStudentAdvanceBalance(createdChallan.studentId);
+        }
+      } catch (advErr) {
+        console.error('Error finalizing advance deduction in createChallan:', advErr);
+      }
+    }
+
+    return createdChallan;
   }
 
   async updateChallan(id, data) {
@@ -1008,8 +1144,14 @@ class FeeService {
       challan.amount = amt;
     }
 
+    const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
+
     if (data.discount !== undefined || data.discountAmount !== undefined) {
       const disc = Math.max(0, Math.round(Number(data.discount !== undefined ? data.discount : data.discountAmount) || 0));
+      const currentDisc = Math.round(Number(challan.discountAmount ?? challan.discount ?? 0));
+      if (hasDirectPayment && disc !== currentDisc) {
+        throw new Error('Cannot add or modify discount on a challan that has already received direct payment');
+      }
       challan.discount = disc;
       challan.discountAmount = disc;
     }
@@ -1024,7 +1166,7 @@ class FeeService {
       const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
       const effectiveRate = Number(challan.lateFeeRatePerDay || defaultLateFeeRate || 0);
 
-      if (effectiveRate > 0) {
+      if (!hasDirectPayment && effectiveRate > 0) {
         const pktFormatter = new Intl.DateTimeFormat('en-CA', {
           timeZone: 'Asia/Karachi',
           year: 'numeric',
@@ -1244,6 +1386,8 @@ class FeeService {
 
       const eligibleChallans = await FeeChallan.find({
         status: { $nin: ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'] },
+        supersededBy: { $in: [null, undefined] },
+        settledByChallanId: { $in: [null, undefined] },
         paidDate: { $in: [null, undefined] },
         dueDate: { $exists: true, $ne: null }
       });
@@ -1252,9 +1396,12 @@ class FeeService {
       for (const c of eligibleChallans) {
         const statusUpper = (c.status || '').toUpperCase();
         if (['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes(statusUpper)) continue;
+        if (c.supersededBy || c.settledByChallanId) continue;
         if (c.paidDate) continue;
-        const paidSoFar = Number(c.paidAmount || 0) + Number(c.advanceApplied || 0);
+        if (Number(c.paidAmount || 0) > 0) continue;
         const targetDue = Number(c.netPayable ?? c.totalAmount ?? 0);
+        if (targetDue <= 0) continue;
+        const paidSoFar = Number(c.paidAmount || 0) + Number(c.advanceApplied || 0);
         if (paidSoFar >= targetDue && targetDue > 0) continue;
 
         const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
@@ -1627,6 +1774,8 @@ class FeeService {
           }
         }
       }
+
+      await this.syncStudentAdvanceBalance(challan.studentId);
     }
 
     // 3. Reset challanGenerated, paidAmount, pendingAmount, and status on Student installment for this deleted challan
@@ -1923,24 +2072,41 @@ class FeeService {
           }
         }
       }
-      if (lateDue > 0 && remPay > 0) {
-        const lateChunk = Math.min(lateDue, remPay);
+
+      // Check what prior DIRECT receipts on this challan already allocated to components
+      const priorReceipts = await FeePaymentReceipt.find({
+        challanId: challan._id,
+        receiptType: { $ne: 'ARREARS_SETTLEMENT' }
+      }).select('allocatedToLateFee allocatedToHeads allocatedToTuition').lean();
+
+      const alreadyAllocatedLate = priorReceipts.reduce((sum, r) => sum + (Number(r.allocatedToLateFee) || 0), 0);
+      const alreadyAllocatedHeads = priorReceipts.reduce((sum, r) => sum + (Number(r.allocatedToHeads) || 0), 0);
+      const alreadyAllocatedTuition = priorReceipts.reduce((sum, r) => sum + (Number(r.allocatedToTuition) || 0), 0);
+
+      const remainingLateDue = Math.max(0, lateDue - alreadyAllocatedLate);
+      if (remainingLateDue > 0 && remPay > 0) {
+        const lateChunk = Math.min(remainingLateDue, remPay);
         allocatedToLateFee += lateChunk;
         remPay -= lateChunk;
       }
 
-      // 3. Current Fee Heads
-      const headsDue = Math.max(0, Number(challan.headsAmount || 0));
-      if (headsDue > 0 && remPay > 0) {
-        const headsChunk = Math.min(headsDue, remPay);
+      // 3. Current Fee Heads (subtracting what was already paid in earlier receipts)
+      const totalHeads = Math.max(0, Number(challan.headsAmount || 0));
+      const remainingHeadsDue = Math.max(0, totalHeads - alreadyAllocatedHeads);
+      if (remainingHeadsDue > 0 && remPay > 0) {
+        const headsChunk = Math.min(remainingHeadsDue, remPay);
         allocatedToHeads += headsChunk;
         remPay -= headsChunk;
       }
 
-      // 4. Current Base Tuition
-      const tuitionDue = Math.max(0, Number(challan.basePayable ?? challan.amount ?? 0));
-      if (tuitionDue > 0 && remPay > 0) {
-        const tuitionChunk = Math.min(tuitionDue, remPay);
+      // 4. Current Base Tuition (net of advanceApplied, discount, and earlier receipts)
+      const basePay = Number(challan.basePayable ?? challan.amount ?? 0);
+      const advApplied = Number(challan.advanceApplied || 0);
+      const disc = Number(challan.discountAmount || challan.discount || 0);
+      const netTuitionDue = Math.max(0, basePay - advApplied - disc);
+      const remainingTuitionDue = Math.max(0, netTuitionDue - alreadyAllocatedTuition);
+      if (remainingTuitionDue > 0 && remPay > 0) {
+        const tuitionChunk = Math.min(remainingTuitionDue, remPay);
         allocatedToTuition += tuitionChunk;
         remPay -= tuitionChunk;
       }
@@ -1958,6 +2124,7 @@ class FeeService {
         });
         excessCredited = remPay;
         challan.excessCreditGenerated = (challan.excessCreditGenerated || 0) + remPay;
+        await this.syncStudentAdvanceBalance(challan.studentId);
       }
     }
 
@@ -1980,14 +2147,13 @@ class FeeService {
 
     // Update paid amount and status
     challan.paidAmount = (challan.paidAmount || 0) + payAmount;
-    const targetTotal = (challan.netPayable != null && !isNaN(Number(challan.netPayable)) && Number(challan.netPayable) > 0)
+    const targetNet = (challan.netPayable != null && !isNaN(Number(challan.netPayable)) && Number(challan.netPayable) > 0)
       ? Number(challan.netPayable)
       : (Number(challan.totalAmount) || Number(challan.amount) || Number(challan.basePayable) || 0);
-    const effectiveTotalPaid = (challan.paidAmount || 0) + (challan.advanceApplied || 0);
 
-    if (effectiveTotalPaid >= targetTotal && targetTotal > 0) {
+    if ((challan.paidAmount || 0) >= targetNet && targetNet > 0) {
       challan.status = 'PAID';
-    } else if (effectiveTotalPaid > 0) {
+    } else if ((challan.paidAmount || 0) > 0 || (challan.advanceApplied || 0) > 0) {
       challan.status = 'PARTIAL';
     }
 
@@ -2790,21 +2956,51 @@ class FeeService {
 
   // Installment Plans & Bulk Challans
   async getInstallmentPlans(filters = {}) {
-    const query = { status: { $regex: /^active$/i } };
+    const query = {};
+    if (filters.status && filters.status !== 'all') {
+      const s = String(filters.status).trim();
+      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
+    } else if (filters.status !== 'all') {
+      query.status = { $regex: /^active$/i };
+    }
+
     if (filters.studentId) {
       query._id = filters.studentId;
     }
     if (filters.programId && filters.programId !== 'all') {
-      query.programId = filters.programId;
+      const pIds = Array.isArray(filters.programId)
+        ? filters.programId
+        : String(filters.programId).split(',').map(s => s.trim()).filter(Boolean);
+      if (pIds.length === 1) query.programId = pIds[0];
+      else if (pIds.length > 1) query.programId = { $in: pIds };
     }
     if (filters.classId && filters.classId !== 'all') {
-      query.classId = filters.classId;
+      const cIds = Array.isArray(filters.classId)
+        ? filters.classId
+        : String(filters.classId).split(',').map(s => s.trim()).filter(Boolean);
+      if (cIds.length === 1) query.classId = cIds[0];
+      else if (cIds.length > 1) query.classId = { $in: cIds };
     }
     if (filters.sectionId && filters.sectionId !== 'all') {
-      query.sectionId = filters.sectionId;
+      const sIds = Array.isArray(filters.sectionId)
+        ? filters.sectionId
+        : String(filters.sectionId).split(',').map(s => s.trim()).filter(Boolean);
+      if (sIds.length === 1) query.sectionId = sIds[0];
+      else if (sIds.length > 1) query.sectionId = { $in: sIds };
     }
     if (filters.sessionId && filters.sessionId !== 'all') {
       query.sessionId = filters.sessionId;
+    }
+
+    const search = (filters.search || filters.searchQuery || '').trim();
+    if (search) {
+      const re = new RegExp(search, 'i');
+      query.$or = [
+        { fName: re },
+        { lName: re },
+        { rollNumber: re },
+        { fatherOrguardian: re }
+      ];
     }
 
     const students = await Student.find(query)
@@ -2966,6 +3162,7 @@ class FeeService {
         feeInstallments: installments,
         challans: studentChallans,
         availableAdvanceCredit,
+        advanceBalance: availableAdvanceCredit,
         creditDetails: studentCredits,
         absenteeCount: count,
         absenteeFineAmount,
@@ -3282,9 +3479,11 @@ class FeeService {
           headsAmount += absenteeFineAmount;
         }
 
+        const discountAmount = Number(matchingInst.discountAmount || matchingInst.discount || 0);
         const grossAmount = basePayable + totalArrears + headsAmount;
-        const advanceToApply = Math.min(grossAmount, totalAvailableCredit);
-        const netPayable = Math.max(0, grossAmount - advanceToApply);
+        const netBeforeAdvance = Math.max(0, grossAmount - discountAmount);
+        const advanceToApply = Math.min(netBeforeAdvance, totalAvailableCredit);
+        const netPayable = Math.max(0, netBeforeAdvance - advanceToApply);
         const isFullyPaidByAdvance = (netPayable === 0 && advanceToApply > 0);
         const isPartiallyPaidByAdvance = (advanceToApply > 0 && !isFullyPaidByAdvance);
 
@@ -3300,6 +3499,8 @@ class FeeService {
           headsAmount,
           arrearsAmount: totalArrears,
           grossAmount,
+          discount: discountAmount,
+          discountAmount,
           advanceApplied: advanceToApply,
           netPayable,
           totalAmount: netPayable,
@@ -3402,6 +3603,10 @@ class FeeService {
             paidDate: createdChallan.paidDate || new Date(),
             remarks: 'Settled via advance credit from student credit ledger',
           }).catch(() => null);
+
+          if (student._id) {
+            await this.syncStudentAdvanceBalance(student._id);
+          }
         }
 
         // 5. Update matching installment on Student
@@ -3462,16 +3667,45 @@ class FeeService {
     return { results };
   }
 
-  // Student Advance Credit Ledger
+  async syncStudentAdvanceBalance(studentId) {
+    if (!studentId) return 0;
+    try {
+      const ledgers = await StudentCreditLedger.find({
+        studentId,
+        status: 'AVAILABLE',
+        remainingAmount: { $gt: 0 }
+      }).sort({ createdAt: 1 });
+
+      const validCredits = [];
+      for (const cl of ledgers) {
+        if (cl.sourceChallanId) {
+          const srcExists = await FeeChallan.exists({ _id: cl.sourceChallanId });
+          if (!srcExists) {
+            await StudentCreditLedger.findByIdAndDelete(cl._id);
+            continue;
+          }
+        }
+        validCredits.push(cl);
+      }
+
+      const totalAvailableCredit = validCredits.reduce((sum, item) => sum + (Number(item.remainingAmount) || 0), 0);
+      await Student.findByIdAndUpdate(studentId, { advanceBalance: Math.max(0, totalAvailableCredit) });
+      return totalAvailableCredit;
+    } catch (err) {
+      console.error('Error in syncStudentAdvanceBalance:', err);
+      return 0;
+    }
+  }
+
   async getStudentCreditBalance(studentId) {
     if (!studentId) return { availableCredit: 0, records: [] };
+    const totalAvailableCredit = await this.syncStudentAdvanceBalance(studentId);
     const ledgers = await StudentCreditLedger.find({
       studentId,
       status: 'AVAILABLE',
       remainingAmount: { $gt: 0 }
     }).sort({ createdAt: 1 });
 
-    const totalAvailableCredit = ledgers.reduce((sum, item) => sum + (Number(item.remainingAmount) || 0), 0);
     return {
       studentId,
       availableCredit: totalAvailableCredit,
@@ -3637,7 +3871,10 @@ class FeeService {
       const arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
       let lateFeeAmount = Number(c.lateFeeAmount ?? c.fineAmount ?? 0);
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
-      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE', 'SUPERSEDED'].includes(c.status);
+      const hasDirectPayment = Number(c.paidAmount || 0) > 0;
+      const isSettledOrSuperseded = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status) || Boolean(c.supersededBy) || Boolean(c.settledByChallanId);
+      const isFullyPaidByAdvance = Number(c.advanceApplied || 0) >= (Number(c.grossAmount || c.totalAmount || 0)) && (Number(c.grossAmount || c.totalAmount || 0) > 0);
+      const isEligibleForAutoFine = ['PENDING', 'PARTIAL', 'OVERDUE'].includes(c.status) && !isSettledOrSuperseded && !hasDirectPayment && !isFullyPaidByAdvance;
       let fineUpdated = false;
       const effectiveRate = Number(c.lateFeeRatePerDay || defaultLateFeeRate || 0);
 

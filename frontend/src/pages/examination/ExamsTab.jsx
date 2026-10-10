@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -586,7 +587,7 @@ export function ExamsTab() {
                 {editingExam ? "Edit Exam" : "Create New Exam"}
               </DialogTitle>
             </DialogHeader>
-            <div className="grid grid-cols-4 gap-4 p-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-1 sm:p-2">
               <div className="space-y-2">
                 <Label>Exam Name</Label>
                 <Input
@@ -708,7 +709,7 @@ export function ExamsTab() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 col-span-4">
+              <div className="space-y-2 col-span-1 sm:col-span-2 md:col-span-4">
                 <Label>Description</Label>
                 <Input
                   value={examForm.description}
@@ -719,7 +720,7 @@ export function ExamsTab() {
               </div>
 
               {/* Schedule Section */}
-              <div className="col-span-4 border-t pt-4">
+              <div className="col-span-1 sm:col-span-2 md:col-span-4 border-t pt-4">
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <h4 className="font-semibold">Exam Schedule</h4>
@@ -755,8 +756,8 @@ export function ExamsTab() {
                     No subjects found for this class. You can switch to show all institute subjects using the toggle above.
                   </div>
                 ) : (
-                  <div className="border rounded-md max-h-[350px] overflow-y-auto">
-                    <Table>
+                  <div className="border rounded-md max-h-[350px] overflow-y-auto overflow-x-auto">
+                    <Table className="min-w-[620px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-12">Include</TableHead>
@@ -963,23 +964,32 @@ export function ExamsTab() {
                 )}
               </div>
 
-              <div className="col-span-4">
-                <Button
-                  onClick={handleExamSubmit}
-                  disabled={isSubmitting}
-                  className="w-full font-semibold"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {editingExam ? "Updating Exam..." : "Creating Exam..."}
-                    </>
-                  ) : (
-                    editingExam ? "Update Exam" : "Create Exam"
-                  )}
-                </Button>
-              </div>
             </div>
+            <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t border-border bg-background/95 backdrop-blur-xs sticky bottom-0 z-20 flex flex-row items-center justify-end gap-2 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmitting}
+                onClick={() => setExamDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleExamSubmit}
+                disabled={isSubmitting}
+                className="font-semibold"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {editingExam ? "Updating Exam..." : "Creating Exam..."}
+                  </>
+                ) : (
+                  editingExam ? "Update Exam" : "Create Exam"
+                )}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -1112,6 +1122,16 @@ export function ExamsTab() {
                 </div>
               </div>
             )}
+            <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t border-border bg-background/95 backdrop-blur-xs sticky bottom-0 z-20 flex flex-row items-center justify-end gap-2 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setViewExamDialog(false)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardHeader>

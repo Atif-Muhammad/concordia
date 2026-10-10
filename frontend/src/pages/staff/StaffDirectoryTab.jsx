@@ -232,7 +232,11 @@ const initialFormData = {
 };
 
 const STAFF_PERMISSION_MODULES = NAV_MODULES;
+
 const isReadOnlySubmodule = (moduleLabel, subKey) => {
+    if (moduleLabel === "Students" && subKey === "reports") {
+        return true;
+    }
     if (moduleLabel === "Attendance" && (subKey === "reports" || subKey === "individual-reports")) {
         return true;
     }

@@ -44,6 +44,22 @@ export const NAV_MODULES = [
     path: "/students",
     componentKey: "Students",
     description: "Manage student admissions, profiles, statuses, and academic records",
+    subModules: [
+      {
+        id: "records",
+        label: "Student Records",
+        path: "/students/records",
+        icon: Users,
+        description: "View and manage active, graduated, expelled, and struck-off student records",
+      },
+      {
+        id: "reports",
+        label: "Reports",
+        path: "/students/reports",
+        icon: FileSpreadsheet,
+        description: "Document submission reports, student data exports, and individual student profiles",
+      },
+    ],
   },
   {
     icon: UsersRound,
@@ -65,8 +81,7 @@ export const NAV_MODULES = [
     subModules: [
       { id: "mark", label: "Record Attendance", path: "/attendance/mark", icon: CalendarCheck, description: "Mark and update daily student and section attendance" },
       { id: "leave", label: "Leave", path: "/attendance/leave", icon: CalendarOff, description: "Review and approve student leave requests" },
-      { id: "reports", label: "Reports", path: "/attendance/reports", icon: BarChart3, description: "Class-level attendance summaries and monthly analytics" },
-      { id: "individual-reports", label: "Individual Reports", path: "/attendance/individual-reports", icon: FileText, description: "Detailed single-student attendance history" },
+      { id: "reports", label: "Reports", path: "/attendance/reports", icon: BarChart3, description: "Class registers, individual student logs, and missing attendance audits" },
     ],
   },
   {
@@ -325,6 +340,16 @@ export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
         }
         return Object.values(subActions).some(Boolean);
       }
+      if (key === "reports") {
+        const hasAnyReportAction = Object.keys(moduleActions).some((k) => {
+          const act = moduleActions[k];
+          return (
+            k.toLowerCase().includes("report") ||
+            ["missing-attendance", "export-students", "installments", "analytics"].includes(k.toLowerCase())
+          ) && Boolean(act?.read || Object.values(act || {}).some(Boolean));
+        });
+        if (hasAnyReportAction) return true;
+      }
       // Module has granular permissions defined, but this submodule is not granted
       return false;
     }
@@ -401,7 +426,12 @@ export const hasPermission = (user, moduleLabel, subModuleId, action = "read") =
       );
       const subActions = matchedSubKey
         ? moduleActions[matchedSubKey]
-        : (moduleActions[key] || moduleActions["_root"] || moduleActions[moduleLabel]);
+        : (
+            moduleActions[key] ||
+            ((key.toLowerCase().includes("report") || ["missing-attendance", "export-students", "installments", "analytics"].includes(key.toLowerCase())) ? moduleActions["reports"] : undefined) ||
+            moduleActions["_root"] ||
+            moduleActions[moduleLabel]
+          );
 
       if (subActions && typeof subActions === "object") {
         const act = action.toLowerCase();

@@ -287,7 +287,7 @@ class AcademicsService {
     const teacherMappings = await TeacherMapping.find({ $and: conditions }).populate('teacherId');
 
     return subjectsList.map((item) => {
-      const matchingTeachers = teacherMappings
+      const subjectSpecificTeachers = teacherMappings
         .filter((tm) => {
           const tmSubId = (tm.subjectId?._id || tm.subjectId?.id || tm.subjectId)?.toString();
           return tmSubId === item.id;
@@ -304,17 +304,22 @@ class AcademicsService {
                 }
               : null,
           };
-        });
+        })
+        .filter(t => t.teacher && t.teacher.name);
 
       return {
         id: item.id,
+        name: item.name,
         code: item.code,
         creditHours: item.creditHours,
+        matchingTeachers: subjectSpecificTeachers,
+        teachers: subjectSpecificTeachers,
+        isClassTeacherFallback: false,
         subject: {
           id: item.id,
           name: item.name,
           code: item.code,
-          teachers: matchingTeachers,
+          teachers: subjectSpecificTeachers,
         },
       };
     });
@@ -335,12 +340,47 @@ class AcademicsService {
   async getTeacherClassMappings(sessionId) {
     const filter = { mappingType: { $ne: 'SUBJECT' } };
     if (sessionId && sessionId !== 'all') filter.sessionId = sessionId;
-    return TeacherMapping.find(filter)
+    const classMappings = await TeacherMapping.find(filter)
       .populate('teacherId')
       .populate({ path: 'classId', populate: { path: 'programId' } })
       .populate('sectionId')
       .populate('sessionId')
       .sort({ createdAt: -1 });
+
+    const subjectFilter = { mappingType: 'SUBJECT' };
+    if (sessionId && sessionId !== 'all') subjectFilter.sessionId = sessionId;
+    const subjectMappings = await TeacherMapping.find(subjectFilter).populate('subjectId');
+
+    const subjectMap = new Map();
+    for (const sm of subjectMappings) {
+      if (!sm.subjectId) continue;
+      const tId = String(sm.teacherId?._id || sm.teacherId || '');
+      const cId = String(sm.classId?._id || sm.classId || '');
+      const sId = sm.sectionId ? String(sm.sectionId?._id || sm.sectionId) : 'none';
+      const sessId = sm.sessionId ? String(sm.sessionId?._id || sm.sessionId) : 'none';
+      const key = `${tId}_${cId}_${sId}_${sessId}`;
+
+      if (!subjectMap.has(key)) subjectMap.set(key, []);
+      subjectMap.get(key).push({
+        _id: sm.subjectId._id,
+        id: sm.subjectId._id,
+        name: sm.subjectId.name,
+        code: sm.subjectId.code,
+        creditHours: sm.subjectId.creditHours,
+      });
+    }
+
+    return classMappings.map((cm) => {
+      const cmObj = cm.toObject ? cm.toObject() : { ...cm };
+      const tId = String(cm.teacherId?._id || cm.teacherId || '');
+      const cId = String(cm.classId?._id || cm.classId || '');
+      const sId = cm.sectionId ? String(cm.sectionId?._id || cm.sectionId) : 'none';
+      const sessId = cm.sessionId ? String(cm.sessionId?._id || cm.sessionId) : 'none';
+      const exactKey = `${tId}_${cId}_${sId}_${sessId}`;
+      const fallbackKey = `${tId}_${cId}_${sId}_none`;
+      cmObj.subjects = subjectMap.get(exactKey) || subjectMap.get(fallbackKey) || [];
+      return cmObj;
+    });
   }
 
   async createTeacherMapping(data) {

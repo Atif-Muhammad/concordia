@@ -664,18 +664,18 @@ export const MarksEntryTab = () => {
                 if (bulkMarksMutation.isPending) e.preventDefault();
               }}
             >
-              <DialogHeader className="p-6 border-bottom">
-                <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-                  <LayoutGrid className="w-6 h-6 text-orange-600" />
+              <DialogHeader className="p-4 sm:p-6 border-b">
+                <DialogTitle className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                  <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
                   Bulk Marks Entry
                 </DialogTitle>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   Select exam and class/section to enter marks for all students at once.
                 </p>
               </DialogHeader>
               <div className="flex-1 overflow-hidden flex flex-col">
                 {!bulkMarksEditMode && (
-                  <div className="p-6 bg-muted/30 border-y grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 sm:p-6 bg-muted/30 border-y grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                     <div className="space-y-2">
                       <Label>Select Exam</Label>
                       <Select
@@ -992,9 +992,9 @@ export const MarksEntryTab = () => {
                   )}
                 </div>
               </div>
-              <DialogFooter className="p-6 border-t bg-muted/20">
+              <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t border-border bg-background/95 backdrop-blur-xs sticky bottom-0 z-30 flex flex-row items-center justify-end gap-2 shrink-0">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   disabled={bulkMarksMutation.isPending}
                   onClick={() => setBulkMarksDialog(false)}
                 >

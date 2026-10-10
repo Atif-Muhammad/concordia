@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import { StudentAttendanceTab } from "../StudentAttendanceTab";
 import {
   getAcademicSessions,
@@ -8,7 +10,7 @@ import {
   searchStudents,
 } from "../../../config/apis";
 
-export default function IndividualReportsTab() {
+export default function IndividualReportsTab({ onBack }) {
   const { toast } = useToast();
 
   const [individualReportSessionId, setIndividualReportSessionId] = useState("all");
@@ -27,6 +29,15 @@ export default function IndividualReportsTab() {
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
   });
+
+  useEffect(() => {
+    if (academicSessions?.length > 0 && (individualReportSessionId === "all" || !individualReportSessionId)) {
+      const active = academicSessions.find((s) => s.isActive || s.status === "ACTIVE");
+      if (active) {
+        setIndividualReportSessionId(String(active.id || active._id));
+      }
+    }
+  }, [academicSessions]);
 
   const {
     data: individualReportData = [],
@@ -119,6 +130,19 @@ export default function IndividualReportsTab() {
 
   return (
     <div className="space-y-4">
+      {onBack && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="gap-1.5 text-xs font-semibold shadow-xs hover:bg-muted"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Reports
+          </Button>
+        </div>
+      )}
       <StudentAttendanceTab
         studentSearchQuery={individualStudentSearchQuery}
         setStudentSearchQuery={setIndividualStudentSearchQuery}

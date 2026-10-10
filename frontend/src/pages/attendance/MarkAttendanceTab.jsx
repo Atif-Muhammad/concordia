@@ -554,6 +554,8 @@ export default function MarkAttendanceTab() {
       sessionId: activeSessionId,
       date: markDate,
       teacherId: isTeacherScoped ? (currentUser?.id || null) : null,
+      userId: currentUser?.id || currentUser?._id || null,
+      staffId: currentUser?.refId || currentUser?.staffDbId || null,
       students: studentsToSave,
     };
 

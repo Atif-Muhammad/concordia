@@ -1172,6 +1172,14 @@ export const ChallansTab = ({
     const discountToStore = Math.round(parseFloat(challanForm.discount) || 0);
     const selectedHeadIds = (challanForm.selectedHeads || []).map(extractId);
 
+    if (editingChallan && Number(editingChallan.paidAmount || 0) > 0) {
+      const currentDisc = Math.round(Number(editingChallan.discountAmount || editingChallan.discount || 0));
+      if (discountToStore !== currentDisc) {
+        toast({ title: "Cannot add or modify discount on a challan that has already received direct payment", variant: "destructive" });
+        return;
+      }
+    }
+
     const allFeeHeadDetails = (feeHeads || [])
       .filter(h => selectedHeadIds.includes(extractId(h.id || h._id)))
       .map(h => ({
@@ -1884,11 +1892,6 @@ export const ChallansTab = ({
                           return (
                             <div className="flex flex-col gap-0.5 whitespace-nowrap">
                               <span className="font-bold text-slate-900">PKR {formatAmount(totalWithFine)}</span>
-                              {advanceApplied > 0 && (
-                                <span className="text-[11px] text-purple-700 font-semibold font-mono whitespace-nowrap" title={`Net after PKR ${formatAmount(advanceApplied)} advance`}>
-                                  Net: PKR {formatAmount(netDue)}
-                                </span>
-                              )}
                               <div className="md:hidden text-[10px] font-normal text-muted-foreground mt-0.5 whitespace-nowrap">
                                 {challan.month || (challan.installmentNumber === 0 ? "Extra" : `Inst #${challan.installmentNumber}`)}
                               </div>
@@ -1924,9 +1927,6 @@ export const ChallansTab = ({
                                   <span className="font-bold text-emerald-700 font-mono text-sm">
                                     PKR {formatAmount(totalEffective)}
                                   </span>
-                                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-300 text-emerald-700 bg-emerald-50">
-                                    Total Settled
-                                  </Badge>
                                 </div>
                                 <div className="flex items-center gap-1 flex-wrap text-[10px] leading-tight mt-0.5">
                                   <span className="text-slate-600 bg-slate-100 px-1 py-0.5 rounded font-medium border border-slate-200">
@@ -1950,12 +1950,48 @@ export const ChallansTab = ({
                           }
 
                           if (advanceApplied > 0 || advanceFromChallanNo) {
-                            const advAmount = advanceApplied || directPaid;
+                            const advAmount = advanceApplied;
+                            const hasDirectAndAdvance = directPaid > 0 && advAmount > 0;
+                            const totalSettledWithAdvance = directPaid + advAmount;
+
+                            if (hasDirectAndAdvance) {
+                              return (
+                                <div className="flex flex-col gap-0.5 min-w-[130px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-emerald-700 font-mono text-sm">
+                                      PKR {formatAmount(totalSettledWithAdvance)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-wrap text-[10px] leading-tight mt-0.5">
+                                    <span className="text-slate-600 bg-slate-100 px-1 py-0.5 rounded font-medium border border-slate-200">
+                                      Direct: PKR {formatAmount(directPaid)}
+                                    </span>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="text-purple-800 bg-purple-50 px-1 py-0.5 rounded font-medium cursor-help inline-flex items-center gap-1 border border-purple-200 max-w-fit">
+                                          <span>Advance: PKR {formatAmount(advAmount)}</span>
+                                          {advanceFromChallanNo && (
+                                            <span className="font-mono font-semibold">
+                                              (#{advanceFromChallanNo})
+                                            </span>
+                                          )}
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs text-xs">
+                                        <p className="font-semibold text-purple-700 mb-0.5">Settled via Advance Credit</p>
+                                        <p>PKR {formatAmount(advAmount)} was settled using advance credit{advanceFromChallanNo ? ` from ${advanceFromMonth ? `${advanceFromMonth} ` : ''}Challan #${advanceFromChallanNo}` : ''}.</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             return (
                               <div className="flex flex-col gap-0.5 min-w-[130px]">
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-bold text-purple-700 font-mono text-sm">
-                                    PKR {formatAmount(directPaid || advAmount)}
+                                    PKR {formatAmount(advAmount)}
                                   </span>
                                   <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-purple-300 text-purple-700 bg-purple-50">
                                     Advance Paid
@@ -2580,7 +2616,7 @@ export const ChallansTab = ({
                         const headsAmount = hasHeads ? totalSelectedHeadsAmount : 0;
 
                         const grossAmount = baseAmount + headsAmount + arrearsAmount + absenteeFine;
-                        const availableAdvance = Number(student.availableAdvanceCredit || 0);
+                        const availableAdvance = Number(student.advanceBalance ?? student.availableAdvanceCredit ?? 0);
                         const advanceCredit = Math.min(grossAmount, availableAdvance);
                         const netAmount = Math.max(0, grossAmount - advanceCredit);
 
@@ -2889,7 +2925,13 @@ export const ChallansTab = ({
                   value={challanForm.discount}
                   onChange={(e) => setChallanForm({ ...challanForm, discount: e.target.value })}
                   className="h-8 text-sm"
+                  disabled={Boolean(editingChallan && Number(editingChallan.paidAmount || 0) > 0)}
                 />
+                {Boolean(editingChallan && Number(editingChallan.paidAmount || 0) > 0) && (
+                  <p className="text-[10px] text-amber-600 font-medium leading-tight">
+                    Locked: Direct payment already recorded
+                  </p>
+                )}
               </div>
             </div>
 
@@ -2984,8 +3026,9 @@ export const ChallansTab = ({
               const lateVal = (challanForm.dueDate && effectiveRate > 0)
                 ? calculateLateFee(challanForm.dueDate, effectiveRate)
                 : Math.round(Number(challanForm.fineAmount) || 0);
+              const advApplied = Number(editingChallan?.advanceApplied || 0);
               const grossVal = baseVal + headsTotal + arrearsVal + lateVal;
-              const netVal = Math.max(0, grossVal - discVal);
+              const netVal = Math.max(0, grossVal - discVal - advApplied);
 
               return (
                 <div className="bg-slate-50 border rounded-lg p-3 space-y-1.5 text-xs">
@@ -3015,6 +3058,12 @@ export const ChallansTab = ({
                     <div className="flex justify-between text-muted-foreground">
                       <span>Discount:</span>
                       <span className="font-medium text-emerald-600">-PKR {discVal.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {advApplied > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Advance Adjusted:</span>
+                      <span className="font-medium text-purple-600">-PKR {advApplied.toLocaleString()}</span>
                     </div>
                   )}
                   <div className="border-t pt-1.5 flex justify-between font-bold text-sm">

@@ -113,18 +113,29 @@ export const PaymentDialog = ({
 
       const addFee = Math.max(0, autoFee - storedFee);
 
+      const baseAmount = Number(challan.basePayable ?? challan.snapshotBaseAmount ?? challan.amount ?? 0);
+      const arrearsAmount = Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? 0);
+      const headsAmount = Number(challan.headsAmount ?? getSelectedHeadsTotal(challan) ?? 0);
+      const discount = Number(challan.discountAmount ?? challan.discount ?? 0);
+      const advanceApplied = Number(challan.advanceApplied || 0);
+      const directPaid = Number(
+        challan.directPaidAmount != null
+          ? challan.directPaidAmount
+          : (challan.paidAmount != null && Number(challan.paidAmount) !== advanceApplied
+              ? challan.paidAmount
+              : 0)
+      );
+      const alreadyPaid = directPaid + advanceApplied;
+
       const baseTotal = isExtra
         ? Number(challan.totalAmount ?? 0)
-        : Number(challan.snapshotTotalDue != null
-            ? Number(challan.snapshotTotalDue)
-            : ((challan.netPayable != null && Number(challan.netPayable) > 0)
-                ? Number(challan.netPayable)
-                : ((challan.amount || 0) + getTotalArrears(challan) + getSelectedHeadsTotal(challan) + (challan.lateFeeFine || 0) - (challan.discount || 0))
-              )
+        : Number(
+            challan.grossAmount != null
+              ? (Number(challan.grossAmount) - discount)
+              : (baseAmount + arrearsAmount + headsAmount + storedFee - discount)
           );
 
       const effectiveTotal = baseTotal + addFee;
-      const alreadyPaid = Number(challan.paidAmount || 0);
       const outstanding = Math.max(0, effectiveTotal - alreadyPaid);
 
       setPaymentAmount(outstanding.toString());
@@ -179,19 +190,27 @@ export const PaymentDialog = ({
     ? (Number(challan.totalAmount ?? 0) - Number(challan.lateFeeFine ?? 0) + Number(challan.discount ?? 0))
     : Number(challan.basePayable ?? challan.snapshotBaseAmount ?? challan.amount ?? 0);
   const arrears = isExtraC ? 0 : Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? 0);
+  const heads = Number(challan.headsAmount ?? getSelectedHeadsTotal(challan) ?? 0);
+  const discount = Number(challan.discountAmount ?? challan.discount ?? 0);
+  const advanceApplied = Number(challan.advanceApplied || 0);
+  const directPaid = Number(
+    challan.directPaidAmount != null
+      ? challan.directPaidAmount
+      : (challan.paidAmount != null && Number(challan.paidAmount) !== advanceApplied
+          ? challan.paidAmount
+          : 0)
+  );
+  const alreadyPaid = directPaid + advanceApplied;
 
   const baseTotalDue = isExtraC
     ? Number(challan.totalAmount ?? 0)
-    : Number(challan.snapshotTotalDue != null
-        ? Number(challan.snapshotTotalDue)
-        : ((challan.netPayable != null && Number(challan.netPayable) > 0)
-            ? Number(challan.netPayable)
-            : (base + arrears + storedLateFee)
-          )
+    : Number(
+        challan.grossAmount != null
+          ? (Number(challan.grossAmount) - discount)
+          : (base + arrears + heads + storedLateFee - discount)
       );
 
   const totalDue = baseTotalDue + additionalLateFee;
-  const alreadyPaid = Number(challan.paidAmount || 0);
   const receiving = parseFloat(paymentAmount) || 0;
   const appliedCreditNum = useCredit ? (parseFloat(creditToApply) || 0) : 0;
   const remaining = totalDue - alreadyPaid - receiving - appliedCreditNum;
@@ -262,6 +281,8 @@ export const PaymentDialog = ({
       queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
       queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
       queryClient.invalidateQueries({ queryKey: ['studentFeeHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['studentFees'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
       queryClient.invalidateQueries({ queryKey: ['studentCredit'] });
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
       queryClient.invalidateQueries({ queryKey: ['walletHistory'] });
@@ -403,7 +424,15 @@ export const PaymentDialog = ({
                       challan.month || (challan.installmentNo ? `Inst #${challan.installmentNo}` : 'N/A')
                     )}
                   </td>
-                  <td className="border-r border-border/50 py-2 px-2 font-medium">{base.toLocaleString()}</td>
+                  <td className="border-r border-border/50 py-2 px-2 font-medium">
+                    <div>{base.toLocaleString()}</div>
+                    {heads > 0 && !isExtraC && (
+                      <div className="text-[9px] text-purple-600 font-normal">+{heads.toLocaleString()} heads</div>
+                    )}
+                    {discount > 0 && (
+                      <div className="text-[9px] text-emerald-600 font-normal">-{discount.toLocaleString()} disc</div>
+                    )}
+                  </td>
                   <td className="border-r border-border/50 py-2 px-2 text-orange-600 font-semibold">
                     {arrears > 0 ? (
                       <div>
@@ -427,7 +456,19 @@ export const PaymentDialog = ({
                     ) : <span className="text-muted-foreground/60">0</span>}
                   </td>
                   <td className="border-r border-border/50 py-2 px-2 font-bold text-foreground">{totalDue.toLocaleString()}</td>
-                  <td className="border-r border-border/50 py-2 px-2 text-emerald-600 font-semibold">{alreadyPaid.toLocaleString()}</td>
+                  <td className="border-r border-border/50 py-2 px-2 text-emerald-600 font-semibold">
+                    <div>{alreadyPaid.toLocaleString()}</div>
+                    {advanceApplied > 0 && directPaid > 0 && (
+                      <div className="text-[9px] text-muted-foreground font-normal">
+                        Cash: {directPaid.toLocaleString()}, Adv: {advanceApplied.toLocaleString()}
+                      </div>
+                    )}
+                    {advanceApplied > 0 && directPaid === 0 && (
+                      <div className="text-[9px] text-blue-600 dark:text-blue-400 font-normal">
+                        (Advance)
+                      </div>
+                    )}
+                  </td>
                   <td className="border-r border-border/50 py-1.5 px-2">
                     <Input
                       type="number"

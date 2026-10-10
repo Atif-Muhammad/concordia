@@ -24,7 +24,7 @@ class AttendanceController {
 
   async updateStudentAttendance(req, res, next) {
     try {
-      const result = await attendanceService.updateStudentAttendance(req.body);
+      const result = await attendanceService.updateStudentAttendance(req.body, req.user);
       res.json(result);
     } catch (err) {
       next(err);
@@ -188,6 +188,37 @@ class AttendanceController {
       const id = req.query.id || req.params.id;
       await attendanceService.deleteHoliday(id);
       res.json({ message: 'Holiday deleted' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // Missing Attendance Summary Audits
+  async getMissingAttendanceClassesSummary(req, res, next) {
+    try {
+      const { programId, date, sessionId } = req.query;
+      const result = await attendanceService.getMissingAttendanceClassesSummary({ programId, date, sessionId });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getMissingAttendanceSubjectsSummary(req, res, next) {
+    try {
+      const { classId, sectionId, date, sessionId } = req.query;
+      const result = await attendanceService.getMissingAttendanceSubjectsSummary({ classId, sectionId, date, sessionId });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getMissingAttendanceStudentsSummary(req, res, next) {
+    try {
+      const { classId, sectionId, subjectId, date, sessionId } = req.query;
+      const result = await attendanceService.getMissingAttendanceStudentsSummary({ classId, sectionId, subjectId, date, sessionId });
+      res.json(result);
     } catch (err) {
       next(err);
     }

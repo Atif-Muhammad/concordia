@@ -19,4 +19,9 @@ router.get('/leaves/get', attendanceController.getLeaves);
 router.post('/leaves/create', authMiddleware, checkPermission('Attendance', 'leave', 'create'), attendanceController.createLeave);
 router.patch('/leaves/update', authMiddleware, checkPermission('Attendance', 'leave', 'update'), attendanceController.updateLeave);
 
+// Missing Attendance Audits
+router.get('/missing/classes-summary', attendanceController.getMissingAttendanceClassesSummary);
+router.get('/missing/subjects-summary', attendanceController.getMissingAttendanceSubjectsSummary);
+router.get('/missing/students-summary', attendanceController.getMissingAttendanceStudentsSummary);
+
 module.exports = router;

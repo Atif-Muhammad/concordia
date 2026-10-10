@@ -5,9 +5,14 @@ const {
   AttendanceSkip,
   Student,
   Staff,
+  User,
   Class,
-  Subject
+  Section,
+  Subject,
+  SubjectClassMapping,
+  TeacherMapping
 } = require('../models');
+const academicsService = require('./academics.service');
 
 const getDateRangeStrings = (startStr, endStr) => {
   const dates = [];
@@ -148,8 +153,8 @@ class AttendanceService {
     return { attendance: studentRows };
   }
 
-  async updateStudentAttendance(data) {
-    const { rows, students, date, classId, sectionId, subjectId, sessionId, teacherId } = data;
+  async updateStudentAttendance(data, user) {
+    const { rows, students, date, classId, sectionId, subjectId, sessionId, teacherId, userId, staffId } = data;
     const studentList = students || rows || [];
 
     let classDoc = null;
@@ -158,6 +163,9 @@ class AttendanceService {
     }
     const allowSections = classDoc ? classDoc.allowSections !== false : true;
     const effectiveSectionId = allowSections && sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : null;
+
+    const effectiveUserId = userId || user?.id || user?._id || teacherId || null;
+    const effectiveStaffId = staffId || user?.refId || (user?.isStaff ? (user?.refId || user?.id) : null) || null;
 
     const ops = studentList.map(item => {
       const studentId = item.studentId || item.id;
@@ -178,7 +186,8 @@ class AttendanceService {
           status,
           leaveType: item.leaveType || (status === 'LEAVE' ? 'CASUAL' : null),
           notes: item.notes || '',
-          markedBy: teacherId || data.userId || null,
+          markedBy: effectiveUserId,
+          markedByStaffId: effectiveStaffId,
           markedAt: new Date()
         },
         { upsert: true, returnDocument: 'after' }
@@ -868,6 +877,629 @@ class AttendanceService {
         subjects
       };
     });
+  }
+
+  // Missing Attendance Summary: Level 1 (Classes / Sections Grid)
+  async getMissingAttendanceClassesSummary({ programId, date, sessionId }) {
+    const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+
+    const classQuery = (programId && programId !== '*' && programId !== 'all') ? { programId } : {};
+    const classes = await Class.find(classQuery).populate('programId', 'name code').sort({ name: 1 });
+
+    const classIds = classes.map(c => c._id);
+    const sections = await Section.find({ classId: { $in: classIds } }).sort({ name: 1 });
+    const sectionsByClass = new Map();
+    sections.forEach(s => {
+      const cId = String(s.classId);
+      if (!sectionsByClass.has(cId)) sectionsByClass.set(cId, []);
+      sectionsByClass.get(cId).push(s);
+    });
+
+    // Query active students count per class and section with optional sessionId
+    const studentQuery = { classId: { $in: classIds }, status: { $in: ['ACTIVE', 'Active'] } };
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
+    }
+    const allStudents = await Student.find(studentQuery, '_id classId sectionId');
+
+    const studentsByClassSec = new Map();
+    allStudents.forEach(s => {
+      const cId = String(s.classId);
+      const secId = s.sectionId ? String(s.sectionId) : 'none';
+      const key = `${cId}__${secId}`;
+      if (!studentsByClassSec.has(key)) studentsByClassSec.set(key, 0);
+      studentsByClassSec.set(key, studentsByClassSec.get(key) + 1);
+
+      const cKey = `${cId}__all`;
+      if (!studentsByClassSec.has(cKey)) studentsByClassSec.set(cKey, 0);
+      studentsByClassSec.set(cKey, studentsByClassSec.get(cKey) + 1);
+    });
+
+    // Query SubjectClassMappings for mapped subjects count
+    const scmFilter = { classId: { $in: classIds } };
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
+    }
+    const scms = await SubjectClassMapping.find(scmFilter);
+    const scmByClass = new Map();
+    scms.forEach(scm => {
+      const cId = String(scm.classId);
+      const sIds = (scm.subjects?.map(s => s.subjectId).filter(Boolean) || scm.subjectIds || []).map(String);
+      if (!scmByClass.has(cId)) {
+        scmByClass.set(cId, sIds);
+      } else if (sessionId && scm.sessionId && String(scm.sessionId) === String(sessionId)) {
+        scmByClass.set(cId, sIds);
+      }
+    });
+
+    // Attendance records for date
+    const dateRegex = new RegExp(`^${targetDate}`);
+    const attRecords = await Attendance.find(
+      { classId: { $in: classIds }, date: { $regex: dateRegex }, role: 'STUDENT' },
+      '_id studentId classId sectionId subjectId'
+    );
+
+    // Approved leaves for date
+    const studentIds = allStudents.map(s => s._id);
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: studentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: targetDate },
+      toDate: { $gte: targetDate }
+    }, 'studentId');
+    const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
+
+    // Map marked student count per class/section/subject
+    const markedMap = new Map();
+    attRecords.forEach(r => {
+      if (r.studentId && r.subjectId) {
+        const cId = String(r.classId);
+        const secId = r.sectionId ? String(r.sectionId) : 'none';
+        const subId = String(r.subjectId);
+        const k1 = `${cId}__${secId}__${subId}`;
+        const k2 = `${cId}__all__${subId}`;
+        if (!markedMap.has(k1)) markedMap.set(k1, new Set());
+        markedMap.get(k1).add(String(r.studentId));
+        if (!markedMap.has(k2)) markedMap.set(k2, new Set());
+        markedMap.get(k2).add(String(r.studentId));
+      }
+    });
+
+    const units = [];
+
+    for (const c of classes) {
+      const cId = String(c._id);
+      const pName = c.programId?.name || '';
+      const pCode = c.programId?.code || '';
+      const pId = c.programId?._id || c.programId;
+      const allowSections = c.allowSections !== false;
+      const classSecs = sectionsByClass.get(cId) || [];
+      const subjectIds = scmByClass.get(cId) || [];
+      const totalSubjects = subjectIds.length;
+
+      if (allowSections && classSecs.length > 0) {
+        for (const sec of classSecs) {
+          const secId = String(sec._id);
+          const totalStudents = studentsByClassSec.get(`${cId}__${secId}`) || 0;
+
+          if (totalStudents === 0) {
+            units.push({
+              classId: c._id,
+              className: c.name,
+              sectionId: sec._id,
+              sectionName: sec.name,
+              programId: pId,
+              programName: pName,
+              programCode: pCode,
+              displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
+              totalStudents: 0,
+              totalSubjects,
+              markedSubjects: 0,
+              missingSubjects: 0,
+              status: 'NO_STUDENTS',
+              isComplete: false,
+              isMissing: false,
+              isNoStudents: true
+            });
+            continue;
+          }
+
+          if (totalSubjects === 0) {
+            units.push({
+              classId: c._id,
+              className: c.name,
+              sectionId: sec._id,
+              sectionName: sec.name,
+              programId: pId,
+              programName: pName,
+              programCode: pCode,
+              displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
+              totalStudents,
+              totalSubjects: 0,
+              markedSubjects: 0,
+              missingSubjects: 0,
+              status: 'NO_SUBJECTS',
+              isComplete: false,
+              isMissing: false,
+              isNoStudents: false
+            });
+            continue;
+          }
+
+          let markedSubjectsCount = 0;
+          let missingSubjectsCount = 0;
+
+          for (const subId of subjectIds) {
+            const markedSet = markedMap.get(`${cId}__${secId}__${subId}`) || new Set();
+            let markedCount = markedSet.size;
+            leaveStudentIds.forEach(lId => {
+              if (!markedSet.has(lId)) markedCount++;
+            });
+
+            if (markedCount >= totalStudents) {
+              markedSubjectsCount++;
+            } else {
+              missingSubjectsCount++;
+            }
+          }
+
+          const isComplete = totalSubjects > 0 && missingSubjectsCount === 0;
+
+          units.push({
+            classId: c._id,
+            className: c.name,
+            sectionId: sec._id,
+            sectionName: sec.name,
+            programId: pId,
+            programName: pName,
+            programCode: pCode,
+            displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
+            totalStudents,
+            totalSubjects,
+            markedSubjects: markedSubjectsCount,
+            missingSubjects: missingSubjectsCount,
+            status: isComplete ? 'COMPLETE' : 'MISSING',
+            isComplete,
+            isMissing: !isComplete,
+            isNoStudents: false
+          });
+        }
+      } else {
+        const totalStudents = studentsByClassSec.get(`${cId}__all`) || 0;
+
+        if (totalStudents === 0) {
+          units.push({
+            classId: c._id,
+            className: c.name,
+            sectionId: null,
+            sectionName: null,
+            programId: pId,
+            programName: pName,
+            programCode: pCode,
+            displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
+            totalStudents: 0,
+            totalSubjects,
+            markedSubjects: 0,
+            missingSubjects: 0,
+            status: 'NO_STUDENTS',
+            isComplete: false,
+            isMissing: false,
+            isNoStudents: true
+          });
+          continue;
+        }
+
+        if (totalSubjects === 0) {
+          units.push({
+            classId: c._id,
+            className: c.name,
+            sectionId: null,
+            sectionName: null,
+            programId: pId,
+            programName: pName,
+            programCode: pCode,
+            displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
+            totalStudents,
+            totalSubjects: 0,
+            markedSubjects: 0,
+            missingSubjects: 0,
+            status: 'NO_SUBJECTS',
+            isComplete: false,
+            isMissing: false,
+            isNoStudents: false
+          });
+          continue;
+        }
+
+        let markedSubjectsCount = 0;
+        let missingSubjectsCount = 0;
+
+        for (const subId of subjectIds) {
+          const markedSet = markedMap.get(`${cId}__all__${subId}`) || new Set();
+          let markedCount = markedSet.size;
+          leaveStudentIds.forEach(lId => {
+            if (!markedSet.has(lId)) markedCount++;
+          });
+
+          if (markedCount >= totalStudents) {
+            markedSubjectsCount++;
+          } else {
+            missingSubjectsCount++;
+          }
+        }
+
+        const isComplete = totalSubjects > 0 && missingSubjectsCount === 0;
+
+        units.push({
+          classId: c._id,
+          className: c.name,
+          sectionId: null,
+          sectionName: null,
+          programId: pId,
+          programName: pName,
+          programCode: pCode,
+          displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
+          totalStudents,
+          totalSubjects,
+          markedSubjects: markedSubjectsCount,
+          missingSubjects: missingSubjectsCount,
+          status: isComplete ? 'COMPLETE' : 'MISSING',
+          isComplete,
+          isMissing: !isComplete,
+          isNoStudents: false
+        });
+      }
+    }
+
+    const activeUnits = units.filter(u => u.status !== 'NO_STUDENTS' && u.status !== 'NO_SUBJECTS');
+    const completeCount = activeUnits.filter(u => u.isComplete).length;
+    const missingCount = activeUnits.filter(u => u.isMissing).length;
+    const noStudentsCount = units.filter(u => u.isNoStudents).length;
+
+    return {
+      date: targetDate,
+      summary: {
+        totalUnits: units.length,
+        completeUnits: completeCount,
+        missingUnits: missingCount,
+        noStudentsUnits: noStudentsCount,
+      },
+      units
+    };
+  }
+
+  // Missing Attendance Summary: Level 2 (Subject-wise Grid)
+  async getMissingAttendanceSubjectsSummary({ classId, sectionId, date, sessionId }) {
+    const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+    const classDoc = await Class.findById(classId).populate('programId', 'name code');
+    if (!classDoc) {
+      throw new Error('Class not found');
+    }
+
+    let sectionDoc = null;
+    const allowSections = classDoc.allowSections !== false;
+    const effectiveSectionId = allowSections && sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : null;
+    if (effectiveSectionId) {
+      sectionDoc = await Section.findById(effectiveSectionId);
+    }
+
+    // Active students count for class/section
+    const studentQuery = { classId, status: { $in: ['ACTIVE', 'Active'] } };
+    if (effectiveSectionId) {
+      studentQuery.sectionId = effectiveSectionId;
+    }
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
+    }
+    const students = await Student.find(studentQuery, '_id');
+    const totalStudents = students.length;
+    const studentIds = students.map(s => s._id);
+
+    // Linked subjects via SubjectClassMapping
+    const scmFilter = { classId };
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
+    }
+    const scm = await SubjectClassMapping.findOne(scmFilter)
+      .populate('subjects.subjectId')
+      .populate('subjectIds');
+
+    const subjectsList = [];
+    if (scm && Array.isArray(scm.subjects) && scm.subjects.length > 0) {
+      for (const entry of scm.subjects) {
+        const sub = entry.subjectId;
+        if (!sub) continue;
+        const subId = String(sub._id || sub.id || sub);
+        subjectsList.push({
+          id: subId,
+          name: typeof sub === 'object' && sub.name ? sub.name : '',
+          code: typeof sub === 'object' && sub.code ? sub.code : '',
+          creditHours: entry.creditHours ?? null
+        });
+      }
+    } else if (scm && Array.isArray(scm.subjectIds) && scm.subjectIds.length > 0) {
+      for (const sub of scm.subjectIds) {
+        if (!sub) continue;
+        const subId = String(sub._id || sub.id || sub);
+        subjectsList.push({
+          id: subId,
+          name: typeof sub === 'object' && sub.name ? sub.name : '',
+          code: typeof sub === 'object' && sub.code ? sub.code : '',
+          creditHours: null
+        });
+      }
+    }
+
+    // Fill missing subject names from Subject collection
+    const missingNameIds = subjectsList.filter(s => !s.name).map(s => s.id);
+    if (missingNameIds.length > 0) {
+      const dbSubjects = await Subject.find({ _id: { $in: missingNameIds } });
+      const subMap = new Map(dbSubjects.map(s => [String(s._id), s]));
+      subjectsList.forEach(s => {
+        if (!s.name && subMap.has(s.id)) {
+          const found = subMap.get(s.id);
+          s.name = found.name || '';
+          s.code = found.code || s.code || '';
+        }
+      });
+    }
+
+    // Pre-fetch TeacherMappings for this class and section
+    const tmConditions = [{ classId }];
+    if (effectiveSectionId) {
+      tmConditions.push({ $or: [{ sectionId: effectiveSectionId }, { sectionId: null }, { sectionId: { $exists: false } }] });
+    }
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      tmConditions.push({ $or: [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }] });
+    }
+    const teacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name staffId');
+
+    // Pre-fetch attendance for date
+    const dateRegex = new RegExp(`^${targetDate}`);
+    const attQuery = {
+      classId,
+      date: { $regex: dateRegex },
+      role: 'STUDENT',
+      studentId: { $in: studentIds }
+    };
+    if (effectiveSectionId) attQuery.sectionId = effectiveSectionId;
+    const attendanceRecords = await Attendance.find(attQuery, '_id studentId subjectId');
+
+    // Approved leaves for date
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: studentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: targetDate },
+      toDate: { $gte: targetDate }
+    }, 'studentId');
+    const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
+
+    const subjects = subjectsList.map(sub => {
+      const subId = String(sub.id);
+
+      // PIN-POINT ACCURATE TEACHER FOR THIS EXACT SUBJECT
+      const subjectTeachers = teacherMappings
+        .filter(tm => tm.mappingType === 'SUBJECT' && String(tm.subjectId?._id || tm.subjectId) === subId && tm.teacherId?.name)
+        .map(tm => tm.teacherId.name);
+
+      const teacherName = subjectTeachers.length > 0 ? subjectTeachers.join(', ') : 'Not Assigned';
+
+      if (totalStudents === 0) {
+        return {
+          subjectId: sub.id,
+          subjectName: sub.name,
+          subjectCode: sub.code,
+          creditHours: sub.creditHours,
+          teacherName,
+          totalStudents: 0,
+          markedStudents: 0,
+          missingStudents: 0,
+          status: 'NO_STUDENTS',
+          isComplete: false,
+          isNoStudents: true
+        };
+      }
+
+      const subAttRecords = attendanceRecords.filter(r => String(r.subjectId) === subId);
+      const markedStudentIds = new Set(subAttRecords.map(r => String(r.studentId)));
+      leaveStudentIds.forEach(id => markedStudentIds.add(id));
+
+      const markedStudents = Math.min(totalStudents, markedStudentIds.size);
+      const missingStudents = Math.max(0, totalStudents - markedStudents);
+      const isComplete = markedStudents >= totalStudents;
+
+      return {
+        subjectId: sub.id,
+        subjectName: sub.name,
+        subjectCode: sub.code,
+        creditHours: sub.creditHours,
+        teacherName,
+        totalStudents,
+        markedStudents,
+        missingStudents,
+        status: isComplete ? 'COMPLETE' : 'MISSING',
+        isComplete,
+        isNoStudents: false
+      };
+    });
+
+    const isNoStudents = totalStudents === 0;
+    const completeCount = subjects.filter(s => s.isComplete).length;
+    const missingCount = subjects.filter(s => !s.isComplete && !s.isNoStudents).length;
+
+    return {
+      class: { id: classDoc._id, name: classDoc.name },
+      section: sectionDoc ? { id: sectionDoc._id, name: sectionDoc.name } : null,
+      program: classDoc.programId ? { id: classDoc.programId._id, name: classDoc.programId.name, code: classDoc.programId.code } : null,
+      date: targetDate,
+      totalStudents,
+      isNoStudents,
+      summary: {
+        totalSubjects: subjects.length,
+        completeSubjects: isNoStudents ? 0 : completeCount,
+        missingSubjects: isNoStudents ? 0 : missingCount,
+        noStudentsSubjects: isNoStudents ? subjects.length : 0,
+      },
+      subjects
+    };
+  }
+
+  // Missing Attendance Summary: Level 3 (Student Attendance Table)
+  async getMissingAttendanceStudentsSummary({ classId, sectionId, subjectId, date, sessionId }) {
+    const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+    const classDoc = await Class.findById(classId).populate('programId', 'name code');
+    if (!classDoc) {
+      throw new Error('Class not found');
+    }
+
+    let sectionDoc = null;
+    const allowSections = classDoc.allowSections !== false;
+    const effectiveSectionId = allowSections && sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : null;
+    if (effectiveSectionId) {
+      sectionDoc = await Section.findById(effectiveSectionId);
+    }
+
+    const subjectDoc = await Subject.findById(subjectId);
+    if (!subjectDoc) {
+      throw new Error('Subject not found');
+    }
+
+    // Active students in this class/section
+    const studentQuery = { classId, status: { $in: ['ACTIVE', 'Active'] } };
+    if (effectiveSectionId) {
+      studentQuery.sectionId = effectiveSectionId;
+    }
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
+    }
+    const students = await Student.find(studentQuery).sort({ rollNumber: 1 });
+    const studentIds = students.map(s => s._id);
+
+    // Attendance query with regex date
+    const dateRegex = new RegExp(`^${targetDate}`);
+    const attQuery = {
+      classId,
+      subjectId,
+      date: { $regex: dateRegex },
+      role: 'STUDENT',
+      studentId: { $in: studentIds }
+    };
+    if (effectiveSectionId) {
+      attQuery.sectionId = effectiveSectionId;
+    }
+    const attendanceRecords = await Attendance.find(attQuery)
+      .populate('markedBy', 'name email refId')
+      .populate('markedByStaffId', 'name staffId')
+      .populate('staffId', 'name staffId');
+
+    const attMap = new Map();
+    attendanceRecords.forEach(r => attMap.set(String(r.studentId), r));
+
+    // Leaves query
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: studentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: targetDate },
+      toDate: { $gte: targetDate }
+    });
+    const leaveMap = new Map();
+    approvedLeaves.forEach(l => leaveMap.set(String(l.studentId), l));
+
+    // Lookup responsible teacher for this subject
+    const tmConditions = [{ classId, mappingType: 'SUBJECT', subjectId }];
+    if (effectiveSectionId) {
+      tmConditions.push({ $or: [{ sectionId: effectiveSectionId }, { sectionId: null }, { sectionId: { $exists: false } }] });
+    }
+    const subjectTeacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name');
+    const assignedTeacherName = (subjectTeacherMappings.length > 0 && subjectTeacherMappings[0].teacherId?.name)
+      ? subjectTeacherMappings.map(t => t.teacherId.name).filter(Boolean).join(', ')
+      : 'Not Assigned';
+
+    const studentRows = students.map(s => {
+      const sId = String(s._id);
+      const rec = attMap.get(sId);
+      const leave = leaveMap.get(sId);
+
+      if (rec) {
+        let markedByName = 'Not Recorded';
+        if (rec.markedByStaffId?.name) {
+          markedByName = rec.markedByStaffId.name;
+        } else if (rec.staffId?.name) {
+          markedByName = rec.staffId.name;
+        } else if (rec.markedBy?.name) {
+          markedByName = rec.markedBy.name;
+        } else if (assignedTeacherName !== 'Not Assigned') {
+          markedByName = assignedTeacherName;
+        }
+
+        return {
+          studentId: s._id,
+          rollNumber: s.rollNumber || '',
+          studentName: `${s.fName || ''} ${s.lName || ''}`.trim(),
+          fatherName: s.fatherOrguardian || s.parentOrGuardianName || '',
+          gender: s.gender,
+          status: rec.status,
+          isMissing: false,
+          markedAt: rec.markedAt || rec.createdAt,
+          markedByName,
+          notes: rec.notes || ''
+        };
+      } else if (leave) {
+        return {
+          studentId: s._id,
+          rollNumber: s.rollNumber || '',
+          studentName: `${s.fName || ''} ${s.lName || ''}`.trim(),
+          fatherName: s.fatherOrguardian || s.parentOrGuardianName || '',
+          gender: s.gender,
+          status: 'LEAVE',
+          isMissing: false,
+          markedAt: null,
+          markedByName: 'Approved Leave',
+          notes: leave.reason || 'Approved Leave'
+        };
+      } else {
+        return {
+          studentId: s._id,
+          rollNumber: s.rollNumber || '',
+          studentName: `${s.fName || ''} ${s.lName || ''}`.trim(),
+          fatherName: s.fatherOrguardian || s.parentOrGuardianName || '',
+          gender: s.gender,
+          status: 'MISSING',
+          isMissing: true,
+          markedAt: null,
+          markedByName: '—',
+          notes: 'Attendance not recorded'
+        };
+      }
+    });
+
+    const totalStudents = students.length;
+    const markedCount = studentRows.filter(s => !s.isMissing).length;
+    const missingCount = studentRows.filter(s => s.isMissing).length;
+    const presentCount = studentRows.filter(s => String(s.status).toUpperCase() === 'PRESENT').length;
+    const absentCount = studentRows.filter(s => String(s.status).toUpperCase() === 'ABSENT').length;
+    const leaveCount = studentRows.filter(s => String(s.status).toUpperCase() === 'LEAVE').length;
+
+    return {
+      class: { id: classDoc._id, name: classDoc.name },
+      section: sectionDoc ? { id: sectionDoc._id, name: sectionDoc.name } : null,
+      program: classDoc.programId ? { id: classDoc.programId._id, name: classDoc.programId.name, code: classDoc.programId.code } : null,
+      subject: { id: subjectDoc._id, name: subjectDoc.name, code: subjectDoc.code },
+      assignedTeacher: assignedTeacherName,
+      date: targetDate,
+      summary: {
+        totalStudents,
+        markedCount,
+        missingCount,
+        presentCount,
+        absentCount,
+        leaveCount
+      },
+      students: studentRows
+    };
   }
 }
 

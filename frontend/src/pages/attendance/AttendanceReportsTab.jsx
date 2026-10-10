@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SlidersHorizontal, Printer } from "lucide-react";
+import { SlidersHorizontal, Printer, ArrowLeft } from "lucide-react";
 import {
   getAcademicSessions,
   getClasses,
@@ -36,7 +36,7 @@ const extractId = (val) => {
   return String(val);
 };
 
-export default function AttendanceReportsTab() {
+export default function AttendanceReportsTab({ onBack }) {
   const queryClient = useQueryClient();
   const currentUser = queryClient.getQueryData(["currentUser"]);
   const isTeacher = currentUser?.role === "Teacher" || currentUser?.role === "TEACHER";
@@ -75,6 +75,15 @@ export default function AttendanceReportsTab() {
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
   });
+
+  useEffect(() => {
+    if (academicSessions?.length > 0 && (reportSessionId === "all" || !reportSessionId)) {
+      const active = academicSessions.find((s) => s.isActive || s.status === "ACTIVE");
+      if (active) {
+        setReportSessionId(String(active.id || active._id));
+      }
+    }
+  }, [academicSessions]);
 
   const { data: allPrograms = [] } = useQuery({
     queryKey: ["programs"],
@@ -525,7 +534,21 @@ export default function AttendanceReportsTab() {
   };
 
   return (
-    <Card className="shadow-sm">
+    <div className="space-y-4">
+      {onBack && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="gap-1.5 text-xs font-semibold shadow-xs hover:bg-muted"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Reports
+          </Button>
+        </div>
+      )}
+      <Card className="shadow-sm">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Attendance Report</CardTitle>
@@ -966,5 +989,6 @@ export default function AttendanceReportsTab() {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

@@ -23,6 +23,7 @@ const AttendanceSchema = new mongoose.Schema({
   sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession' },
   notes: { type: String, default: '' },
   markedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  markedByStaffId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
   markedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 

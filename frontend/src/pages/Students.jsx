@@ -34,6 +34,7 @@ import {
   getHostelRegistrations,
   getStudentFeeHistory,
 } from "../../config/apis";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import {
   StudentsTableTab,
   StudentProfileDialog,
@@ -41,8 +42,7 @@ import {
   StudentPromotionDialog,
   StudentIdCardDialog,
   StudentProfilePrintDialog,
-  StudentDocumentReportDialog,
-  StudentDataExportDialog,
+  StudentReportsTab,
   getStudentAcademicPath,
 } from "./students/index.js";
 
@@ -111,6 +111,7 @@ const Students = () => {
   const navigate = useNavigate();
 
   const { canCreate, canUpdate, canDelete } = usePermissions("Students");
+  const activeSubmodule = getRouteSubmoduleId(location.pathname, "Students", "records");
 
   const [selectedStatus, setSelectedStatus] = useState(() => {
     if (location.state?.status) return String(location.state.status).toUpperCase();
@@ -153,13 +154,6 @@ const Students = () => {
   const [profilePrintOpen, setProfilePrintOpen] = useState(false);
   const [profilePrintStudent, setProfilePrintStudent] = useState(null);
   const [isNewlyCreatedProfile, setIsNewlyCreatedProfile] = useState(false);
-
-  const [docReportOpen, setDocReportOpen] = useState(false);
-  const [docReportStudents, setDocReportStudents] = useState([]);
-  const [docReportFilters, setDocReportFilters] = useState({});
-
-  const [dataExportOpen, setDataExportOpen] = useState(false);
-  const [dataExportFilters, setDataExportFilters] = useState({});
 
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promotionDialogConfig, setPromotionDialogConfig] = useState({
@@ -572,6 +566,19 @@ const Students = () => {
     }
   };
 
+  if (activeSubmodule === "reports") {
+    return (
+      <DashboardLayout>
+        <StudentReportsTab
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+          academicSessions={academicSessions}
+        />
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -617,15 +624,6 @@ const Students = () => {
             setProfilePrintStudent(student);
             setIsNewlyCreatedProfile(false);
             setProfilePrintOpen(true);
-          }}
-          onOpenDocumentReport={(students, filters) => {
-            setDocReportStudents(students || []);
-            setDocReportFilters(filters || {});
-            setDocReportOpen(true);
-          }}
-          onOpenStudentDataExport={(students, filters) => {
-            setDataExportFilters(filters || {});
-            setDataExportOpen(true);
           }}
           onPromote={canUpdate ? () => {
             setPromotionDialogConfig({
@@ -691,31 +689,6 @@ const Students = () => {
           sectionsData={sectionsData}
           academicSessions={academicSessions}
           isNewlyCreated={isNewlyCreatedProfile}
-        />
-
-        {/* Student Document Report Dialog */}
-        <StudentDocumentReportDialog
-          open={docReportOpen}
-          onOpenChange={setDocReportOpen}
-          students={docReportStudents}
-          activeFilters={docReportFilters}
-          programData={programData}
-          classesData={classesData}
-          sectionsData={sectionsData}
-          academicSessions={academicSessions}
-          status={selectedStatus}
-        />
-
-        {/* Student Data Export Dialog (Excel & PDF/Print with Fee Installments) */}
-        <StudentDataExportDialog
-          open={dataExportOpen}
-          onOpenChange={setDataExportOpen}
-          initialFilters={dataExportFilters}
-          programData={programData}
-          classesData={classesData}
-          sectionsData={sectionsData}
-          academicSessions={academicSessions}
-          status={selectedStatus}
         />
 
         {/* Student Promotion / Demotion / Rejoin Dialog */}

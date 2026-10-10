@@ -63,6 +63,7 @@ const StudentSchema = new mongoose.Schema({
   classId: { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
   sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Section' },
   tuitionFee: { type: Number, default: 0 },
+  advanceBalance: { type: Number, default: 0 },
   numberOfInstallments: { type: Number, default: 1 },
   lateFeeFine: { type: Number, default: 0 },
   installments: [StudentInstallmentSchema],

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hasPermission } from "@/lib/navigation.jsx";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import {
@@ -63,9 +64,15 @@ import {
   FileSpreadsheet,
   AlertCircle,
   RotateCcw,
+  CalendarRange,
+  TrendingUp,
+  ArrowRight,
+  ArrowLeft,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
+import { StudentInstallmentReportsTab } from "./StudentInstallmentReportsTab";
 import {
   normalizeChallan,
   getChallanGrossTotal,
@@ -99,6 +106,34 @@ export const FeeReportsTab = ({
   lateFeeRatePerDay: propLateFeeRatePerDay,
 }) => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const currentUser = queryClient.getQueryData(["currentUser"]);
+
+  const canViewInstallments = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Fee Management", "installment-reports", "read") ||
+    hasPermission(currentUser, "Fee Management", "reports", "read")
+  );
+
+  const canViewPending = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Fee Management", "pending-reports", "read") ||
+    hasPermission(currentUser, "Fee Management", "reports", "read")
+  );
+
+  const canViewAnalytics = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Fee Management", "revenue-analytics", "read") ||
+    hasPermission(currentUser, "Fee Management", "reports", "read")
+  );
+
+  const [selectedReport, setSelectedReport] = useState(null); // null = cards menu; "installments" | "pending" | "analytics"
 
   // Pending Fee Report Filters (Multi-Select arrays for programs, classes, sections)
   const [selectedSession, setSelectedSession] = useState("all");
@@ -975,10 +1010,37 @@ export const FeeReportsTab = ({
     name: getClassChartLabel(row),
   }));
 
-  return (
-    <div className="space-y-6">
-      {/* ── Pending Challan Dues & Student Fee Report ── */}
-      <Card className="border border-border/70 shadow-sm">
+  // 1. If "installments" report is selected, render ONLY that report replacing the cards
+  if (selectedReport === "installments") {
+    return (
+      <div className="space-y-4 max-w-full">
+        <StudentInstallmentReportsTab
+          academicSessions={sessionList}
+          programs={programsList}
+          classes={classesList}
+          sections={sectionsList}
+          onBack={() => setSelectedReport(null)}
+        />
+      </div>
+    );
+  }
+
+  // 2. If "pending" report is selected, render ONLY that report replacing the cards
+  if (selectedReport === "pending") {
+    return (
+      <div className="space-y-4 max-w-full">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSelectedReport(null)}
+          className="gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground -ml-1 h-8"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Reports
+        </Button>
+
+        {/* ── Pending Challan Dues & Student Fee Report ── */}
+        <Card className="border border-border/70 shadow-sm">
         <CardHeader className="pb-3 flex flex-row items-start justify-between flex-wrap gap-4">
           <div>
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -1313,9 +1375,26 @@ export const FeeReportsTab = ({
           )}
         </CardContent>
       </Card>
+      </div>
+    );
+  }
 
-      {/* ── Fee Analytics & Charts ── */}
-      <div className="space-y-4 pt-2">
+  // 3. If "analytics" report is selected, render ONLY that report replacing the cards
+  if (selectedReport === "analytics") {
+    return (
+      <div className="space-y-4 max-w-full">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSelectedReport(null)}
+          className="gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground -ml-1 h-8"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Reports
+        </Button>
+
+        {/* ── Fee Analytics & Charts ── */}
+        <div className="space-y-4 pt-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-base font-semibold text-foreground">Revenue & Collection Analytics</h2>
           <Popover>
@@ -1551,6 +1630,165 @@ export const FeeReportsTab = ({
           </Card>
         </div>
       </div>
+      </div>
+    );
+  }
+
+  // 4. Default View: selectedReport === null (Cards Menu Page ONLY)
+  return (
+    <div className="space-y-6 max-w-full">
+      {/* Header Banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="min-w-0 max-w-2xl">
+            <p className="text-[10.5px] font-bold tracking-[0.2em] text-[#8c887b] dark:text-muted-foreground uppercase mb-1">
+              FEE MANAGEMENT • REPORTS &amp; SCHEDULES
+            </p>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[#22211f] dark:text-foreground">
+              Institutional Fee Reports &amp; Installment Audits
+            </h1>
+            <p className="text-xs sm:text-[13px] text-[#66645d] dark:text-muted-foreground mt-1.5 leading-relaxed">
+              Select a report module below to view detailed records, generate printable audits, or analyze collection metrics across academic programs.
+            </p>
+            <div className="w-10 h-1 bg-[#d97c38] rounded-full mt-2.5" />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="outline" className="font-mono text-xs bg-white dark:bg-card px-3 py-1 border-[#eae8df]">
+              3 Report Modules Available
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid of Report Navigation Boxes (Matching Concordia ERP Navigation Boxes) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {/* BOX 1: Student Installment Month Reports */}
+        {canViewInstallments && (
+          <div
+            onClick={() => setSelectedReport("installments")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-emerald-500/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#2e694d] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <CalendarRange className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-emerald-700 transition-colors">
+                  Student Installment Month Reports
+                </h3>
+              </div>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Select program, class, and section (or search student via name / roll number) to view complete installment numbers, scheduled months, fee amounts, and due dates.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("installments");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-emerald-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <CalendarRange className="w-4 h-4 text-emerald-600" />
+                  Open Installment Reports
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 2: Student Pending Fee Report */}
+        {canViewPending && (
+          <div
+            onClick={() => setSelectedReport("pending")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-amber-400/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#c85a17] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <FileSpreadsheet className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-amber-700 transition-colors">
+                Student Pending Fee Reports
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Audit outstanding challans, unpaid balances, and late fee accumulations with program, class, and section filters and itemized student drilldown.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("pending");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-orange-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-amber-600" />
+                  Open Pending Fee Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 3: Revenue & Collection Analytics */}
+        {canViewAnalytics && (
+          <div
+            onClick={() => setSelectedReport("analytics")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-indigo-400/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#4f46e5] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <TrendingUp className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-indigo-700 transition-colors">
+                Revenue &amp; Collection Analytics
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Institutional collection timelines, historical 24-month revenue graphs, and comparative class-level recovery versus outstanding balances.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("analytics");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-indigo-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-indigo-600" />
+                  Open Revenue Analytics
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!canViewInstallments && !canViewPending && !canViewAnalytics && (
+        <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-card">
+          <AlertCircle className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-foreground">Access Restricted</h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+            You do not have permission to view any fee reports. Please contact your system administrator.
+          </p>
+        </div>
+      )}
     </div>
   );
 };

@@ -79,6 +79,7 @@ export default function TeacherClassMappingTab() {
   const [tcmSessionFilter, setTcmSessionFilter] = useState("all");
   const [tcmProgramFilter, setTcmProgramFilter] = useState("all");
   const [tcmClassFilter, setTcmClassFilter] = useState("all");
+  const [tcmSectionFilter, setTcmSectionFilter] = useState("all");
   const [tcmTableStaffSearch, setTcmTableStaffSearch] = useState("");
 
   // Dialog State (Add / Edit)
@@ -156,6 +157,8 @@ export default function TeacherClassMappingTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teacherClassMappings"] });
       queryClient.invalidateQueries({ queryKey: ["teacherSubjectMappings"] });
+      queryClient.invalidateQueries({ queryKey: ["classSubjects"] });
+      queryClient.invalidateQueries({ queryKey: ["teacherClasses"] });
       toast({ title: "Teacher-class mapping removed successfully" });
       setDeleteDialog(false);
       setDeleteTargetId(null);
@@ -242,6 +245,12 @@ export default function TeacherClassMappingTab() {
     return classes.filter((c) => resolveId(c.programId) === tcmProgramFilter);
   }, [classes, tcmProgramFilter]);
 
+  // Sections filtered by Class in the table
+  const tableAvailableSections = useMemo(() => {
+    if (tcmClassFilter === "all") return [];
+    return sections.filter((s) => resolveId(s.classId) === tcmClassFilter);
+  }, [sections, tcmClassFilter]);
+
   // Classes filtered by Program in the dialog
   const dialogAvailableClasses = useMemo(() => {
     if (!tcmSelectedProgramId || tcmSelectedProgramId === "all") return classes;
@@ -298,13 +307,14 @@ export default function TeacherClassMappingTab() {
       );
       setTcmClassSubjects(data || []);
 
-      // If targetTeacherId is specified, pre-select subjects currently assigned to this teacher
+      // Pre-select subjects ONLY when editing an existing mapping
       const effectiveTeacher = targetTeacherId || resolveId(tcmSelectedStaff);
-      if (effectiveTeacher) {
+      if (effectiveTeacher && editing) {
         const assignedIds = new Set();
         (data || []).forEach((scm) => {
+          if (scm.isClassTeacherFallback) return;
           const subId = resolveId(scm.subject?.id || scm.id);
-          const teachersList = scm.subject?.teachers || [];
+          const teachersList = scm.subject?.teachers || scm.teachers || [];
           if (
             teachersList.some(
               (tm) => resolveId(tm.teacherId) === effectiveTeacher
@@ -379,7 +389,13 @@ export default function TeacherClassMappingTab() {
     setTcmSelectedClassId(classId);
     setTcmDialogSessionId(sessId || "none");
     setTcmSelectedSectionId(secId);
-    setTcmSelectedSubjectIds(new Set());
+
+    // Reliable immediate initialization from attached subjects if present
+    if (mapping.subjects && mapping.subjects.length > 0) {
+      setTcmSelectedSubjectIds(new Set(mapping.subjects.map((s) => resolveId(s))));
+    } else {
+      setTcmSelectedSubjectIds(new Set());
+    }
 
     loadTcmClassSubjects(classId, sessId, secId, teacherId);
     setDialogOpen(true);
@@ -402,7 +418,8 @@ export default function TeacherClassMappingTab() {
       });
       return;
     }
-    if (classAllowsSections && !tcmSelectedSectionId) {
+    // Only require section if class allows sections AND sections exist for it
+    if (classAllowsSections && dialogAvailableSections.length > 0 && !tcmSelectedSectionId) {
       toast({
         title: "Validation Error",
         description: "Please select a section for this class",
@@ -435,6 +452,8 @@ export default function TeacherClassMappingTab() {
 
       queryClient.invalidateQueries({ queryKey: ["teacherClassMappings"] });
       queryClient.invalidateQueries({ queryKey: ["teacherSubjectMappings"] });
+      queryClient.invalidateQueries({ queryKey: ["classSubjects"] });
+      queryClient.invalidateQueries({ queryKey: ["teacherClasses"] });
       setDialogOpen(false);
       resetAssignDialog();
       setEditing(null);
@@ -454,33 +473,10 @@ export default function TeacherClassMappingTab() {
     }
   };
 
-  const openTcmDetail = async (mapping) => {
+  const openTcmDetail = (mapping) => {
     setTcmViewItem(mapping);
-    setTcmViewSubjects([]);
-    setTcmViewSubjectsLoading(true);
-    try {
-      const classId = resolveId(mapping.classId);
-      const sessionId = resolveId(mapping.sessionId);
-      const sectionId = resolveId(mapping.sectionId);
-      const teacherId = resolveId(mapping.teacherId);
-
-      const data = await getSubjectsForClassWithAssignments(
-        classId,
-        sessionId || undefined,
-        sectionId || undefined
-      );
-
-      const assigned = (data || []).filter((scm) =>
-        scm.subject?.teachers?.some(
-          (tm) => resolveId(tm.teacherId) === teacherId
-        )
-      );
-      setTcmViewSubjects(assigned);
-    } catch {
-      setTcmViewSubjects([]);
-    } finally {
-      setTcmViewSubjectsLoading(false);
-    }
+    setTcmViewSubjects(mapping.subjects || []);
+    setTcmViewSubjectsLoading(false);
   };
 
   const confirmDelete = () => {
@@ -512,6 +508,12 @@ export default function TeacherClassMappingTab() {
         return false;
       }
 
+      // 3b. Section filter
+      if (tcmSectionFilter !== "all") {
+        const sId = resolveId(m.sectionId);
+        if (sId !== tcmSectionFilter) return false;
+      }
+
       // 4. Teacher search text
       if (tcmTableStaffSearch.trim()) {
         const teacher = getTeacherItem(m.teacherId);
@@ -526,6 +528,7 @@ export default function TeacherClassMappingTab() {
     tcmSessionFilter,
     tcmProgramFilter,
     tcmClassFilter,
+    tcmSectionFilter,
     tcmTableStaffSearch,
     classes,
     programs,
@@ -777,6 +780,9 @@ export default function TeacherClassMappingTab() {
                       value={tcmSelectedSectionId}
                       onValueChange={(v) => {
                         setTcmSelectedSectionId(v);
+                        if (!editing) {
+                          setTcmSelectedSubjectIds(new Set());
+                        }
                         loadTcmClassSubjects(
                           tcmSelectedClassId,
                           tcmDialogSessionId,
@@ -845,7 +851,9 @@ export default function TeacherClassMappingTab() {
                         {tcmClassSubjects.map((scm) => {
                           const subjectId = resolveId(scm.subject?.id || scm.id);
                           const subjectName = scm.subject?.name || scm.name || "Subject";
-                          const assignedTeachers = scm.subject?.teachers || [];
+                          const assignedTeachers = scm.isClassTeacherFallback
+                            ? []
+                            : (scm.subject?.teachers || scm.teachers || []);
                           const effectiveTeacherId = resolveId(tcmSelectedStaff);
 
                           const assignedToThisStaff = assignedTeachers.some(
@@ -934,7 +942,7 @@ export default function TeacherClassMappingTab() {
 
         <CardContent className="pt-6 space-y-6">
           {/* Top Filter Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-muted/40 rounded-lg border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 p-4 bg-muted/40 rounded-lg border">
             {/* Session Filter */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -975,6 +983,7 @@ export default function TeacherClassMappingTab() {
                 onValueChange={(v) => {
                   setTcmProgramFilter(v);
                   setTcmClassFilter("all");
+                  setTcmSectionFilter("all");
                 }}
               >
                 <SelectTrigger className="bg-background">
@@ -998,7 +1007,10 @@ export default function TeacherClassMappingTab() {
               </Label>
               <Select
                 value={tcmClassFilter}
-                onValueChange={setTcmClassFilter}
+                onValueChange={(v) => {
+                  setTcmClassFilter(v);
+                  setTcmSectionFilter("all");
+                }}
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue placeholder="All Classes" />
@@ -1014,6 +1026,41 @@ export default function TeacherClassMappingTab() {
                         {tcmProgramFilter === "all" && prog
                           ? `(${prog.name})`
                           : ""}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Section Filter */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Section
+              </Label>
+              <Select
+                value={tcmSectionFilter}
+                onValueChange={setTcmSectionFilter}
+                disabled={tcmClassFilter === "all" || tableAvailableSections.length === 0}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue
+                    placeholder={
+                      tcmClassFilter === "all"
+                        ? "Select class first"
+                        : tableAvailableSections.length === 0
+                        ? "No sections"
+                        : "All Sections"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sections</SelectItem>
+                  {tableAvailableSections.map((s) => {
+                    const sId = resolveId(s);
+                    return (
+                      <SelectItem key={sId} value={sId}>
+                        {s.name}
                       </SelectItem>
                     );
                   })}
@@ -1047,6 +1094,7 @@ export default function TeacherClassMappingTab() {
                   <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider">Class</TableHead>
                   <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider">Program</TableHead>
                   <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider">Section</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider">Subject(s)</TableHead>
                   <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider">Session</TableHead>
                   <TableHead className="py-3 px-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</TableHead>
                 </TableRow>
@@ -1054,18 +1102,18 @@ export default function TeacherClassMappingTab() {
               <TableBody>
                 {isLoadingTCM ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       Loading teacher-class assignments...
                     </TableCell>
                   </TableRow>
                 ) : filteredMappings.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Users className="w-8 h-8 text-muted-foreground/50" />
                         <p className="font-medium text-foreground">No teacher-class mappings found</p>
                         <p className="text-xs text-muted-foreground">
-                          {tcmProgramFilter !== "all" || tcmClassFilter !== "all" || tcmSessionFilter !== "all" || tcmTableStaffSearch
+                          {tcmProgramFilter !== "all" || tcmClassFilter !== "all" || tcmSectionFilter !== "all" || tcmSessionFilter !== "all" || tcmTableStaffSearch
                             ? "Try adjusting your filters or search."
                             : "Click 'Assign Teacher' above to assign a teacher to a class."}
                         </p>
@@ -1105,6 +1153,25 @@ export default function TeacherClassMappingTab() {
                           ) : (
                             <span className="text-muted-foreground text-xs italic">
                               All sections
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-3 px-4 text-sm">
+                          {m.subjects && m.subjects.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5 max-w-xs">
+                              {m.subjects.map((sub, sIdx) => (
+                                <Badge
+                                  key={resolveId(sub) || sIdx}
+                                  variant="outline"
+                                  className="text-[11px] font-medium bg-primary/5 text-primary border-primary/20 hover:bg-primary/10 transition-colors"
+                                >
+                                  {sub.name} {sub.code ? `(${sub.code})` : ""}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs italic">
+                              No subjects mapped
                             </span>
                           )}
                         </TableCell>
@@ -1269,12 +1336,14 @@ export default function TeacherClassMappingTab() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {tcmViewSubjects.map((scm) => {
-                          const subId = resolveId(scm.subject?.id || scm.id);
+                        {tcmViewSubjects.map((scm, idx) => {
+                          const subId = resolveId(scm.id || scm._id || scm.subject?.id);
+                          const subName = scm.name || scm.subject?.name || "—";
+                          const subCode = scm.code || scm.subject?.code;
                           return (
-                            <TableRow key={subId}>
+                            <TableRow key={subId || idx}>
                               <TableCell className="py-2 px-3 text-sm font-medium">
-                                {scm.subject?.name || scm.name || "—"}
+                                {subName} {subCode ? `(${subCode})` : ""}
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm text-muted-foreground">
                                 {scm.creditHours != null && Number(scm.creditHours) > 0

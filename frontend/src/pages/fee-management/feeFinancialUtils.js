@@ -1366,7 +1366,11 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
   if (shouldShowBalanceRows) {
     const isAdvanceCovered = appliedAdvance > 0 && standardTotal === 0;
     const hasCashPayment = alreadyPaid > 0 && alreadyPaid !== appliedAdvance;
-    const paidDisplay = (isAdvanceCovered || (appliedAdvance > 0 && !hasCashPayment))
+    const isAdvanceOnly = appliedAdvance > 0 && !hasCashPayment;
+    const isCompletelyUnpaid = !hasCashPayment && appliedAdvance === 0;
+    const shouldShowPaidAmountRow = !isAdvanceOnly && !isCompletelyUnpaid;
+
+    const paidDisplay = (isAdvanceCovered || isAdvanceOnly)
       ? `${appliedAdvance.toLocaleString()} (Advance)`
       : (appliedAdvance > 0 && hasCashPayment)
         ? `${(alreadyPaid + appliedAdvance).toLocaleString()} (incl. ${appliedAdvance.toLocaleString()} Advance)`
@@ -1388,14 +1392,17 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
       </tr>` : '';
 
     const showRemainingRow = isActuallyFullyPaid || !/<tr[^>]*>[\s\S]*?Total Payable within due date/i.test(html);
-    const paidRowHtml = `
-      ${showTotalRowInPaid}
+    const showPaidAmountRow = shouldShowPaidAmountRow ? `
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;">
         <td>Paid Amount</td>
         <td>${paidDisplay}</td>
-      </tr>
+      </tr>` : '';
+
+    const paidRowHtml = `
+      ${showTotalRowInPaid}
+      ${showPaidAmountRow}
       ${showAdvanceGeneratedRow}
-      ${showRemainingRow ? `
+      ${showRemainingRow && remainingPayable > 0 && remainingPayable !== standardTotal ? `
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 700; border-top: 1px solid #cbd5e1;">
         <td>Remaining Balance</td>
         <td>${remainingPayable.toLocaleString()}</td>

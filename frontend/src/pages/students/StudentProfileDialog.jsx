@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { resolveFileUrl } from "@/lib/utils";
+import { resolveFileUrl, cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -55,6 +55,7 @@ import {
   Check,
   ChevronDown,
   RotateCcw,
+  Wallet,
 } from "lucide-react";
 import {
   getStudentFeeHistory,
@@ -1521,7 +1522,7 @@ export const StudentProfileDialog = ({
               onClick={() => setProfilePrintOpen(true)}
               disabled={detailsLoading && !studentDetails}
             >
-              <Printer className="w-4 h-4" /> Print / Save PDF
+              <Printer className="w-4 h-4" /> Print / Export Report
             </Button>
             {onEditStudent && (
               <Button
@@ -1720,8 +1721,48 @@ export const StudentProfileDialog = ({
           {/* ── FEES TAB (INSTALLMENT PLAN) ── */}
           <TabsContent
             value="fees"
-            className="space-y-8 animate-in fade-in duration-300"
+            className="space-y-6 animate-in fade-in duration-300"
           >
+            {/* Advance Credit Balance Banner */}
+            {(() => {
+              const advBal = Number(student?.advanceBalance ?? studentDetails?.advanceBalance ?? viewStudent?.advanceBalance ?? 0);
+              return (
+                <div className={cn(
+                  "flex items-center justify-between p-3.5 rounded-lg border transition-all",
+                  advBal > 0
+                    ? "bg-purple-50/70 border-purple-200 text-purple-900 shadow-2xs"
+                    : "bg-slate-50/70 border-slate-200 text-slate-700"
+                )}>
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "p-2 rounded-md",
+                      advBal > 0 ? "bg-purple-100 text-purple-700" : "bg-slate-200/80 text-slate-500"
+                    )}>
+                      <Wallet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Advance Payment Balance
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {advBal > 0
+                          ? "Available credit will automatically deduct from future challans."
+                          : "No advance payment balance currently available."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={cn(
+                      "text-base font-extrabold font-mono",
+                      advBal > 0 ? "text-purple-700" : "text-slate-600"
+                    )}>
+                      PKR {advBal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
                 {(() => {
                   const feeInsts =
                     (Array.isArray(studentDetails?.feeInstallments) && studentDetails.feeInstallments.length > 0)
@@ -1904,6 +1945,11 @@ export const StudentProfileDialog = ({
                                     const instClassId = (inst.classId?._id || inst.classId || "").toString();
                                     if (!chClassId || !instClassId || chClassId === instClassId) return true;
                                   }
+                                  if (ch.month && inst.month && ch.month.trim().toLowerCase() === inst.month.trim().toLowerCase()) {
+                                    const chClassId = (ch.installment?.classId?._id || ch.installment?.classId || ch.classId || "").toString();
+                                    const instClassId = (inst.classId?._id || inst.classId || "").toString();
+                                    if (!chClassId || !instClassId || chClassId === instClassId) return true;
+                                  }
                                   return false;
                                 });
 
@@ -1911,22 +1957,39 @@ export const StudentProfileDialog = ({
                                 const instStatus = (inst.status || "").toUpperCase();
                                 const rawStatus = challanStatus || instStatus || "PENDING";
                                 const planAmount = Number(inst.basePayable ?? inst.amount ?? matchingChallan?.basePayable ?? matchingChallan?.amount ?? matchingChallan?.totalAmount ?? 0);
-                                const paidAmount = Number(matchingChallan?.paidAmount ?? inst.paidAmount ?? 0);
+
+                                const advApplied = Number(matchingChallan?.advanceApplied || matchingChallan?.advanceAmount || inst.advanceApplied || 0);
+                                const directPaid = Number(
+                                  matchingChallan?.directPaidAmount != null
+                                    ? matchingChallan.directPaidAmount
+                                    : (matchingChallan?.paidAmount != null && Number(matchingChallan.paidAmount) !== advApplied
+                                        ? matchingChallan.paidAmount
+                                        : (inst.paidAmount ?? 0))
+                                );
+                                const advancePaid = advApplied;
+                                const arrearsSettled = Number(
+                                  matchingChallan?.settledViaArrearsAmount ?? matchingChallan?.settledAmount ?? inst.settledViaArrearsAmount ?? 0
+                                );
+                                const totalPaid = directPaid + advancePaid + arrearsSettled;
                                 const discountAmount = Number(matchingChallan?.discount ?? matchingChallan?.discountAmount ?? inst.discount ?? 0);
 
                                 let status = "UNPAID";
                                 if (
                                   challanStatus === "PAID" ||
                                   instStatus === "PAID" ||
-                                  (planAmount > 0 && paidAmount + discountAmount >= planAmount)
+                                  (planAmount > 0 && totalPaid + discountAmount >= planAmount)
                                 ) {
                                   status = "PAID";
-                                } else if (challanStatus === "SETTLED" || instStatus === "SETTLED") {
+                                } else if (
+                                  challanStatus === "SETTLED" ||
+                                  instStatus === "SETTLED" ||
+                                  (arrearsSettled > 0 && totalPaid + discountAmount >= planAmount)
+                                ) {
                                   status = "SETTLED";
                                 } else if (
                                   challanStatus === "PARTIAL" ||
                                   instStatus === "PARTIAL" ||
-                                  (paidAmount > 0 && paidAmount + discountAmount < planAmount)
+                                  (totalPaid > 0 && totalPaid + discountAmount < planAmount)
                                 ) {
                                   status = "PARTIAL";
                                 } else if (rawStatus === "OVERDUE") {
@@ -1975,27 +2038,97 @@ export const StudentProfileDialog = ({
                                           <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
                                             PAID
                                           </Badge>
-                                          {discountAmount > 0 && (
+                                          {(advancePaid > 0 || arrearsSettled > 0) ? (
+                                            <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                              {directPaid > 0 && (
+                                                <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                  Direct: PKR {directPaid.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {advancePaid > 0 && (
+                                                <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
+                                                  Adv: PKR {advancePaid.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {arrearsSettled > 0 && (
+                                                <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                  Arrears: PKR {arrearsSettled.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {discountAmount > 0 && (
+                                                <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
+                                                  Disc: PKR {discountAmount.toLocaleString()}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ) : discountAmount > 0 ? (
                                             <span className="text-[10px] text-emerald-700 font-semibold font-mono">
-                                              Paid: PKR {paidAmount.toLocaleString()} (Disc: PKR {discountAmount.toLocaleString()})
+                                              Paid: PKR {totalPaid.toLocaleString()} (Disc: PKR {discountAmount.toLocaleString()})
                                             </span>
-                                          )}
+                                          ) : null}
                                         </div>
                                       )}
                                       {status === "SETTLED" && (
-                                        <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
-                                          SETTLED
-                                        </Badge>
+                                        <div className="flex flex-col items-end gap-0.5">
+                                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                            SETTLED
+                                          </Badge>
+                                          <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                            {directPaid > 0 && (
+                                              <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                Direct: PKR {directPaid.toLocaleString()}
+                                              </span>
+                                            )}
+                                            {arrearsSettled > 0 && (
+                                              <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                Rolled: PKR {arrearsSettled.toLocaleString()}
+                                              </span>
+                                            )}
+                                            {matchingChallan?.settledByChallanNo && (
+                                              <span className="text-[9px] text-muted-foreground font-mono">
+                                                (#{matchingChallan.settledByChallanNo})
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
                                       )}
                                       {status === "PARTIAL" && (
                                         <div className="flex flex-col items-end gap-0.5">
                                           <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 border border-orange-300 font-bold text-[10px] uppercase tracking-wide">
                                             PARTIAL
                                           </Badge>
-                                          <span className="text-[10px] text-orange-700 font-semibold font-mono">
-                                            Paid: PKR {paidAmount.toLocaleString()}
-                                            {discountAmount > 0 && ` (Disc: PKR ${discountAmount.toLocaleString()})`}
+                                          <span className="text-[10px] text-orange-700 font-bold font-mono">
+                                            Paid: PKR {totalPaid.toLocaleString()}
                                           </span>
+                                          {(advancePaid > 0 || arrearsSettled > 0) && (
+                                            <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                              {directPaid > 0 && (
+                                                <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                  Direct: PKR {directPaid.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {advancePaid > 0 && (
+                                                <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
+                                                  Adv: PKR {advancePaid.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {arrearsSettled > 0 && (
+                                                <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                  Arrears: PKR {arrearsSettled.toLocaleString()}
+                                                </span>
+                                              )}
+                                              {discountAmount > 0 && (
+                                                <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
+                                                  Disc: PKR {discountAmount.toLocaleString()}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {advancePaid === 0 && arrearsSettled === 0 && discountAmount > 0 && (
+                                            <span className="text-[9px] text-emerald-700 font-semibold font-mono">
+                                              (Disc: PKR {discountAmount.toLocaleString()})
+                                            </span>
+                                          )}
                                         </div>
                                       )}
                                       {status === "UNPAID" && (

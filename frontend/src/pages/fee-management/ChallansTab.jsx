@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { format } from "date-fns";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -109,6 +110,57 @@ import { PaymentDialog } from "./PaymentDialog";
 import { ChallanDetailsDialog } from "./ChallanDetailsDialog";
 import usePermissions from "@/hooks/usePermissions";
 
+const ChallanSkeletonRows = ({ count = 6 }) => (
+  <>
+    {Array.from({ length: count }).map((_, i) => (
+      <TableRow key={`challan-skeleton-${i}`} className="hover:bg-transparent">
+        <TableCell className="py-2.5 px-2 sm:px-3 text-center w-10">
+          <Skeleton className="h-4 w-4 mx-auto rounded" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden sm:table-cell">
+          <Skeleton className="h-4 w-20" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3">
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-28 sm:w-36" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden md:table-cell">
+          <Skeleton className="h-4 w-16" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden lg:table-cell">
+          <Skeleton className="h-4 w-14" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden lg:table-cell">
+          <Skeleton className="h-4 w-12" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden xl:table-cell">
+          <Skeleton className="h-4 w-14" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden xl:table-cell">
+          <Skeleton className="h-4 w-14" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 bg-slate-50/50">
+          <Skeleton className="h-4 w-16" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden lg:table-cell">
+          <Skeleton className="h-4 w-16" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden md:table-cell">
+          <Skeleton className="h-4 w-16" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3">
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </TableCell>
+        <TableCell className="py-2.5 px-2 sm:px-3 hidden md:table-cell text-right">
+          <Skeleton className="h-8 w-8 rounded-md ml-auto" />
+        </TableCell>
+      </TableRow>
+    ))}
+  </>
+);
+
 export const ChallansTab = ({
   feeHeads: propFeeHeads = [],
   programs = [],
@@ -134,9 +186,8 @@ export const ChallansTab = ({
   const [selectedSection, setSelectedSection] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState("");
-  const [page, setPage] = useState(1);
-  const [limit] = useState(10);
-  const [challanMeta, setChallanMeta] = useState(null);
+  const [limit] = useState(20);
+  const setPage = () => {};
 
   // Sync session filter with activeSessionId when loaded
   const sessionInitRef = useRef(false);
@@ -235,10 +286,29 @@ export const ChallansTab = ({
   const totalReceived = installmentSummary.totalRevenue ?? installmentSummary.totalCollected ?? 0;
   const totalPending = installmentSummary.totalOutstanding ?? installmentSummary.totalPending ?? 0;
 
-  // Main Challans Query
-  const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
-    queryKey: ['feeChallans', challanSearch, challanFilter, challanSessionFilter, selectedInstallment, selectedMonth, selectedProgram, selectedClass, selectedSection, page, limit],
-    queryFn: ({ signal }) => {
+  // Main Challans Query (Infinite Scroll)
+  const scrollSentinelRef = useRef(null);
+
+  const {
+    data: feeChallansData,
+    isLoading: isChallansLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: [
+      'feeChallans',
+      challanSearch,
+      challanFilter,
+      challanSessionFilter,
+      selectedInstallment,
+      selectedMonth,
+      selectedProgram,
+      selectedClass,
+      selectedSection,
+      limit,
+    ],
+    queryFn: ({ pageParam = 1, signal }) => {
       let monthName = "";
       let yr = "";
       if (selectedMonth) {
@@ -258,18 +328,52 @@ export const ChallansTab = ({
         installmentNumber: selectedInstallment !== "all" ? selectedInstallment : undefined,
         month: monthName || undefined,
         year: yr || undefined,
-        page,
+        page: pageParam,
         limit,
         type: 'INSTALLMENT',
       }, { signal });
     },
-    keepPreviousData: true,
+    getNextPageParam: (lastPage) => {
+      const currentPage = Number(lastPage?.meta?.page || 1);
+      const total = Number(lastPage?.meta?.total || 0);
+      const limitVal = Number(lastPage?.meta?.limit || limit || 20);
+      const lastPageNum = Number(lastPage?.meta?.lastPage || (total > 0 ? Math.ceil(total / limitVal) : 1));
+      return currentPage < lastPageNum ? currentPage + 1 : undefined;
+    },
+    initialPageParam: 1,
   });
 
-  const rawChallansList = Array.isArray(feeChallansData)
-    ? feeChallansData
-    : (Array.isArray(feeChallansData?.data) ? feeChallansData.data : []);
-  const feeChallans = rawChallansList.map(normalizeChallan);
+  const rawChallansList = useMemo(() => {
+    if (!feeChallansData?.pages) return [];
+    return feeChallansData.pages.flatMap((p) =>
+      Array.isArray(p?.data) ? p.data : (Array.isArray(p) ? p : [])
+    );
+  }, [feeChallansData]);
+
+  const feeChallans = useMemo(() => {
+    return rawChallansList.map(normalizeChallan);
+  }, [rawChallansList]);
+
+  const challanMeta = useMemo(() => {
+    const firstPage = feeChallansData?.pages?.[0];
+    const lastPage = feeChallansData?.pages?.[feeChallansData.pages.length - 1];
+    return lastPage?.meta || firstPage?.meta || { total: feeChallans.length };
+  }, [feeChallansData, feeChallans.length]);
+
+  useEffect(() => {
+    const el = scrollSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Visible challan IDs on current page
   const visibleChallanIds = useMemo(() => {
@@ -289,7 +393,7 @@ export const ChallansTab = ({
     }
   }, [isSomeVisibleSelected]);
 
-  // Clear selection when search/filters/page change
+  // Clear selection when search/filters change
   useEffect(() => {
     setSelectedChallanIds([]);
   }, [
@@ -301,7 +405,6 @@ export const ChallansTab = ({
     selectedProgram,
     selectedClass,
     selectedSection,
-    page,
   ]);
 
   const handleSelectAll = (checked) => {
@@ -317,10 +420,6 @@ export const ChallansTab = ({
       prev.includes(challanId) ? prev.filter((id) => id !== challanId) : [...prev, challanId]
     );
   };
-
-  useEffect(() => {
-    if (feeChallansData?.meta) setChallanMeta(feeChallansData.meta);
-  }, [feeChallansData]);
 
   // Generate Challans Dialog State
   const [generateForm, setGenerateForm] = useState({
@@ -1702,7 +1801,7 @@ export const ChallansTab = ({
               </TableHeader>
               <TableBody>
                 {isChallansLoading ? (
-                  <TableRow><TableCell colSpan={13} className="text-center py-8">Loading challans...</TableCell></TableRow>
+                  <ChallanSkeletonRows count={8} />
                 ) : feeChallans.length === 0 ? (
                   <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground italic">No challans found.</TableCell></TableRow>
                 ) : feeChallans.map((challan, idx) => {
@@ -2270,40 +2369,36 @@ export const ChallansTab = ({
                     </TableRow>
                   );
                 })}
-                {!isChallansLoading && feeChallans.length === 0 && (
-                  <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground">No fee challans found.</TableCell></TableRow>
-                )}
+                {isFetchingNextPage && <ChallanSkeletonRows count={3} />}
               </TableBody>
             </Table>
           </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between mt-4">
-            <div className="text-sm text-muted-foreground">
-              Showing {feeChallans.length} of {challanMeta?.total || 0} challans
+          {/* Infinite Scroll Sentinel & Footer */}
+          {!isChallansLoading && (
+            <div ref={scrollSentinelRef} className="py-4 flex flex-col items-center justify-center gap-2 border-t mt-4">
+              {isFetchingNextPage && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span>Loading more challans...</span>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                Showing {feeChallans.length} of {challanMeta?.total || feeChallans.length} challans
+                {!hasNextPage && feeChallans.length > 0 && " • All records loaded"}
+              </div>
+              {hasNextPage && !isFetchingNextPage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fetchNextPage()}
+                  className="text-xs text-muted-foreground hover:text-foreground h-7 px-3"
+                >
+                  Load more
+                </Button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1 || isChallansLoading}
-              >
-                Previous
-              </Button>
-              <span className="text-sm">
-                Page {page} of {challanMeta?.lastPage || 1}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage(p => p + 1)}
-                disabled={page >= (challanMeta?.lastPage || 1) || isChallansLoading}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 

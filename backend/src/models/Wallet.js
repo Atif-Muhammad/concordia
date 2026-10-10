@@ -5,7 +5,7 @@ const WalletSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   type: {
     type: String,
-    enum: ['BANK', 'DIGITAL_WALLET', 'CASH'],
+    enum: ['BANK', 'DIGITAL_WALLET', 'CASH', 'CARD'],
     required: true,
   },
   // Bank fields

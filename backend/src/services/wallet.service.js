@@ -62,6 +62,7 @@ class WalletService {
       bankBalance: 0,
       digitalWalletBalance: 0,
       cashBalance: 0,
+      cardBalance: 0,
       totalWallets: wallets.length,
       activeWallets: 0,
     };
@@ -74,6 +75,7 @@ class WalletService {
         if (w.type === 'BANK') stats.bankBalance += bal;
         else if (w.type === 'DIGITAL_WALLET') stats.digitalWalletBalance += bal;
         else if (w.type === 'CASH') stats.cashBalance += bal;
+        else if (w.type === 'CARD') stats.cardBalance = (stats.cardBalance || 0) + bal;
       }
     });
 

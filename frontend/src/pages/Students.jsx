@@ -221,7 +221,7 @@ const Students = () => {
         limit: 0,
         fields: "fName lName fatherOrguardian parentCNIC rollNumber",
       }),
-    enabled: formOpen,
+    enabled: false,
     staleTime: 60 * 1000,
   });
 
@@ -668,61 +668,69 @@ const Students = () => {
         />
 
         {/* Student Profile Dialog */}
-        <StudentProfileDialog
-          open={viewOpen}
-          onOpenChange={setViewOpen}
-          viewStudent={viewStudent}
-          onEditStudent={openEdit}
-          programData={programData}
-          classesData={classesData}
-          sectionsData={sectionsData}
-          academicSessions={academicSessions}
-        />
+        {viewOpen && (
+          <StudentProfileDialog
+            open={viewOpen}
+            onOpenChange={setViewOpen}
+            viewStudent={viewStudent}
+            onEditStudent={openEdit}
+            programData={programData}
+            classesData={classesData}
+            sectionsData={sectionsData}
+            academicSessions={academicSessions}
+          />
+        )}
 
         {/* Student Profile Form Print / PDF Preview Dialog */}
-        <StudentProfilePrintDialog
-          open={profilePrintOpen}
-          onOpenChange={setProfilePrintOpen}
-          student={profilePrintStudent}
-          programData={programData}
-          classesData={classesData}
-          sectionsData={sectionsData}
-          academicSessions={academicSessions}
-          isNewlyCreated={isNewlyCreatedProfile}
-        />
+        {profilePrintOpen && (
+          <StudentProfilePrintDialog
+            open={profilePrintOpen}
+            onOpenChange={setProfilePrintOpen}
+            student={profilePrintStudent}
+            programData={programData}
+            classesData={classesData}
+            sectionsData={sectionsData}
+            academicSessions={academicSessions}
+            isNewlyCreated={isNewlyCreatedProfile}
+          />
+        )}
 
         {/* Student Promotion / Demotion / Rejoin Dialog */}
-        <StudentPromotionDialog
-          open={promoteOpen}
-          onOpenChange={setPromoteOpen}
-          programData={programData}
-          classesData={classesData}
-          sectionsData={sectionsData}
-          academicSessions={academicSessions}
-          initialAction={promotionDialogConfig.initialAction}
-          initialSelectedIds={promotionDialogConfig.initialSelectedIds}
-          initialRejoinDetails={promotionDialogConfig.initialRejoinDetails}
-          initialSessionId={promotionDialogConfig.initialSessionId}
-          onSubmitPromotion={(payload) => bulkPromotionMut.mutateAsync(payload)}
-          isSubmitting={bulkPromotionMut.isPending}
-        />
+        {promoteOpen && (
+          <StudentPromotionDialog
+            open={promoteOpen}
+            onOpenChange={setPromoteOpen}
+            programData={programData}
+            classesData={classesData}
+            sectionsData={sectionsData}
+            academicSessions={academicSessions}
+            initialAction={promotionDialogConfig.initialAction}
+            initialSelectedIds={promotionDialogConfig.initialSelectedIds}
+            initialRejoinDetails={promotionDialogConfig.initialRejoinDetails}
+            initialSessionId={promotionDialogConfig.initialSessionId}
+            onSubmitPromotion={(payload) => bulkPromotionMut.mutateAsync(payload)}
+            isSubmitting={bulkPromotionMut.isPending}
+          />
+        )}
 
         {/* Student ID Card Dialog */}
-        <StudentIdCardDialog
-          open={idCardOpen}
-          onOpenChange={setIdCardOpen}
-          student={idCardStudent}
-          academicPath={
-            idCardStudent
-              ? getStudentAcademicPath(
-                  idCardStudent,
-                  programData,
-                  classesData,
-                  sectionsData
-                )
-              : "-"
-          }
-        />
+        {idCardOpen && (
+          <StudentIdCardDialog
+            open={idCardOpen}
+            onOpenChange={setIdCardOpen}
+            student={idCardStudent}
+            academicPath={
+              idCardStudent
+                ? getStudentAcademicPath(
+                    idCardStudent,
+                    programData,
+                    classesData,
+                    sectionsData
+                  )
+                : "-"
+            }
+          />
+        )}
 
         {/* Delete Confirmation Alert */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

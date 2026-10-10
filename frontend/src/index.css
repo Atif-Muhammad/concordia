@@ -118,12 +118,12 @@ All colors MUST be HSL.
 
 @layer base {
   html {
-    font-size: 12px; /* Scale down entire UI — 1rem = 12px instead of 16px */
+    font-size: 11.5px; /* Scale down entire UI for compact enterprise density */
   }
 
   @media (min-width: 1024px) {
     html {
-      font-size: 12.5px;
+      font-size: 12px;
     }
   }
 
@@ -133,6 +133,73 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Sidebar text size isolation - ignore sidebar for font reduction */
+  aside {
+    font-size: 12px;
+  }
+  aside .text-xs {
+    font-size: 12px;
+  }
+
+  /* App-wide compact typography (excluding sidebar) */
+  main {
+    font-size: 0.75rem;
+  }
+
+  main h1 {
+    font-size: 1.125rem;
+    line-height: 1.35;
+  }
+
+  main h1 > svg,
+  main h1 > .lucide {
+    width: 1.5rem !important;
+    height: 1.5rem !important;
+  }
+
+  main h2 {
+    font-size: 1rem;
+    line-height: 1.3;
+  }
+
+  main h3 {
+    font-size: 0.875rem;
+    line-height: 1.25;
+  }
+
+  /* Global compact tables & rows across entire app */
+  table {
+    font-size: 0.75rem;
+    border-collapse: separate;
+  }
+
+  table thead th,
+  table th {
+    font-size: 0.725rem !important;
+    font-weight: 600 !important;
+    height: 1.875rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    line-height: 1.2 !important;
+    white-space: nowrap;
+  }
+
+  table tbody td,
+  table td {
+    font-size: 0.75rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    line-height: 1.25 !important;
+  }
+
+  table tr {
+    height: auto;
   }
 
   /* Global custom scrollbar styling */

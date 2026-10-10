@@ -161,6 +161,9 @@ export const PaymentDialog = ({
       } else if (challanForm.paidBy === "Bank Account") {
         const bankWallet = ubl || activeWallets.find(w => w.type === "BANK");
         setSelectedWalletId(bankWallet ? (bankWallet._id || bankWallet.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
+      } else if (challanForm.paidBy === "Card") {
+        const cardWallet = activeWallets.find(w => w.type === "CARD") || activeWallets.find(w => /card/i.test(w.name)) || ubl || activeWallets.find(w => w.type === "BANK");
+        setSelectedWalletId(cardWallet ? (cardWallet._id || cardWallet.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
       } else {
         setSelectedWalletId(ubl ? (ubl._id || ubl.id).toString() : (activeWallets[0]._id || activeWallets[0].id).toString());
       }
@@ -578,6 +581,9 @@ export const PaymentDialog = ({
                     } else if (val === "Bank Account") {
                       const bankWallet = activeWallets.find(w => /United Bank Limited/i.test(w.name)) || activeWallets.find(w => w.type === "BANK");
                       if (bankWallet) setSelectedWalletId((bankWallet._id || bankWallet.id).toString());
+                    } else if (val === "Card") {
+                      const cardWallet = activeWallets.find(w => w.type === "CARD") || activeWallets.find(w => /card/i.test(w.name)) || activeWallets.find(w => /United Bank Limited/i.test(w.name)) || activeWallets.find(w => w.type === "BANK");
+                      if (cardWallet) setSelectedWalletId((cardWallet._id || cardWallet.id).toString());
                     }
                   }}
                 >
@@ -587,6 +593,7 @@ export const PaymentDialog = ({
                   <SelectContent>
                     <SelectItem value="Cash">Cash</SelectItem>
                     <SelectItem value="Bank Account">Bank Account</SelectItem>
+                    <SelectItem value="Card">Card</SelectItem>
                     <SelectItem value="JazzCash">JazzCash</SelectItem>
                     <SelectItem value="Easypaisa">Easypaisa</SelectItem>
                     <SelectItem value="Cheque">Cheque</SelectItem>

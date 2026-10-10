@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { resolveFileUrl } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -434,7 +435,6 @@ export const StudentsTableTab = ({
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <CardTitle>
               {status === "ACTIVE" ? "Active Students" : `${status.charAt(0) + status.slice(1).toLowerCase().replace('_', ' ')} Students`}
-              {loadingStudents && " (Loading...)"}
             </CardTitle>
           </div>
         </CardHeader>
@@ -453,7 +453,45 @@ export const StudentsTableTab = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {studentsData?.length === 0 ? (
+                {loadingStudents ? (
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-2.5 px-2 sm:px-3">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                          <div className="space-y-1.5 flex-1 min-w-0">
+                            <Skeleton className="h-4 w-28 sm:w-36" />
+                            <Skeleton className="h-3 w-20 md:hidden" />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2.5 px-2 sm:px-3 hidden sm:table-cell">
+                        <Skeleton className="h-4 w-16" />
+                      </TableCell>
+                      <TableCell className="py-2.5 px-2 sm:px-3 hidden md:table-cell">
+                        <Skeleton className="h-4 w-28" />
+                      </TableCell>
+                      <TableCell className="py-2.5 px-2 sm:px-3 hidden lg:table-cell">
+                        <Skeleton className="h-4 w-24" />
+                      </TableCell>
+                      <TableCell className="py-2.5 px-2 sm:px-3">
+                        <Skeleton className="h-4 w-28 sm:w-36" />
+                      </TableCell>
+                      <TableCell className="py-2.5 px-2 sm:px-3">
+                        <Skeleton className="h-5 w-16 rounded-full" />
+                      </TableCell>
+                      {status !== "GRADUATED" && (
+                        <TableCell className="py-2.5 px-2 sm:px-3 hidden md:table-cell text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Skeleton className="h-8 w-8 rounded-md" />
+                            <Skeleton className="h-8 w-8 rounded-md" />
+                            <Skeleton className="h-8 w-8 rounded-md" />
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))
+                ) : studentsData?.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={status !== "GRADUATED" ? 7 : 6} className="py-8 text-center">
                       <div className="flex flex-col items-center justify-center gap-2">

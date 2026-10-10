@@ -97,19 +97,49 @@ const formatReportDate = (dateValue) => {
   }
 };
 
+const formatReportMonth = (monthValue) => {
+  if (!monthValue) return "Current Month";
+  try {
+    const [y, m] = monthValue.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    if (isNaN(d.getTime())) return String(monthValue);
+    return d.toLocaleDateString("en-GB", {
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return String(monthValue);
+  }
+};
+
 export default function ClosingTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canCreate: canClose } = usePermissions("Finance", "closings");
 
   const todayDateStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const currentMonthStr = useMemo(() => todayDateStr.slice(0, 7), [todayDateStr]);
+  const [closingMode, setClosingMode] = useState("DAILY"); // "DAILY" | "MONTHLY"
   const [closingDate, setClosingDate] = useState(() => todayDateStr);
+  const [closingMonth, setClosingMonth] = useState(() => currentMonthStr);
   const [closingModalOpen, setClosingModalOpen] = useState(false);
   const [closingRemarks, setClosingRemarks] = useState("");
   const [closingTargetDate, setClosingTargetDate] = useState(() => todayDateStr);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null });
   const [showHistory, setShowHistory] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+
+  const monthlyRange = useMemo(() => {
+    if (!closingMonth) return { dateFrom: "", dateTo: "", monthName: "" };
+    const [yearStr, monthStr] = closingMonth.split("-");
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    const dateFrom = `${closingMonth}-01`;
+    const dateTo = `${closingMonth}-${String(lastDay).padStart(2, "0")}`;
+    const monthName = formatReportMonth(closingMonth);
+    return { dateFrom, dateTo, monthName };
+  }, [closingMonth]);
 
   // Expandable row state (fee, otherIncome, payroll, otherExpense)
   // Default to expanded so sub-tables are immediately visible directly beneath their respective parent rows
@@ -144,11 +174,22 @@ export default function ClosingTab() {
     isLoading: isDashboardLoading,
     isFetching: isDashboardFetching,
   } = useQuery({
-    queryKey: ["financeClosingDashboard", closingDate],
-    queryFn: () =>
-      getFinanceClosingDashboard({
+    queryKey: [
+      "financeClosingDashboard",
+      closingMode,
+      closingMode === "DAILY" ? closingDate : closingMonth,
+    ],
+    queryFn: () => {
+      if (closingMode === "MONTHLY") {
+        return getFinanceClosingDashboard({
+          dateFrom: monthlyRange.dateFrom,
+          dateTo: monthlyRange.dateTo,
+        });
+      }
+      return getFinanceClosingDashboard({
         date: closingDate || undefined,
-      }),
+      });
+    },
   });
 
   const isDataLoading = isDashboardLoading || isDashboardFetching;
@@ -176,11 +217,22 @@ export default function ClosingTab() {
     data: closingsHistory = [],
     isLoading: isHistoryLoading,
   } = useQuery({
-    queryKey: ["financeClosings", closingDate],
-    queryFn: () =>
-      getFinanceClosings({
+    queryKey: [
+      "financeClosings",
+      closingMode,
+      closingMode === "DAILY" ? closingDate : closingMonth,
+    ],
+    queryFn: () => {
+      if (closingMode === "MONTHLY") {
+        return getFinanceClosings({
+          dateFrom: monthlyRange.dateFrom,
+          dateTo: monthlyRange.dateTo,
+        });
+      }
+      return getFinanceClosings({
         date: closingDate || undefined,
-      }),
+      });
+    },
   });
 
   const {
@@ -329,21 +381,296 @@ export default function ClosingTab() {
 
   // Generate Print HTML matching the parent-nested table layout
   const generatePrintHtml = () => {
-    const formattedDate = formatReportDate(closingDate || todayDateStr);
+    const isDaily = closingMode === "DAILY";
+    const reportTitle = isDaily ? "Daily Income & Expense Report" : "Monthly Income & Expense Report";
+    const reportPeriodText = isDaily
+      ? `Report Date: ${formatReportDate(closingDate || todayDateStr)}`
+      : `Period: ${monthlyRange.monthName} (${formatReportDate(monthlyRange.dateFrom)} – ${formatReportDate(monthlyRange.dateTo)})`;
+
+    const hasFee = feeCollectionDetails.length > 0;
+    const hasOtherIncome = otherIncomeDetails.length > 0;
+    const hasIncome = hasFee || hasOtherIncome;
+
+    const hasPayroll = payrollDetails.length > 0;
+    const hasOtherExpense = otherExpenseDetails.length > 0;
+    const hasExpense = hasPayroll || hasOtherExpense;
+
+    let sectionIndex = 1;
+
+    // Income section HTML (hidden if no income data)
+    let incomeSectionHtml = "";
+    if (hasIncome) {
+      let incomeRowsHtml = "";
+      let sNoInc = 1;
+
+      if (hasFee) {
+        incomeRowsHtml += `
+          <tr class="parent-row">
+            <td class="text-center font-mono">${sNoInc++}</td>
+            <td>Student Fee Collections</td>
+            <td class="text-center font-mono">${feeCollectionDetails.length} Challans</td>
+            <td class="text-right font-mono font-bold" style="color: #000000;">
+              ${feeCollectionTotal.toLocaleString()}
+            </td>
+          </tr>
+          <tr class="child-row">
+            <td colspan="4">
+              <table class="nested-table">
+                <thead>
+                  <tr>
+                    <th style="width: 3.5%;" class="text-center">#</th>
+                    <th style="width: 9%;">Challan #</th>
+                    <th style="width: 30%;">Student Information (Name, Father, Roll #)</th>
+                    <th style="width: 6.5%;" class="text-right">Base</th>
+                    <th style="width: 6.5%;" class="text-right">Heads</th>
+                    <th style="width: 6%;" class="text-right">Late Fine</th>
+                    <th style="width: 7.5%;" class="text-right">Gross</th>
+                    <th style="width: 9%;" class="text-right font-bold">Paid (Rs.)</th>
+                    <th style="width: 10%;">Account</th>
+                    <th style="width: 12%;">Logged By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${feeCollectionDetails.map((c, idx) => `
+                    <tr>
+                      <td class="text-center font-mono">${idx + 1}</td>
+                      <td class="font-mono">${c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
+                      <td><strong>${c.studentName}</strong> (Father: ${c.fatherName} • Roll: ${c.rollNumber})</td>
+                      <td class="text-right font-mono">${Number(c.baseAmount || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono">${Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono">${Number(c.lateFeeFine || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono">${Number(c.totalAmount || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono font-bold">
+                        ${Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}
+                      </td>
+                      <td>${c.walletName || (Number(c.paidAmount || 0) > 0 ? "Cash in Hand" : "Non-Cash Settlement")}</td>
+                      <td>${c.loggedBy || "Super Admin"}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        `;
+      }
+
+      if (hasOtherIncome) {
+        incomeRowsHtml += `
+          <tr class="parent-row">
+            <td class="text-center font-mono">${sNoInc++}</td>
+            <td>Other Revenue &amp; Direct Receipts</td>
+            <td class="text-center font-mono">${otherIncomeDetails.length} Entries</td>
+            <td class="text-right font-mono font-bold" style="color: #000000;">
+              ${otherIncomeTotal.toLocaleString()}
+            </td>
+          </tr>
+          <tr class="child-row">
+            <td colspan="4">
+              <table class="nested-table">
+                <thead>
+                  <tr>
+                    <th style="width: 4%;" class="text-center">#</th>
+                    <th style="width: 15%;">Category</th>
+                    <th style="width: 31%;">Description / Remarks</th>
+                    <th style="width: 15%;">Source / Ref</th>
+                    <th style="width: 12%;">Account</th>
+                    <th style="width: 12%;">Logged By</th>
+                    <th style="width: 11%;" class="text-right">Amount (Rs.)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${otherIncomeDetails.map((inc, idx) => `
+                    <tr>
+                      <td class="text-center font-mono">${idx + 1}</td>
+                      <td><strong>${inc.category}</strong> ${inc.subCategory ? `(${inc.subCategory})` : ""}</td>
+                      <td>${inc.remarks || inc.title || "—"}</td>
+                      <td>${inc.source || "Direct Receipt"}</td>
+                      <td>${inc.walletName || "Cash in Hand"}</td>
+                      <td>${inc.loggedBy || "Super Admin"}</td>
+                      <td class="text-right font-mono font-bold">${Number(inc.amount || 0).toLocaleString()}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        `;
+      }
+
+      incomeRowsHtml += `
+        <tr class="total-row">
+          <td colspan="3" class="text-right uppercase">Total Income:</td>
+          <td class="text-right font-mono font-bold" style="color: #000000;">
+            Rs. ${totalIncome.toLocaleString()}
+          </td>
+        </tr>
+      `;
+
+      incomeSectionHtml = `
+        <div class="section-header">${sectionIndex++}. Income Details</div>
+        <table class="main-table">
+          <thead>
+            <tr>
+              <th style="width: 35px;" class="text-center">S.No</th>
+              <th>Income Sector / Particular</th>
+              <th style="width: 110px;" class="text-center">Records</th>
+              <th style="width: 130px;" class="text-right">Total Amount (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${incomeRowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Expense section HTML (hidden if no expense data)
+    let expenseSectionHtml = "";
+    if (hasExpense) {
+      let expenseRowsHtml = "";
+      let sNoExp = 1;
+
+      if (hasPayroll) {
+        expenseRowsHtml += `
+          <tr class="parent-row">
+            <td class="text-center font-mono">${sNoExp++}</td>
+            <td>Staff Payroll &amp; Salaries</td>
+            <td class="text-center font-mono">${payrollDetails.length} Staff</td>
+            <td class="text-right font-mono font-bold" style="color: #000000;">
+              ${payrollTotal.toLocaleString()}
+            </td>
+          </tr>
+          <tr class="child-row">
+            <td colspan="4">
+              <table class="nested-table">
+                <thead>
+                  <tr>
+                    <th style="width: 4%;" class="text-center">#</th>
+                    <th style="width: 32%;">Staff Details (Name, Father, ID &amp; Designation)</th>
+                    <th style="width: 10%;">Month</th>
+                    <th style="width: 8%;" class="text-right">Payable</th>
+                    <th style="width: 8%;" class="text-right">Deductions</th>
+                    <th style="width: 8%;" class="text-right">Allowances</th>
+                    <th style="width: 10%;" class="text-right">Net Paid</th>
+                    <th style="width: 10%;">Account</th>
+                    <th style="width: 10%;">Disbursed By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${payrollDetails.map((p, idx) => `
+                    <tr>
+                      <td class="text-center font-mono">${idx + 1}</td>
+                      <td><strong>${p.staffName}</strong> (Father: ${p.fatherName} • ID: ${p.employeeId} • ${p.designation})</td>
+                      <td>${p.month || "—"}</td>
+                      <td class="text-right font-mono">${Number(p.payable || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono">${Number(p.deductions || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono">${Number(p.allowance || 0).toLocaleString()}</td>
+                      <td class="text-right font-mono font-bold">${Number(p.totalAmount || 0).toLocaleString()}</td>
+                      <td>${p.walletName || "Cash in Hand"}</td>
+                      <td>${p.disbursedBy || "Admin"}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        `;
+      }
+
+      if (hasOtherExpense) {
+        expenseRowsHtml += `
+          <tr class="parent-row">
+            <td class="text-center font-mono">${sNoExp++}</td>
+            <td>Other Operating Expenses</td>
+            <td class="text-center font-mono">${otherExpenseDetails.length} Vouchers</td>
+            <td class="text-right font-mono font-bold" style="color: #000000;">
+              ${otherExpenseTotal.toLocaleString()}
+            </td>
+          </tr>
+          <tr class="child-row">
+            <td colspan="4">
+              <table class="nested-table">
+                <thead>
+                  <tr>
+                    <th style="width: 4%;" class="text-center">#</th>
+                    <th style="width: 15%;">Category</th>
+                    <th style="width: 28%;">Description / Purpose</th>
+                    <th style="width: 10%;">Voucher #</th>
+                    <th style="width: 13%;">Vendor / Payee</th>
+                    <th style="width: 10%;">Account</th>
+                    <th style="width: 10%;">Disbursed By</th>
+                    <th style="width: 10%;" class="text-right">Amount (Rs.)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${otherExpenseDetails.map((exp, idx) => `
+                    <tr>
+                      <td class="text-center font-mono">${idx + 1}</td>
+                      <td><strong>${exp.category}</strong> ${exp.subCategory ? `(${exp.subCategory})` : ""}</td>
+                      <td>${exp.remarks || exp.title || "—"}</td>
+                      <td class="font-mono">#${exp.voucherNo}</td>
+                      <td>${exp.vendor || "—"}</td>
+                      <td>${exp.walletName || "Cash in Hand"}</td>
+                      <td>${exp.disbursedBy || "Admin"}</td>
+                      <td class="text-right font-mono font-bold">${Number(exp.amount || 0).toLocaleString()}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        `;
+      }
+
+      expenseRowsHtml += `
+        <tr class="total-row">
+          <td colspan="3" class="text-right uppercase">Total Expenses:</td>
+          <td class="text-right font-mono font-bold" style="color: #000000;">
+            Rs. ${totalExpenses.toLocaleString()}
+          </td>
+        </tr>
+      `;
+
+      expenseSectionHtml = `
+        <div class="section-header" style="margin-top: 10px;">${sectionIndex++}. Expense Details</div>
+        <table class="main-table">
+          <thead>
+            <tr>
+              <th style="width: 35px;" class="text-center">S.No</th>
+              <th>Expense Sector / Particular</th>
+              <th style="width: 110px;" class="text-center">Records</th>
+              <th style="width: 130px;" class="text-right">Total Amount (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expenseRowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Wallets to display
+    const activeWallets = walletsDateBreakdown.filter(w =>
+      Number(w.dateInflow || 0) > 0 ||
+      Number(w.dateOutflow || 0) > 0 ||
+      Math.abs(Number(w.dateNetBalance || 0)) > 0 ||
+      Number(w.currentBalance || 0) > 0
+    );
+    const displayWallets = activeWallets.length > 0 ? activeWallets : walletsDateBreakdown;
 
     return `
       <!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Daily Income & Expense Report - Concordia College Peshawar</title>
+          <title>${reportTitle} - Concordia College Peshawar</title>
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
           <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,600;1,700&display=swap" rel="stylesheet">
           <style>
             @page {
               size: A4 portrait;
-              margin: 10mm 10mm;
+              margin: 12mm 12mm;
             }
             * {
               box-sizing: border-box;
@@ -352,24 +679,24 @@ export default function ClosingTab() {
             }
             body {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-              color: #0f172a;
+              color: #000000;
               margin: 0;
               padding: 0;
               background: #fff;
-              font-size: 10px;
+              font-size: 9.5px;
               line-height: 1.35;
             }
             .header-container {
               display: flex;
               align-items: center;
               justify-content: flex-start;
-              gap: 16px;
-              border-bottom: 2.5px solid #ea580c;
-              padding-bottom: 8px;
-              margin-bottom: 10px;
+              gap: 14px;
+              border-bottom: 2px solid #000000;
+              padding-bottom: 6px;
+              margin-bottom: 8px;
             }
             .logo {
-              height: 54px;
+              height: 48px;
               width: auto;
               object-fit: contain;
             }
@@ -378,92 +705,101 @@ export default function ClosingTab() {
               text-align: center;
             }
             .college-title {
-              font-size: 16px;
+              font-size: 15px;
               font-weight: 800;
-              letter-spacing: 1px;
-              color: #0f172a;
+              letter-spacing: 0.8px;
+              color: #000000;
               text-transform: uppercase;
               margin: 0;
             }
             .calligraphic-title {
               font-family: 'Playfair Display', Georgia, serif;
               font-style: italic;
-              font-size: 20px;
-              font-weight: 700;
-              color: #ea580c;
-              margin: 2px 0;
+              font-size: 19px;
+              font-weight: 800;
+              color: #000000;
+              margin: 1px 0;
             }
             .meta-line {
-              font-size: 10px;
-              color: #475569;
-              font-weight: 600;
+              font-size: 9.5px;
+              color: #000000;
+              font-weight: 700;
             }
             .section-header {
-              font-size: 11px;
+              font-size: 10.5px;
               font-weight: 800;
-              color: #0f172a;
-              margin: 12px 0 6px 0;
-              padding-bottom: 3px;
-              border-bottom: 2px solid #334155;
+              color: #000000;
+              margin: 10px 0 4px 0;
+              padding-bottom: 2px;
+              border-bottom: 1.5px solid #000000;
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
             table.main-table {
               width: 100%;
+              table-layout: fixed;
               border-collapse: collapse;
-              margin-bottom: 10px;
-              font-size: 9.5px;
-              border: 1.5px solid #334155;
+              margin-bottom: 8px;
+              font-size: 9px;
+              border: 1.5px solid #000000;
+              box-sizing: border-box;
             }
             table.main-table th, table.main-table td {
-              border: 1px solid #475569;
-              padding: 5px 6px;
+              border: 1px solid #000000;
+              padding: 4px 5px;
               text-align: left;
+              word-break: break-word;
+              overflow: hidden;
             }
             table.main-table th {
               background-color: #f1f5f9;
-              color: #0f172a;
-              font-weight: 700;
+              color: #000000;
+              font-weight: 800;
               text-transform: uppercase;
               font-size: 8.5px;
-              border: 1px solid #334155;
+              border: 1.5px solid #000000;
             }
             tr.parent-row {
               background-color: #f8fafc;
-              font-weight: 700;
+              font-weight: 800;
             }
             tr.parent-row td {
-              border: 1px solid #334155;
+              border: 1.5px solid #000000;
             }
             tr.child-row > td {
-              padding: 6px 8px 8px 12px !important;
+              padding: 0 !important;
               background-color: #ffffff;
-              border: 1px solid #475569;
+              border: 1.5px solid #000000;
             }
             table.nested-table {
               width: 100%;
+              table-layout: fixed;
               border-collapse: collapse;
-              margin: 2px 0;
-              font-size: 9px;
-              border: 1.5px solid #475569;
+              margin: 0;
+              font-size: 8.5px;
+              border: none;
+              box-sizing: border-box;
             }
             table.nested-table th, table.nested-table td {
-              border: 1px solid #64748b;
-              padding: 4px 6px;
+              border: 1px solid #000000;
+              padding: 3px 4px;
+              word-break: break-word;
+              overflow: hidden;
             }
             table.nested-table th {
               background-color: #f1f5f9;
-              color: #0f172a;
-              font-weight: 700;
-              font-size: 8.5px;
-              border: 1px solid #475569;
+              color: #000000;
+              font-weight: 800;
+              font-size: 8px;
+              border: 1px solid #000000;
             }
             .total-row {
               background-color: #f1f5f9;
               font-weight: 800;
             }
             .total-row td {
-              border: 1.5px solid #334155;
+              border: 1.5px solid #000000;
+              font-weight: 800;
             }
             .text-right {
               text-align: right;
@@ -474,55 +810,8 @@ export default function ClosingTab() {
             .font-mono {
               font-family: "Courier New", Courier, monospace;
             }
-            .summary-cards-container {
-              display: flex;
-              gap: 8px;
-              margin: 10px 0;
-            }
-            .summary-card {
-              flex: 1;
-              padding: 6px 8px;
-              border-radius: 4px;
-              border: 1.5px solid #475569;
-              background-color: #f8fafc;
-              text-align: center;
-            }
-            .summary-card-title {
-              font-size: 9px;
-              font-weight: 700;
-              text-transform: uppercase;
-              color: #475569;
-            }
-            .summary-card-amount {
-              font-family: "Courier New", Courier, monospace;
-              font-size: 14px;
+            .font-bold {
               font-weight: 800;
-              margin-top: 1px;
-              color: #0f172a;
-            }
-            .summary-card.income .summary-card-amount {
-              color: #047857;
-            }
-            .summary-card.expense .summary-card-amount {
-              color: #be123c;
-            }
-            .summary-card.net .summary-card-amount {
-              color: #c2410c;
-            }
-            .signatures {
-              margin-top: 25px;
-              display: flex;
-              justify-content: space-between;
-              padding-top: 14px;
-            }
-            .sig-line {
-              width: 140px;
-              text-align: center;
-              border-top: 1.5px solid #1e293b;
-              padding-top: 3px;
-              font-size: 9px;
-              font-weight: 600;
-              color: #334155;
             }
           </style>
         </head>
@@ -532,308 +821,45 @@ export default function ClosingTab() {
             <img src="/logo.png" alt="Concordia College" class="logo" />
             <div class="title-area">
               <div class="college-title">Concordia College Peshawar</div>
-              <div class="calligraphic-title">Daily Income &amp; Expense Report</div>
+              <div class="calligraphic-title">${reportTitle}</div>
               <div class="meta-line">
-                Session: ${activeSessionName} &nbsp;|&nbsp; Report Date: ${formattedDate}
+                Session: ${activeSessionName} &nbsp;|&nbsp; ${reportPeriodText}
               </div>
             </div>
-            <div style="width: 54px;"></div>
+            <div style="width: 48px;"></div>
           </div>
 
-          <!-- 1. Income Details Table (With nested sub-tables directly beneath each parent row) -->
-          <div class="section-header">1. Income Details</div>
-          <table class="main-table">
-            <thead>
-              <tr>
-                <th style="width: 35px;" class="text-center">S.No</th>
-                <th>Income Sector / Particular</th>
-                <th style="width: 110px;" class="text-center">Records</th>
-                <th style="width: 130px;" class="text-right">Total Amount (Rs.)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!-- Parent Row 1: Fee Collection -->
-              <tr class="parent-row">
-                <td class="text-center font-mono">1</td>
-                <td>Student Fee Collections</td>
-                <td class="text-center font-mono">${feeCollectionDetails.length} Challans</td>
-                <td class="text-right font-mono font-bold" style="color: #059669;">
-                  ${feeCollectionTotal.toLocaleString()}
-                </td>
-              </tr>
-              <!-- Child Nested Sub-table directly beneath Fee Collection -->
-              <tr class="child-row">
-                <td colspan="4">
-                  <table class="nested-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 25px;" class="text-center">#</th>
-                        <th style="width: 70px;">Challan #</th>
-                        <th>Student Information (Name, Father, Roll #)</th>
-                        <th style="width: 55px;" class="text-right">Base</th>
-                        <th style="width: 55px;" class="text-right">Heads</th>
-                        <th style="width: 50px;" class="text-right">Late Fine</th>
-                        <th style="width: 55px;" class="text-right">Gross</th>
-                        <th style="width: 65px;" class="text-right" style="color: #059669;">Paid (Rs.)</th>
-                        <th style="width: 80px;">Account</th>
-                        <th style="width: 85px;">Logged By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${
-                        feeCollectionDetails.length === 0
-                          ? `<tr><td colspan="10" class="text-center" style="color: #94a3b8; font-style: italic;">No fee collections recorded on this date.</td></tr>`
-                          : feeCollectionDetails
-                              .map(
-                                (c, idx) => `
-                            <tr>
-                              <td class="text-center font-mono">${idx + 1}</td>
-                              <td class="font-mono">${c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
-                              <td><strong>${c.studentName}</strong> (Father: ${c.fatherName} • Roll: ${c.rollNumber})</td>
-                              <td class="text-right font-mono">${Number(c.baseAmount || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono">${Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono">${Number(c.lateFeeFine || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono">${Number(c.totalAmount || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono font-bold" style="color: ${Number(c.paidAmount || 0) > 0 ? '#059669' : '#7c3aed'};">
-                                ${Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}
-                              </td>
-                              <td>${c.walletName || (Number(c.paidAmount || 0) > 0 ? "Cash in Hand" : "Non-Cash Settlement")}</td>
-                              <td>${c.loggedBy || "Super Admin"}</td>
-                            </tr>
-                          `
-                              )
-                              .join("")
-                      }
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
+          <!-- 1. Income Details Table (Omitted if empty) -->
+          ${incomeSectionHtml}
 
-              <!-- Parent Row 2: Other Revenue -->
-              <tr class="parent-row">
-                <td class="text-center font-mono">2</td>
-                <td>Other Revenue &amp; Direct Receipts</td>
-                <td class="text-center font-mono">${otherIncomeDetails.length} Entries</td>
-                <td class="text-right font-mono font-bold" style="color: #059669;">
-                  ${otherIncomeTotal.toLocaleString()}
-                </td>
-              </tr>
-              <!-- Child Nested Sub-table directly beneath Other Revenue -->
-              <tr class="child-row">
-                <td colspan="4">
-                  <table class="nested-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 25px;" class="text-center">#</th>
-                        <th style="width: 110px;">Category</th>
-                        <th>Description / Remarks</th>
-                        <th style="width: 110px;">Source / Ref</th>
-                        <th style="width: 85px;">Account</th>
-                        <th style="width: 85px;">Logged By</th>
-                        <th style="width: 75px;" class="text-right" style="color: #059669;">Amount (Rs.)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${
-                        otherIncomeDetails.length === 0
-                          ? `<tr><td colspan="7" class="text-center" style="color: #94a3b8; font-style: italic;">No other revenue recorded on this date.</td></tr>`
-                          : otherIncomeDetails
-                              .map(
-                                (inc, idx) => `
-                            <tr>
-                              <td class="text-center font-mono">${idx + 1}</td>
-                              <td><strong>${inc.category}</strong> ${inc.subCategory ? `(${inc.subCategory})` : ""}</td>
-                              <td>${inc.remarks || inc.title || "—"}</td>
-                              <td>${inc.source || "Direct Receipt"}</td>
-                              <td>${inc.walletName || "Cash in Hand"}</td>
-                              <td>${inc.loggedBy || "Super Admin"}</td>
-                              <td class="text-right font-mono font-bold" style="color: #059669;">${Number(inc.amount || 0).toLocaleString()}</td>
-                            </tr>
-                          `
-                              )
-                              .join("")
-                      }
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
+          <!-- 2. Expense Details Table (Omitted if empty) -->
+          ${expenseSectionHtml}
 
-              <!-- Total Income Row -->
-              <tr class="total-row">
-                <td colspan="3" class="text-right uppercase">Total Income:</td>
-                <td class="text-right font-mono font-bold" style="color: #059669;">
-                  Rs. ${totalIncome.toLocaleString()}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- 2. Expense Details Table (With nested sub-tables directly beneath each parent row) -->
-          <div class="section-header" style="margin-top: 12px;">2. Expense Details</div>
-          <table class="main-table">
-            <thead>
-              <tr>
-                <th style="width: 35px;" class="text-center">S.No</th>
-                <th>Expense Sector / Particular</th>
-                <th style="width: 110px;" class="text-center">Records</th>
-                <th style="width: 130px;" class="text-right">Total Amount (Rs.)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!-- Parent Row 1: Staff Payroll -->
-              <tr class="parent-row">
-                <td class="text-center font-mono">1</td>
-                <td>Staff Payroll &amp; Salaries</td>
-                <td class="text-center font-mono">${payrollDetails.length} Staff</td>
-                <td class="text-right font-mono font-bold" style="color: #e11d48;">
-                  ${payrollTotal.toLocaleString()}
-                </td>
-              </tr>
-              <!-- Child Nested Sub-table directly beneath Payroll -->
-              <tr class="child-row">
-                <td colspan="4">
-                  <table class="nested-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 25px;" class="text-center">#</th>
-                        <th>Staff Details (Name, Father, ID &amp; Designation)</th>
-                        <th style="width: 70px;">Month</th>
-                        <th style="width: 55px;" class="text-right">Payable</th>
-                        <th style="width: 55px;" class="text-right">Deductions</th>
-                        <th style="width: 55px;" class="text-right">Allowances</th>
-                        <th style="width: 65px;" class="text-right" style="color: #e11d48;">Net Paid</th>
-                        <th style="width: 80px;">Account</th>
-                        <th style="width: 85px;">Disbursed By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${
-                        payrollDetails.length === 0
-                          ? `<tr><td colspan="9" class="text-center" style="color: #94a3b8; font-style: italic;">No payroll disbursements recorded on this date.</td></tr>`
-                          : payrollDetails
-                              .map(
-                                (p, idx) => `
-                            <tr>
-                              <td class="text-center font-mono">${idx + 1}</td>
-                              <td><strong>${p.staffName}</strong> (Father: ${p.fatherName} • ID: ${p.employeeId} • ${p.designation})</td>
-                              <td>${p.month || "—"}</td>
-                              <td class="text-right font-mono">${Number(p.payable || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono">${Number(p.deductions || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono">${Number(p.allowance || 0).toLocaleString()}</td>
-                              <td class="text-right font-mono font-bold" style="color: #e11d48;">${Number(p.totalAmount || 0).toLocaleString()}</td>
-                              <td>${p.walletName || "Cash in Hand"}</td>
-                              <td>${p.disbursedBy || "Admin"}</td>
-                            </tr>
-                          `
-                              )
-                              .join("")
-                      }
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-
-              <!-- Parent Row 2: Other Operating Expenses -->
-              <tr class="parent-row">
-                <td class="text-center font-mono">2</td>
-                <td>Other Operating Expenses</td>
-                <td class="text-center font-mono">${otherExpenseDetails.length} Vouchers</td>
-                <td class="text-right font-mono font-bold" style="color: #e11d48;">
-                  ${otherExpenseTotal.toLocaleString()}
-                </td>
-              </tr>
-              <!-- Child Nested Sub-table directly beneath Other Expenses -->
-              <tr class="child-row">
-                <td colspan="4">
-                  <table class="nested-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 25px;" class="text-center">#</th>
-                        <th style="width: 110px;">Category</th>
-                        <th>Description / Purpose</th>
-                        <th style="width: 70px;">Voucher #</th>
-                        <th style="width: 100px;">Vendor / Payee</th>
-                        <th style="width: 80px;">Account</th>
-                        <th style="width: 85px;">Disbursed By</th>
-                        <th style="width: 70px;" class="text-right" style="color: #e11d48;">Amount (Rs.)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${
-                        otherExpenseDetails.length === 0
-                          ? `<tr><td colspan="8" class="text-center" style="color: #94a3b8; font-style: italic;">No operating expenses recorded on this date.</td></tr>`
-                          : otherExpenseDetails
-                              .map(
-                                (exp, idx) => `
-                            <tr>
-                              <td class="text-center font-mono">${idx + 1}</td>
-                              <td><strong>${exp.category}</strong> ${exp.subCategory ? `(${exp.subCategory})` : ""}</td>
-                              <td>${exp.remarks || exp.title || "—"}</td>
-                              <td class="font-mono">#${exp.voucherNo}</td>
-                              <td>${exp.vendor || "—"}</td>
-                              <td>${exp.walletName || "Cash in Hand"}</td>
-                              <td>${exp.disbursedBy || "Admin"}</td>
-                              <td class="text-right font-mono font-bold" style="color: #e11d48;">${Number(exp.amount || 0).toLocaleString()}</td>
-                            </tr>
-                          `
-                              )
-                              .join("")
-                      }
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-
-              <!-- Total Expenses Row -->
-              <tr class="total-row">
-                <td colspan="3" class="text-right uppercase">Total Expenses:</td>
-                <td class="text-right font-mono font-bold" style="color: #e11d48;">
-                  Rs. ${totalExpenses.toLocaleString()}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- 3. Financial Summary & Reconciliation -->
-          <div class="section-header" style="margin-top: 12px;">3. Financial Summary &amp; Treasury Reconciliation</div>
-          
-          <div class="summary-cards-container">
-            <div class="summary-card income">
-              <div class="summary-card-title">Total Income</div>
-              <div class="summary-card-amount">Rs. ${totalIncome.toLocaleString()}</div>
-            </div>
-            <div class="summary-card expense">
-              <div class="summary-card-title">Total Expenses</div>
-              <div class="summary-card-amount">Rs. ${totalExpenses.toLocaleString()}</div>
-            </div>
-            <div class="summary-card net">
-              <div class="summary-card-title">Cash in Hand / Net Holding</div>
-              <div class="summary-card-amount">Rs. ${netBalance.toLocaleString()}</div>
-            </div>
-          </div>
+          <!-- Financial Summary & Treasury Reconciliation -->
+          <div class="section-header" style="margin-top: 10px;">${sectionIndex}. Financial Summary &amp; Treasury Reconciliation</div>
 
           <!-- Wallets Holding Table -->
           <table class="main-table">
             <thead>
               <tr>
-                <th style="width: 30px;" class="text-center">S.No</th>
-                <th>Account / Wallet</th>
-                <th style="width: 80px;">Type</th>
-                <th style="width: 100px;" class="text-right">Date Inflow (+)</th>
-                <th style="width: 100px;" class="text-right">Date Outflow (-)</th>
-                <th style="width: 120px;" class="text-right">Date Net Holding</th>
+                <th style="width: 5%;" class="text-center">S.No</th>
+                <th style="width: 35%;">Account / Wallet</th>
+                <th style="width: 15%;">Type</th>
+                <th style="width: 15%;" class="text-right">Inflow (+)</th>
+                <th style="width: 15%;" class="text-right">Outflow (-)</th>
+                <th style="width: 15%;" class="text-right">Net Holding</th>
               </tr>
             </thead>
             <tbody>
-              ${walletsDateBreakdown
+              ${displayWallets
                 .map(
                   (w, idx) => `
                 <tr>
                   <td class="text-center font-mono">${idx + 1}</td>
                   <td><strong>${w.walletName}</strong> ${w.accountNumber ? `(#${w.accountNumber})` : ""}</td>
                   <td>${w.walletType}</td>
-                  <td class="text-right font-mono" style="color: #059669;">+${Number(w.dateInflow || 0).toLocaleString()}</td>
-                  <td class="text-right font-mono" style="color: #e11d48;">-${Number(w.dateOutflow || 0).toLocaleString()}</td>
+                  <td class="text-right font-mono">+${Number(w.dateInflow || 0).toLocaleString()}</td>
+                  <td class="text-right font-mono">-${Number(w.dateOutflow || 0).toLocaleString()}</td>
                   <td class="text-right font-mono font-bold">
                     ${w.dateNetBalance >= 0 ? "+" : ""}Rs. ${Number(w.dateNetBalance || 0).toLocaleString()}
                   </td>
@@ -843,19 +869,35 @@ export default function ClosingTab() {
                 .join("")}
               <tr class="total-row">
                 <td colspan="3" class="text-right uppercase">Reconciled Totals:</td>
-                <td class="text-right font-mono font-bold" style="color: #059669;">+Rs. ${walletsSumInflow.toLocaleString()}</td>
-                <td class="text-right font-mono font-bold" style="color: #e11d48;">-Rs. ${walletsSumOutflow.toLocaleString()}</td>
-                <td class="text-right font-mono font-bold" style="color: #ea580c;">Rs. ${walletsSumNet.toLocaleString()}</td>
+                <td class="text-right font-mono font-bold">+Rs. ${walletsSumInflow.toLocaleString()}</td>
+                <td class="text-right font-mono font-bold">-Rs. ${walletsSumOutflow.toLocaleString()}</td>
+                <td class="text-right font-mono font-bold">Rs. ${walletsSumNet.toLocaleString()}</td>
               </tr>
             </tbody>
           </table>
 
-          <!-- Signatures -->
-          <div class="signatures">
-            <div class="sig-line">Prepared By (Accountant)</div>
-            <div class="sig-line">Verified By (Finance Mgr)</div>
-            <div class="sig-line">Approved By (Principal)</div>
-          </div>
+          <!-- Signatures (Full-width 3 columns: Left, Center, Right) -->
+          <table style="width: 100%; border: none; margin-top: 40px; border-collapse: collapse;">
+            <tbody>
+              <tr>
+                <td style="width: 33.33%; text-align: left; border: none; vertical-align: top; padding: 0;">
+                  <div style="border-top: 1.5px solid #000000; width: 150px; text-align: center; padding-top: 4px; font-size: 8.5px; font-weight: 700; color: #000000;">
+                    Prepared By (Accountant)
+                  </div>
+                </td>
+                <td style="width: 33.33%; text-align: center; border: none; vertical-align: top; padding: 0;">
+                  <div style="border-top: 1.5px solid #000000; width: 150px; margin: 0 auto; text-align: center; padding-top: 4px; font-size: 8.5px; font-weight: 700; color: #000000;">
+                    Verified By (Finance Mgr)
+                  </div>
+                </td>
+                <td style="width: 33.33%; text-align: right; border: none; vertical-align: top; padding: 0;">
+                  <div style="border-top: 1.5px solid #000000; width: 150px; margin-left: auto; margin-right: 0; text-align: center; padding-top: 4px; font-size: 8.5px; font-weight: 700; color: #000000;">
+                    Approved By (Principal)
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </body>
       </html>
     `;
@@ -863,9 +905,12 @@ export default function ClosingTab() {
 
   const handlePrint = async () => {
     const html = generatePrintHtml();
+    const docTitle = closingMode === "DAILY"
+      ? `Daily Income & Expense Report - ${closingDate || todayDateStr}`
+      : `Monthly Income & Expense Report - ${monthlyRange.monthName || closingMonth}`;
     await openManagedPrintWindow({
       html,
-      title: `Daily Income & Expense Report - ${closingDate || todayDateStr}`,
+      title: docTitle,
       toast,
     });
   };
@@ -876,8 +921,8 @@ export default function ClosingTab() {
           1. TOP BRANDING & CONTROLS HEADER
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <Card className="border border-border/70 shadow-xs bg-card overflow-hidden">
-        <CardContent className="p-4 sm:p-5">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <CardContent className="p-4 sm:p-5 space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             {/* Left: Branding & Calligraphic Title */}
             <div className="flex items-center gap-3 sm:gap-4">
               <img
@@ -893,7 +938,7 @@ export default function ClosingTab() {
                   className="text-xl sm:text-2xl md:text-3xl font-serif italic text-primary font-bold tracking-tight leading-none"
                   style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
                 >
-                  Daily Income &amp; Expense Report
+                  {closingMode === "DAILY" ? "Daily Income & Expense Report" : "Monthly Income & Expense Report"}
                 </h1>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground pt-0.5">
                   <Badge variant="outline" className="text-[10px] sm:text-xs font-medium">
@@ -901,7 +946,9 @@ export default function ClosingTab() {
                   </Badge>
                   <span>•</span>
                   <span className="font-semibold text-foreground flex items-center gap-1.5">
-                    Report Date: {formatReportDate(closingDate || todayDateStr)}
+                    {closingMode === "DAILY"
+                      ? `Report Date: ${formatReportDate(closingDate || todayDateStr)}`
+                      : `Month: ${monthlyRange.monthName} (${formatReportDate(monthlyRange.dateFrom)} – ${formatReportDate(monthlyRange.dateTo)})`}
                     {isDataLoading && (
                       <Loader2 className="w-3 h-3 animate-spin text-primary inline-block" />
                     )}
@@ -915,41 +962,8 @@ export default function ClosingTab() {
               </div>
             </div>
 
-            {/* Right: Date Picker & Actions */}
-            <div className="flex flex-wrap items-center gap-2 self-start lg:self-center">
-              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-md border border-border">
-                <Calendar className="w-3.5 h-3.5 text-primary ml-1 shrink-0" />
-                <Input
-                  type="date"
-                  className="h-7 text-xs w-[135px] border-none bg-transparent shadow-none"
-                  value={closingDate}
-                  onChange={(e) => setClosingDate(e.target.value)}
-                />
-                {isDataLoading && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0 mr-1" />
-                )}
-                <Button
-                  variant={closingDate === todayDateStr ? "default" : "ghost"}
-                  size="sm"
-                  className="h-6 text-[11px] px-2"
-                  onClick={() => setClosingDate(todayDateStr)}
-                >
-                  Today
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[11px] px-2"
-                  onClick={() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() - 1);
-                    setClosingDate(d.toISOString().split("T")[0]);
-                  }}
-                >
-                  Yesterday
-                </Button>
-              </div>
-
+            {/* Right: Actions Group */}
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -965,7 +979,11 @@ export default function ClosingTab() {
                 <Button
                   size="sm"
                   onClick={() => {
-                    setClosingTargetDate(closingDate || todayDateStr);
+                    setClosingTargetDate(
+                      closingMode === "DAILY"
+                        ? (closingDate || todayDateStr)
+                        : (monthlyRange.dateTo || todayDateStr)
+                    );
                     setClosingModalOpen(true);
                   }}
                   className="h-8 text-xs font-semibold flex items-center gap-1.5 shadow-xs"
@@ -975,6 +993,106 @@ export default function ClosingTab() {
                 </Button>
               )}
             </div>
+          </div>
+
+          {/* Controls Toolbar: Scope Switcher & Date Filter */}
+          <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Left: Scope Mode Switch */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Scope:</span>
+              <div className="inline-flex items-center rounded-lg border bg-muted/40 p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={closingMode === "DAILY" ? "default" : "ghost"}
+                  className="h-7 text-xs font-semibold px-3"
+                  onClick={() => setClosingMode("DAILY")}
+                >
+                  Daily Closing
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={closingMode === "MONTHLY" ? "default" : "ghost"}
+                  className="h-7 text-xs font-semibold px-3"
+                  onClick={() => setClosingMode("MONTHLY")}
+                >
+                  Monthly Closing
+                </Button>
+              </div>
+            </div>
+
+            {/* Right: Date / Month Picker & Presets */}
+            {closingMode === "DAILY" ? (
+              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-lg border border-border">
+                <Calendar className="w-3.5 h-3.5 text-primary ml-1 shrink-0" />
+                <Input
+                  type="date"
+                  className="h-7 text-xs w-[130px] border-none bg-transparent shadow-none"
+                  value={closingDate}
+                  onChange={(e) => setClosingDate(e.target.value)}
+                />
+                {isDataLoading && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0 mr-1" />
+                )}
+                <div className="h-4 w-px bg-border mx-0.5" />
+                <Button
+                  variant={closingDate === todayDateStr ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 text-[11px] px-2.5"
+                  onClick={() => setClosingDate(todayDateStr)}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[11px] px-2.5"
+                  onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() - 1);
+                    setClosingDate(d.toISOString().split("T")[0]);
+                  }}
+                >
+                  Yesterday
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-lg border border-border">
+                <Calendar className="w-3.5 h-3.5 text-primary ml-1 shrink-0" />
+                <Input
+                  type="month"
+                  className="h-7 text-xs w-[130px] border-none bg-transparent shadow-none"
+                  value={closingMonth}
+                  onChange={(e) => setClosingMonth(e.target.value)}
+                />
+                {isDataLoading && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0 mr-1" />
+                )}
+                <div className="h-4 w-px bg-border mx-0.5" />
+                <Button
+                  variant={closingMonth === currentMonthStr ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 text-[11px] px-2.5"
+                  onClick={() => setClosingMonth(currentMonthStr)}
+                >
+                  This Month
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[11px] px-2.5"
+                  onClick={() => {
+                    const now = new Date();
+                    now.setMonth(now.getMonth() - 1);
+                    const prevMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+                    setClosingMonth(prevMonth);
+                  }}
+                >
+                  Last Month
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1976,7 +2094,9 @@ export default function ClosingTab() {
             <div className="flex items-center justify-between pr-6">
               <DialogTitle className="text-base sm:text-lg flex items-center gap-2 font-bold">
                 <Printer className="w-5 h-5 text-primary" />
-                Print Preview: Daily Income &amp; Expense Report
+                {closingMode === "DAILY"
+                  ? "Print Preview: Daily Income & Expense Report"
+                  : "Print Preview: Monthly Income & Expense Report"}
               </DialogTitle>
               <Button size="sm" onClick={handlePrint} className="gap-1.5">
                 <Printer className="w-4 h-4" />
@@ -1989,342 +2109,361 @@ export default function ClosingTab() {
           </DialogHeader>
 
           {/* Printable Document Box */}
-          <div className="p-4 sm:p-6 bg-white text-slate-900 border rounded-lg shadow-sm space-y-4 my-2 text-xs">
+          <div className="p-4 sm:p-6 bg-white text-black border rounded-lg shadow-sm space-y-4 my-2 text-xs">
             {/* Header with Branding */}
-            <div className="flex items-center justify-between border-b-2 border-orange-600 pb-3 gap-4">
+            <div className="flex items-center justify-between border-b-2 border-black pb-3 gap-4">
               <img src="/logo.png" alt="Concordia College" className="h-14 w-auto object-contain" />
               <div className="text-center flex-1">
-                <div className="text-base font-extrabold tracking-wide uppercase text-slate-900">
+                <div className="text-base font-extrabold tracking-wide uppercase text-black">
                   Concordia College Peshawar
                 </div>
                 <div
-                  className="text-2xl font-serif italic font-bold text-orange-600 my-0.5"
+                  className="text-2xl font-serif italic font-bold text-black my-0.5"
                   style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
                 >
-                  Daily Income &amp; Expense Report
+                  {closingMode === "DAILY" ? "Daily Income & Expense Report" : "Monthly Income & Expense Report"}
                 </div>
-                <div className="text-xs text-slate-600 font-semibold">
-                  Session: {activeSessionName} &nbsp;|&nbsp; Report Date: {formatReportDate(closingDate || todayDateStr)}
+                <div className="text-xs text-black font-semibold">
+                  Session: {activeSessionName} &nbsp;|&nbsp;{" "}
+                  {closingMode === "DAILY"
+                    ? `Report Date: ${formatReportDate(closingDate || todayDateStr)}`
+                    : `Period: ${monthlyRange.monthName} (${formatReportDate(monthlyRange.dateFrom)} – ${formatReportDate(monthlyRange.dateTo)})`}
                 </div>
               </div>
               <div className="w-14" />
             </div>
 
-            {/* Income Section with Nested Child Tables */}
-            <div className="space-y-2">
-              <div className="font-bold text-xs uppercase tracking-wider text-slate-900 border-b pb-1">
-                1. Income Details
-              </div>
+            {/* Income Section with Nested Child Tables (Omitted if empty) */}
+            {(() => {
+              const hasFee = feeCollectionDetails.length > 0;
+              const hasOtherIncome = otherIncomeDetails.length > 0;
+              if (!hasFee && !hasOtherIncome) return null;
 
-              <table className="w-full border-collapse border border-slate-600 text-xs">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800 text-[11px]">
-                    <th className="border border-slate-500 p-1.5 text-center w-10">S.No</th>
-                    <th className="border border-slate-500 p-1.5 text-left">Income Sector / Particular</th>
-                    <th className="border border-slate-500 p-1.5 text-center w-28">Records</th>
-                    <th className="border border-slate-500 p-1.5 text-right w-36">Total Amount (Rs.)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Parent Row 1 */}
-                  <tr className="bg-slate-50 font-semibold">
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">1</td>
-                    <td className="border border-slate-500 p-1.5"><strong>Student Fee Collections</strong></td>
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">{feeCollectionDetails.length} Challans</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono font-bold text-emerald-700">
-                      {feeCollectionTotal.toLocaleString()}
-                    </td>
-                  </tr>
-                  {/* Child Row 1 */}
-                  <tr>
-                    <td colSpan={4} className="border border-slate-500 p-2 bg-white">
-                      <table className="w-full border-collapse border border-slate-500 text-[10px]">
-                        <thead>
-                          <tr className="bg-slate-100">
-                            <th className="border border-slate-400 p-1 text-center w-8">#</th>
-                            <th className="border border-slate-400 p-1 text-left w-20">Challan #</th>
-                            <th className="border border-slate-400 p-1 text-left">Student Details</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Base (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Heads (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Late Fee</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Gross</th>
-                            <th className="border border-slate-400 p-1 text-right w-20 text-emerald-700 font-bold">Paid (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Account</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Logged By</th>
+              let sNoInc = 1;
+              return (
+                <div className="space-y-2">
+                  <div className="font-bold text-xs uppercase tracking-wider text-black border-b border-black pb-1">
+                    1. Income Details
+                  </div>
+
+                  <table className="w-full table-fixed border-collapse border border-black text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-black text-[11px]">
+                        <th className="border border-black p-1.5 text-center w-10">S.No</th>
+                        <th className="border border-black p-1.5 text-left">Income Sector / Particular</th>
+                        <th className="border border-black p-1.5 text-center w-28">Records</th>
+                        <th className="border border-black p-1.5 text-right w-36">Total Amount (Rs.)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Parent Row 1: Fee Collection */}
+                      {hasFee && (
+                        <>
+                          <tr className="bg-slate-50 font-semibold">
+                            <td className="border border-black p-1.5 text-center font-mono">{sNoInc++}</td>
+                            <td className="border border-black p-1.5"><strong>Student Fee Collections</strong></td>
+                            <td className="border border-black p-1.5 text-center font-mono">{feeCollectionDetails.length} Challans</td>
+                            <td className="border border-black p-1.5 text-right font-mono font-bold text-black">
+                              {feeCollectionTotal.toLocaleString()}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {feeCollectionDetails.length === 0 ? (
-                            <tr><td colSpan={10} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No fee collections recorded.</td></tr>
-                          ) : (
-                            feeCollectionDetails.map((c, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-slate-400 p-1 text-center font-mono">{idx + 1}</td>
-                                <td className="border border-slate-400 p-1 font-mono">{c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
-                                <td className="border border-slate-400 p-1"><strong>{c.studentName}</strong> <span className="text-slate-600">(Father: {c.fatherName || "—"}, Roll: {c.rollNumber || "—"})</span></td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.baseAmount || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.lateFeeFine || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(c.totalAmount || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-emerald-700">{Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{c.paymentMode === "Advance Credit" || c.receiptType === "ADVANCE_SETTLEMENT" ? "Advance Credit" : (c.paymentMode === "Arrears Transfer" || c.receiptType === "ARREARS_SETTLEMENT" ? "Arrears Settlement" : (c.walletName || "Cash in Hand"))}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{c.loggedBy || "Super Admin"}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
-
-                  {/* Parent Row 2 */}
-                  <tr className="bg-slate-50 font-semibold">
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">2</td>
-                    <td className="border border-slate-500 p-1.5"><strong>Other Revenue &amp; Direct Receipts</strong></td>
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">{otherIncomeDetails.length} Entries</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono font-bold text-emerald-700">
-                      {otherIncomeTotal.toLocaleString()}
-                    </td>
-                  </tr>
-                  {/* Child Row 2 */}
-                  <tr>
-                    <td colSpan={4} className="border border-slate-500 p-2 bg-white">
-                      <table className="w-full border-collapse border border-slate-500 text-[10px]">
-                        <thead>
-                          <tr className="bg-slate-100">
-                            <th className="border border-slate-400 p-1 text-center w-8">#</th>
-                            <th className="border border-slate-400 p-1 text-left w-28">Category</th>
-                            <th className="border border-slate-400 p-1 text-left">Description / Remarks</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Source / Ref</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Account</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Logged By</th>
-                            <th className="border border-slate-400 p-1 text-right w-20 text-emerald-700 font-bold">Amount (Rs.)</th>
+                          <tr>
+                            <td colSpan={4} className="border border-black p-0 bg-white">
+                              <table className="w-full table-fixed border-collapse text-[10px]">
+                                <thead>
+                                  <tr className="bg-slate-100">
+                                    <th className="border border-black p-1 text-center w-[3.5%]">#</th>
+                                    <th className="border border-black p-1 text-left w-[9%]">Challan #</th>
+                                    <th className="border border-black p-1 text-left w-[30%]">Student Details</th>
+                                    <th className="border border-black p-1 text-right w-[6.5%]">Base</th>
+                                    <th className="border border-black p-1 text-right w-[6.5%]">Heads</th>
+                                    <th className="border border-black p-1 text-right w-[6%]">Late Fine</th>
+                                    <th className="border border-black p-1 text-right w-[7.5%]">Gross</th>
+                                    <th className="border border-black p-1 text-right w-[9%] font-bold">Paid (Rs.)</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Account</th>
+                                    <th className="border border-black p-1 text-left w-[12%]">Logged By</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {feeCollectionDetails.map((c, idx) => (
+                                    <tr key={idx}>
+                                      <td className="border border-black p-1 text-center font-mono">{idx + 1}</td>
+                                      <td className="border border-black p-1 font-mono">{c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
+                                      <td className="border border-black p-1 truncate"><strong>{c.studentName}</strong> <span className="text-slate-700">(Father: {c.fatherName || "—"}, Roll: {c.rollNumber || "—"})</span></td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(c.baseAmount || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(c.lateFeeFine || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(c.totalAmount || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono font-bold">{Number(c.paidAmount || 0) > 0 ? Number(c.paidAmount).toLocaleString() : (c.receiptType === 'ARREARS_SETTLEMENT' ? '0 (Arrears)' : '0 (Advance)')}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{c.walletName || "Cash in Hand"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{c.loggedBy || "Super Admin"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {otherIncomeDetails.length === 0 ? (
-                            <tr><td colSpan={7} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No other revenue recorded.</td></tr>
-                          ) : (
-                            otherIncomeDetails.map((inc, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-slate-400 p-1 text-center font-mono">{idx + 1}</td>
-                                <td className="border border-slate-400 p-1 font-semibold">{inc.category}</td>
-                                <td className="border border-slate-400 p-1">{inc.remarks || inc.title}</td>
-                                <td className="border border-slate-400 p-1">{inc.source || "Direct Receipt"}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{inc.walletName || "Cash in Hand"}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{inc.loggedBy || "Super Admin"}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-emerald-700">{Number(inc.amount || 0).toLocaleString()}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                        </>
+                      )}
 
-                  {/* Total Income Row */}
-                  <tr className="bg-slate-100 font-bold">
-                    <td colSpan={3} className="border border-slate-500 p-1.5 text-right uppercase">
-                      Total Income:
-                    </td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono text-emerald-700 font-extrabold">
-                      Rs. {totalIncome.toLocaleString()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Expense Section with Nested Child Tables */}
-            <div className="space-y-2 pt-2">
-              <div className="font-bold text-xs uppercase tracking-wider text-slate-900 border-b pb-1">
-                2. Expense Details
-              </div>
-
-              <table className="w-full border-collapse border border-slate-600 text-xs">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800 text-[11px]">
-                    <th className="border border-slate-500 p-1.5 text-center w-10">S.No</th>
-                    <th className="border border-slate-500 p-1.5 text-left">Expense Sector / Particular</th>
-                    <th className="border border-slate-500 p-1.5 text-center w-28">Records</th>
-                    <th className="border border-slate-500 p-1.5 text-right w-36">Total Amount (Rs.)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Parent Row 1 */}
-                  <tr className="bg-slate-50 font-semibold">
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">1</td>
-                    <td className="border border-slate-500 p-1.5"><strong>Staff Payroll &amp; Salaries</strong></td>
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">{payrollDetails.length} Staff</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono font-bold text-rose-700">
-                      {payrollTotal.toLocaleString()}
-                    </td>
-                  </tr>
-                  {/* Child Row 1 */}
-                  <tr>
-                    <td colSpan={4} className="border border-slate-500 p-2 bg-white">
-                      <table className="w-full border-collapse border border-slate-500 text-[10px]">
-                        <thead>
-                          <tr className="bg-slate-100">
-                            <th className="border border-slate-400 p-1 text-center w-8">#</th>
-                            <th className="border border-slate-400 p-1 text-left">Staff Details</th>
-                            <th className="border border-slate-400 p-1 text-left w-16">Month</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Payable (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Deductions (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-right w-16">Allowances (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-right w-20 text-rose-700 font-bold">Net Paid (Rs.)</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Account</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Disbursed By</th>
+                      {/* Parent Row 2: Other Revenue */}
+                      {hasOtherIncome && (
+                        <>
+                          <tr className="bg-slate-50 font-semibold">
+                            <td className="border border-black p-1.5 text-center font-mono">{sNoInc++}</td>
+                            <td className="border border-black p-1.5"><strong>Other Revenue &amp; Direct Receipts</strong></td>
+                            <td className="border border-black p-1.5 text-center font-mono">{otherIncomeDetails.length} Entries</td>
+                            <td className="border border-black p-1.5 text-right font-mono font-bold text-black">
+                              {otherIncomeTotal.toLocaleString()}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {payrollDetails.length === 0 ? (
-                            <tr><td colSpan={9} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No payroll disbursements recorded.</td></tr>
-                          ) : (
-                            payrollDetails.map((p, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-slate-400 p-1 text-center font-mono">{idx + 1}</td>
-                                <td className="border border-slate-400 p-1"><strong>{p.staffName}</strong> <span className="text-slate-600">(Father: {p.fatherName || "—"}, ID: {p.employeeId || "—"}{p.designation ? `, ${p.designation}` : ""})</span></td>
-                                <td className="border border-slate-400 p-1">{p.month || "—"}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(p.payable || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(p.deductions || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono">{Number(p.allowance || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-rose-700">{Number(p.totalAmount || 0).toLocaleString()}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{p.walletName || "Cash in Hand"}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{p.disbursedBy || "Admin"}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
-
-                  {/* Parent Row 2 */}
-                  <tr className="bg-slate-50 font-semibold">
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">2</td>
-                    <td className="border border-slate-500 p-1.5"><strong>Other Operating Expenses</strong></td>
-                    <td className="border border-slate-500 p-1.5 text-center font-mono">{otherExpenseDetails.length} Vouchers</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono font-bold text-rose-700">
-                      {otherExpenseTotal.toLocaleString()}
-                    </td>
-                  </tr>
-                  {/* Child Row 2 */}
-                  <tr>
-                    <td colSpan={4} className="border border-slate-500 p-2 bg-white">
-                      <table className="w-full border-collapse border border-slate-500 text-[10px]">
-                        <thead>
-                          <tr className="bg-slate-100">
-                            <th className="border border-slate-400 p-1 text-center w-8">#</th>
-                            <th className="border border-slate-400 p-1 text-left w-28">Category</th>
-                            <th className="border border-slate-400 p-1 text-left">Description / Purpose</th>
-                            <th className="border border-slate-400 p-1 text-left w-16">Voucher #</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Vendor / Payee</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Account</th>
-                            <th className="border border-slate-400 p-1 text-left w-24">Disbursed By</th>
-                            <th className="border border-slate-400 p-1 text-right w-20 text-rose-700 font-bold">Amount (Rs.)</th>
+                          <tr>
+                            <td colSpan={4} className="border border-black p-0 bg-white">
+                              <table className="w-full table-fixed border-collapse text-[10px]">
+                                <thead>
+                                  <tr className="bg-slate-100">
+                                    <th className="border border-black p-1 text-center w-[4%]">#</th>
+                                    <th className="border border-black p-1 text-left w-[15%]">Category</th>
+                                    <th className="border border-black p-1 text-left w-[31%]">Description / Remarks</th>
+                                    <th className="border border-black p-1 text-left w-[15%]">Source / Ref</th>
+                                    <th className="border border-black p-1 text-left w-[12%]">Account</th>
+                                    <th className="border border-black p-1 text-left w-[12%]">Logged By</th>
+                                    <th className="border border-black p-1 text-right w-[11%] font-bold">Amount (Rs.)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {otherIncomeDetails.map((inc, idx) => (
+                                    <tr key={idx}>
+                                      <td className="border border-black p-1 text-center font-mono">{idx + 1}</td>
+                                      <td className="border border-black p-1 font-semibold truncate">{inc.category}</td>
+                                      <td className="border border-black p-1 truncate">{inc.remarks || inc.title}</td>
+                                      <td className="border border-black p-1 truncate">{inc.source || "Direct Receipt"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{inc.walletName || "Cash in Hand"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{inc.loggedBy || "Super Admin"}</td>
+                                      <td className="border border-black p-1 text-right font-mono font-bold">{Number(inc.amount || 0).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {otherExpenseDetails.length === 0 ? (
-                            <tr><td colSpan={8} className="border border-slate-400 p-1.5 text-center text-slate-500 italic">No operating expenses recorded.</td></tr>
-                          ) : (
-                            otherExpenseDetails.map((exp, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-slate-400 p-1 text-center font-mono">{idx + 1}</td>
-                                <td className="border border-slate-400 p-1 font-semibold">{exp.category}</td>
-                                <td className="border border-slate-400 p-1">{exp.remarks || exp.title}</td>
-                                <td className="border border-slate-400 p-1 font-mono">#{exp.voucherNo}</td>
-                                <td className="border border-slate-400 p-1">{exp.vendor || "—"}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{exp.walletName || "Cash in Hand"}</td>
-                                <td className="border border-slate-400 p-1 text-[9px]">{exp.disbursedBy || "Admin"}</td>
-                                <td className="border border-slate-400 p-1 text-right font-mono font-bold text-rose-700">{Number(exp.amount || 0).toLocaleString()}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                        </>
+                      )}
 
-                  {/* Total Expenses Row */}
-                  <tr className="bg-slate-100 font-bold">
-                    <td colSpan={3} className="border border-slate-500 p-1.5 text-right uppercase">
-                      Total Expenses:
-                    </td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono text-rose-700 font-extrabold">
-                      Rs. {totalExpenses.toLocaleString()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                      {/* Total Income Row */}
+                      <tr className="bg-slate-100 font-bold">
+                        <td colSpan={3} className="border border-black p-1.5 text-right uppercase">
+                          Total Income:
+                        </td>
+                        <td className="border border-black p-1.5 text-right font-mono font-extrabold text-black">
+                          Rs. {totalIncome.toLocaleString()}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
-            {/* Summary Highlights */}
-            <div className="grid grid-cols-3 gap-3 p-3 bg-slate-100 rounded-md border border-slate-400">
-              <div>
-                <div className="text-[10px] uppercase text-emerald-800 font-bold">Total Income</div>
-                <div className="text-base font-mono font-bold text-emerald-700">Rs. {totalIncome.toLocaleString()}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-rose-800 font-bold">Total Expenses</div>
-                <div className="text-base font-mono font-bold text-rose-700">Rs. {totalExpenses.toLocaleString()}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-orange-800 font-bold">Cash in Hand / Net</div>
-                <div className="text-base font-mono font-bold text-orange-600">Rs. {netBalance.toLocaleString()}</div>
-              </div>
-            </div>
+            {/* Expense Section with Nested Child Tables (Omitted if empty) */}
+            {(() => {
+              const hasPayroll = payrollDetails.length > 0;
+              const hasOtherExpense = otherExpenseDetails.length > 0;
+              if (!hasPayroll && !hasOtherExpense) return null;
+
+              let sNoExp = 1;
+              return (
+                <div className="space-y-2 pt-2">
+                  <div className="font-bold text-xs uppercase tracking-wider text-black border-b border-black pb-1">
+                    2. Expense Details
+                  </div>
+
+                  <table className="w-full table-fixed border-collapse border border-black text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-black text-[11px]">
+                        <th className="border border-black p-1.5 text-center w-10">S.No</th>
+                        <th className="border border-black p-1.5 text-left">Expense Sector / Particular</th>
+                        <th className="border border-black p-1.5 text-center w-28">Records</th>
+                        <th className="border border-black p-1.5 text-right w-36">Total Amount (Rs.)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Parent Row 1: Staff Payroll */}
+                      {hasPayroll && (
+                        <>
+                          <tr className="bg-slate-50 font-semibold">
+                            <td className="border border-black p-1.5 text-center font-mono">{sNoExp++}</td>
+                            <td className="border border-black p-1.5"><strong>Staff Payroll &amp; Salaries</strong></td>
+                            <td className="border border-black p-1.5 text-center font-mono">{payrollDetails.length} Staff</td>
+                            <td className="border border-black p-1.5 text-right font-mono font-bold text-black">
+                              {payrollTotal.toLocaleString()}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className="border border-black p-0 bg-white">
+                              <table className="w-full table-fixed border-collapse text-[10px]">
+                                <thead>
+                                  <tr className="bg-slate-100">
+                                    <th className="border border-black p-1 text-center w-[4%]">#</th>
+                                    <th className="border border-black p-1 text-left w-[32%]">Staff Details</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Month</th>
+                                    <th className="border border-black p-1 text-right w-[8%]">Payable</th>
+                                    <th className="border border-black p-1 text-right w-[8%]">Deductions</th>
+                                    <th className="border border-black p-1 text-right w-[8%]">Allowances</th>
+                                    <th className="border border-black p-1 text-right w-[10%] font-bold">Net Paid</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Account</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Disbursed By</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {payrollDetails.map((p, idx) => (
+                                    <tr key={idx}>
+                                      <td className="border border-black p-1 text-center font-mono">{idx + 1}</td>
+                                      <td className="border border-black p-1 truncate"><strong>{p.staffName}</strong> <span className="text-slate-700">(Father: {p.fatherName || "—"}, ID: {p.employeeId || "—"})</span></td>
+                                      <td className="border border-black p-1">{p.month || "—"}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(p.payable || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(p.deductions || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono">{Number(p.allowance || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-right font-mono font-bold">{Number(p.totalAmount || 0).toLocaleString()}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{p.walletName || "Cash in Hand"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{p.disbursedBy || "Admin"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        </>
+                      )}
+
+                      {/* Parent Row 2: Other Expenses */}
+                      {hasOtherExpense && (
+                        <>
+                          <tr className="bg-slate-50 font-semibold">
+                            <td className="border border-black p-1.5 text-center font-mono">{sNoExp++}</td>
+                            <td className="border border-black p-1.5"><strong>Other Operating Expenses</strong></td>
+                            <td className="border border-black p-1.5 text-center font-mono">{otherExpenseDetails.length} Vouchers</td>
+                            <td className="border border-black p-1.5 text-right font-mono font-bold text-black">
+                              {otherExpenseTotal.toLocaleString()}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className="border border-black p-0 bg-white">
+                              <table className="w-full table-fixed border-collapse text-[10px]">
+                                <thead>
+                                  <tr className="bg-slate-100">
+                                    <th className="border border-black p-1 text-center w-[4%]">#</th>
+                                    <th className="border border-black p-1 text-left w-[15%]">Category</th>
+                                    <th className="border border-black p-1 text-left w-[28%]">Description / Purpose</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Voucher #</th>
+                                    <th className="border border-black p-1 text-left w-[13%]">Vendor / Payee</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Account</th>
+                                    <th className="border border-black p-1 text-left w-[10%]">Disbursed By</th>
+                                    <th className="border border-black p-1 text-right w-[10%] font-bold">Amount (Rs.)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {otherExpenseDetails.map((exp, idx) => (
+                                    <tr key={idx}>
+                                      <td className="border border-black p-1 text-center font-mono">{idx + 1}</td>
+                                      <td className="border border-black p-1 font-semibold truncate">{exp.category}</td>
+                                      <td className="border border-black p-1 truncate">{exp.remarks || exp.title}</td>
+                                      <td className="border border-black p-1 font-mono">#{exp.voucherNo}</td>
+                                      <td className="border border-black p-1 truncate">{exp.vendor || "—"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{exp.walletName || "Cash in Hand"}</td>
+                                      <td className="border border-black p-1 text-[9px] truncate">{exp.disbursedBy || "Admin"}</td>
+                                      <td className="border border-black p-1 text-right font-mono font-bold">{Number(exp.amount || 0).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        </>
+                      )}
+
+                      {/* Total Expenses Row */}
+                      <tr className="bg-slate-100 font-bold">
+                        <td colSpan={3} className="border border-black p-1.5 text-right uppercase">
+                          Total Expenses:
+                        </td>
+                        <td className="border border-black p-1.5 text-right font-mono text-black font-extrabold">
+                          Rs. {totalExpenses.toLocaleString()}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
             {/* Wallets on Date */}
             <div className="space-y-1.5">
-              <div className="font-bold text-xs uppercase tracking-wider text-slate-800">
-                Treasury Accounts &amp; Wallets Holding on {formatReportDate(closingDate || todayDateStr)}
+              <div className="font-bold text-xs uppercase tracking-wider text-black">
+                Treasury Accounts &amp; Wallets Holding on {closingMode === "DAILY" ? formatReportDate(closingDate || todayDateStr) : monthlyRange.monthName}
               </div>
-              <table className="w-full border-collapse border border-slate-600 text-xs">
+              <table className="w-full table-fixed border-collapse border border-black text-xs">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-800 text-[11px]">
-                    <th className="border border-slate-500 p-1.5 text-center w-10">S.No</th>
-                    <th className="border border-slate-500 p-1.5 text-left">Account</th>
-                    <th className="border border-slate-500 p-1.5 text-left w-24">Type</th>
-                    <th className="border border-slate-500 p-1.5 text-right w-28 text-emerald-700">Date Inflow (+)</th>
-                    <th className="border border-slate-500 p-1.5 text-right w-28 text-rose-700">Date Outflow (-)</th>
-                    <th className="border border-slate-500 p-1.5 text-right w-32">Net Holding</th>
+                  <tr className="bg-slate-100 text-black text-[11px]">
+                    <th className="border border-black p-1.5 text-center w-[5%]">S.No</th>
+                    <th className="border border-black p-1.5 text-left w-[35%]">Account</th>
+                    <th className="border border-black p-1.5 text-left w-[15%]">Type</th>
+                    <th className="border border-black p-1.5 text-right w-[15%]">Inflow (+)</th>
+                    <th className="border border-black p-1.5 text-right w-[15%]">Outflow (-)</th>
+                    <th className="border border-black p-1.5 text-right w-[15%]">Net Holding</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {walletsDateBreakdown.map((w, idx) => (
+                  {walletsDateBreakdown
+                    .filter(w => Number(w.dateInflow || 0) > 0 || Number(w.dateOutflow || 0) > 0 || Math.abs(Number(w.dateNetBalance || 0)) > 0 || Number(w.currentBalance || 0) > 0)
+                    .map((w, idx) => (
                     <tr key={idx}>
-                      <td className="border border-slate-500 p-1.5 text-center font-mono">{idx + 1}</td>
-                      <td className="border border-slate-500 p-1.5 font-semibold">{w.walletName}</td>
-                      <td className="border border-slate-500 p-1.5">{w.walletType}</td>
-                      <td className="border border-slate-500 p-1.5 text-right font-mono text-emerald-700">
+                      <td className="border border-black p-1.5 text-center font-mono">{idx + 1}</td>
+                      <td className="border border-black p-1.5 font-semibold truncate">{w.walletName}</td>
+                      <td className="border border-black p-1.5 truncate">{w.walletType}</td>
+                      <td className="border border-black p-1.5 text-right font-mono">
                         +{Number(w.dateInflow || 0).toLocaleString()}
                       </td>
-                      <td className="border border-slate-500 p-1.5 text-right font-mono text-rose-700">
+                      <td className="border border-black p-1.5 text-right font-mono">
                         -{Number(w.dateOutflow || 0).toLocaleString()}
                       </td>
-                      <td className="border border-slate-500 p-1.5 text-right font-mono font-bold">
+                      <td className="border border-black p-1.5 text-right font-mono font-bold">
                         {w.dateNetBalance >= 0 ? "+" : ""}Rs. {Number(w.dateNetBalance || 0).toLocaleString()}
                       </td>
                     </tr>
                   ))}
                   <tr className="bg-slate-100 font-bold">
-                    <td colSpan={3} className="border border-slate-500 p-1.5 text-right uppercase">Total Reconciliation:</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono text-emerald-700">+Rs. {walletsSumInflow.toLocaleString()}</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono text-rose-700">-Rs. {walletsSumOutflow.toLocaleString()}</td>
-                    <td className="border border-slate-500 p-1.5 text-right font-mono text-orange-600">Rs. {walletsSumNet.toLocaleString()}</td>
+                    <td colSpan={3} className="border border-black p-1.5 text-right uppercase">Total Reconciliation:</td>
+                    <td className="border border-black p-1.5 text-right font-mono">+Rs. {walletsSumInflow.toLocaleString()}</td>
+                    <td className="border border-black p-1.5 text-right font-mono">-Rs. {walletsSumOutflow.toLocaleString()}</td>
+                    <td className="border border-black p-1.5 text-right font-mono">Rs. {walletsSumNet.toLocaleString()}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            {/* Signature Block */}
-            <div className="flex justify-between pt-8 text-xs text-slate-600">
-              <div className="border-t border-slate-800 w-36 text-center pt-1 font-semibold">Prepared By (Accountant)</div>
-              <div className="border-t border-slate-800 w-36 text-center pt-1 font-semibold">Verified By (Finance Mgr)</div>
-              <div className="border-t border-slate-800 w-36 text-center pt-1 font-semibold">Approved By (Principal)</div>
-            </div>
+            {/* Signature Block (Full-width: Left, Center, Right) */}
+            <table className="w-full mt-10 border-none border-collapse text-xs text-black">
+              <tbody>
+                <tr>
+                  <td className="w-1/3 text-left border-none p-0 align-top">
+                    <div className="border-t-2 border-black w-36 text-center pt-1 font-bold">
+                      Prepared By (Accountant)
+                    </div>
+                  </td>
+                  <td className="w-1/3 text-center border-none p-0 align-top">
+                    <div className="border-t-2 border-black w-36 mx-auto text-center pt-1 font-bold">
+                      Verified By (Finance Mgr)
+                    </div>
+                  </td>
+                  <td className="w-1/3 text-right border-none p-0 align-top">
+                    <div className="border-t-2 border-black w-36 ml-auto text-center pt-1 font-bold">
+                      Approved By (Principal)
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <DialogFooter className="mt-3">

@@ -952,6 +952,8 @@ export const generateStudentDocumentReportPrintHtml = ({
   `;
 };
 
+const EMPTY_ACTIVE_FILTERS = {};
+
 /**
  * Dialog component for viewing and printing the Student Document Report.
  */
@@ -959,7 +961,7 @@ export const StudentDocumentReportDialog = ({
   open,
   onOpenChange,
   students = [],
-  activeFilters = {},
+  activeFilters = EMPTY_ACTIVE_FILTERS,
   programData = [],
   classesData = [],
   sectionsData = [],
@@ -994,6 +996,7 @@ export const StudentDocumentReportDialog = ({
 
   const topBarRef = useRef(null);
   const [topBarHeight, setTopBarHeight] = useState(125);
+  const prevOpenRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -1014,8 +1017,9 @@ export const StudentDocumentReportDialog = ({
     };
   }, [open, selectedPrograms, selectedClasses, selectedSections]);
 
+  // Only synchronize filters when dialog opens, not on every render
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       setSelectedPrograms(
         activeFilters.filterProgram && activeFilters.filterProgram !== "all"
           ? [activeFilters.filterProgram]
@@ -1034,6 +1038,7 @@ export const StudentDocumentReportDialog = ({
       setSelectedSession(activeFilters.filterSessionId || "all");
       setDialogSearch("");
     }
+    prevOpenRef.current = open;
   }, [open, activeFilters]);
 
   // Dependent cascading options
@@ -1106,12 +1111,11 @@ export const StudentDocumentReportDialog = ({
         "",
         STUDENT_DOCUMENT_FIELDS
       ),
-    enabled: open && selectedPrograms.length > 0,
+    enabled: open,
     staleTime: 30000,
   });
 
   const sourceStudents = useMemo(() => {
-    if (selectedPrograms.length === 0) return [];
     let list = [];
     if (rawStudentsResponse) {
       if (Array.isArray(rawStudentsResponse)) list = rawStudentsResponse;
@@ -1119,15 +1123,15 @@ export const StudentDocumentReportDialog = ({
     }
     // Client-side multi-select filtering
     return list.filter((s) => {
-      if (selectedPrograms.length > 1) {
+      if (selectedPrograms.length > 0) {
         const progId = extractId(s.programId || s.program);
         if (progId && !selectedPrograms.includes(progId)) return false;
       }
-      if (selectedClasses.length > 1) {
+      if (selectedClasses.length > 0) {
         const clsId = extractId(s.classId || s.class);
         if (clsId && !selectedClasses.includes(clsId)) return false;
       }
-      if (selectedSections.length > 1) {
+      if (selectedSections.length > 0) {
         const secId = extractId(s.sectionId || s.section);
         if (secId && !selectedSections.includes(secId)) return false;
       }
@@ -1286,9 +1290,13 @@ export const StudentDocumentReportDialog = ({
                 Student Document Report
               </DialogTitle>
               <Badge variant="outline" className="font-mono text-xs font-semibold bg-slate-50">
-                {selectedPrograms.length === 0
-                  ? "Select Program"
-                  : `${filteredResolvedStudents.length} Pending`}
+                {isLoadingQuery ? (
+                  <span className="flex items-center gap-1 text-slate-500">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Loading...
+                  </span>
+                ) : (
+                  `${filteredResolvedStudents.length} Pending`
+                )}
               </Badge>
             </div>
             <DialogDescription className="text-xs text-slate-500 mt-0.5">
@@ -1303,14 +1311,13 @@ export const StudentDocumentReportDialog = ({
                 placeholder="Search pending..."
                 value={dialogSearch}
                 onChange={(e) => setDialogSearch(e.target.value)}
-                disabled={selectedPrograms.length === 0}
                 className="h-8 pl-8 text-xs"
               />
             </div>
             <Button
               size="sm"
               onClick={handlePrint}
-              disabled={selectedPrograms.length === 0 || isPrinting || filteredResolvedStudents.length === 0}
+              disabled={isPrinting || filteredResolvedStudents.length === 0}
               className="gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold shadow-xs"
             >
               {isPrinting ? (
@@ -1343,10 +1350,10 @@ export const StudentDocumentReportDialog = ({
                 options={programData.map((p) => ({ value: extractId(p), label: p.name || p.programName }))}
                 selected={selectedPrograms}
                 onChange={handleProgramsChange}
-                placeholder="Select Programs..."
+                placeholder="Programs"
                 allLabel="All Programs"
-                defaultSelectedAll={false}
-                triggerClassName={`h-8 text-xs bg-white ${selectedPrograms.length === 0 ? "border-amber-400/80 bg-amber-50/30" : ""}`}
+                defaultSelectedAll={true}
+                triggerClassName="h-8 text-xs bg-white"
               />
             </div>
           </div>
@@ -1360,7 +1367,7 @@ export const StudentDocumentReportDialog = ({
                 onChange={handleClassesChange}
                 placeholder="Classes"
                 allLabel="All Classes"
-                disabled={selectedPrograms.length === 0}
+                disabled={classesForProgram.length === 0}
                 triggerClassName="h-8 text-xs bg-white"
               />
             </div>
@@ -1375,7 +1382,7 @@ export const StudentDocumentReportDialog = ({
                 onChange={setSelectedSections}
                 placeholder="Sections"
                 allLabel="All Sections"
-                disabled={!isSectionApplicable || sectionsForClass.length === 0 || selectedPrograms.length === 0}
+                disabled={!isSectionApplicable || sectionsForClass.length === 0}
                 triggerClassName="h-8 text-xs bg-white"
               />
             </div>
@@ -1436,26 +1443,12 @@ export const StudentDocumentReportDialog = ({
           }}
         >
           <style>{getStudentDocumentReportStyles()}</style>
-          {selectedPrograms.length === 0 ? (
-            <div className="py-24 px-4 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
-              <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-orange-600">
-                <FileText className="w-7 h-7" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-base font-semibold text-slate-800">
-                  Select a Program to Load Document Report
-                </h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Choose one or more programs or click <span className="font-semibold text-slate-700">"All"</span> from the filter above to view students with pending documents.
-                </p>
-              </div>
-            </div>
-          ) : isLoadingQuery ? (
+          {isLoadingQuery ? (
             <div className="p-16 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
               <p className="text-sm">Fetching and auditing student document records...</p>
             </div>
-          ) : bodyHtml ? (
+          ) : filteredResolvedStudents.length > 0 && bodyHtml ? (
             <div
               className={`student-doc-report-preview ${orientation}-mode shadow-md border border-slate-300 mx-auto bg-white select-text transition-all duration-200`}
               style={{
@@ -1466,8 +1459,20 @@ export const StudentDocumentReportDialog = ({
               dangerouslySetInnerHTML={{ __html: bodyHtml }}
             />
           ) : (
-            <div className="p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
-              <p className="text-sm">No pending document records to display.</p>
+            <div className="py-24 px-4 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-orange-600">
+                <FileText className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold text-slate-800">
+                  No Pending Documents Found
+                </h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  {selectedPrograms.length > 0 || selectedClasses.length > 0 || selectedSections.length > 0
+                    ? "All enrolled students matching the selected filter have submitted their mandatory documents."
+                    : "No students with pending document submissions were found."}
+                </p>
+              </div>
             </div>
           )}
         </div>

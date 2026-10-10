@@ -775,7 +775,7 @@ export default function WalletsManagement() {
 
           {activeTab === "accounts" && (
             <div className="flex items-center gap-1.5">
-              {["ALL", "BANK", "DIGITAL_WALLET", "CASH"].map((t) => (
+              {["ALL", "BANK", "DIGITAL_WALLET", "CASH", "CARD"].map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -791,6 +791,7 @@ export default function WalletsManagement() {
                   {t === "BANK" && "Banks"}
                   {t === "DIGITAL_WALLET" && "Digital"}
                   {t === "CASH" && "Cash Safes"}
+                  {t === "CARD" && "Cards / POS"}
                 </button>
               ))}
             </div>
@@ -830,6 +831,7 @@ export default function WalletsManagement() {
                   const isBank = w.type === "BANK";
                   const isDigital = w.type === "DIGITAL_WALLET";
                   const isCash = w.type === "CASH";
+                  const isCard = w.type === "CARD";
                   const bal = Number(w.currentBalance) || 0;
 
                   return (
@@ -842,12 +844,14 @@ export default function WalletsManagement() {
                                 "p-2.5 rounded-xl shrink-0",
                                 isBank && "bg-blue-500/10 text-blue-600",
                                 isDigital && "bg-purple-500/10 text-purple-600",
-                                isCash && "bg-amber-500/10 text-amber-600"
+                                isCash && "bg-amber-500/10 text-amber-600",
+                                isCard && "bg-emerald-500/10 text-emerald-600"
                               )}
                             >
                               {isBank && <Landmark className="w-5 h-5" />}
                               {isDigital && <Smartphone className="w-5 h-5" />}
                               {isCash && <Banknote className="w-5 h-5" />}
+                              {isCard && <CreditCard className="w-5 h-5" />}
                             </div>
                             <div className="min-w-0">
                               <h3 className="font-semibold text-base text-foreground truncate" title={w.name}>
@@ -858,6 +862,7 @@ export default function WalletsManagement() {
                                   {isBank && (w.bankName || "Bank Account")}
                                   {isDigital && (w.provider || "Digital Wallet")}
                                   {isCash && (w.location || "Cash in Hand")}
+                                  {isCard && (w.bankName || "Card / POS Terminal")}
                                 </Badge>
                                 {w.status === "INACTIVE" && (
                                   <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
@@ -1322,6 +1327,7 @@ export default function WalletsManagement() {
                     <SelectItem value="BANK">Bank Account</SelectItem>
                     <SelectItem value="DIGITAL_WALLET">Digital Wallet</SelectItem>
                     <SelectItem value="CASH">Cash in Hand / Safe</SelectItem>
+                    <SelectItem value="CARD">Card / POS Terminal</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1448,6 +1454,50 @@ export default function WalletsManagement() {
                       placeholder="e.g. Principal / Accountant"
                       value={walletForm.custodian}
                       onChange={(e) => setWalletForm({ ...walletForm, custodian: e.target.value })}
+                      className="h-9 text-xs mt-1"
+                    />
+                  </div>
+                </>
+              )}
+
+              {walletForm.type === "CARD" && (
+                <>
+                  <div>
+                    <Label className="text-xs">Bank / Card Provider</Label>
+                    <Input
+                      placeholder="e.g. Meezan POS, HBL Merchant, Bank of Khyber"
+                      value={walletForm.bankName}
+                      onChange={(e) => setWalletForm({ ...walletForm, bankName: e.target.value })}
+                      className="h-9 text-xs mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Account Title / Merchant Name</Label>
+                    <Input
+                      placeholder="e.g. Concordia College POS"
+                      value={walletForm.accountTitle}
+                      onChange={(e) => setWalletForm({ ...walletForm, accountTitle: e.target.value })}
+                      className="h-9 text-xs mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Terminal ID / Machine ID / Account No</Label>
+                    <Input
+                      placeholder="e.g. TID-982341 / 0102-0103445566"
+                      value={walletForm.accountNumber}
+                      onChange={(e) => setWalletForm({ ...walletForm, accountNumber: e.target.value })}
+                      className="h-9 text-xs mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Terminal Location / Counter</Label>
+                    <Input
+                      placeholder="e.g. Main Fee Counter, Accounts Office"
+                      value={walletForm.location}
+                      onChange={(e) => setWalletForm({ ...walletForm, location: e.target.value })}
                       className="h-9 text-xs mt-1"
                     />
                   </div>
@@ -1836,12 +1886,14 @@ export default function WalletsManagement() {
                     "p-2.5 rounded-xl shrink-0",
                     selectedWalletForDetail?.type === "BANK" && "bg-blue-500/10 text-blue-600",
                     selectedWalletForDetail?.type === "DIGITAL_WALLET" && "bg-purple-500/10 text-purple-600",
-                    selectedWalletForDetail?.type === "CASH" && "bg-amber-500/10 text-amber-600"
+                    selectedWalletForDetail?.type === "CASH" && "bg-amber-500/10 text-amber-600",
+                    selectedWalletForDetail?.type === "CARD" && "bg-emerald-500/10 text-emerald-600"
                   )}
                 >
                   {selectedWalletForDetail?.type === "BANK" && <Landmark className="w-5 h-5" />}
                   {selectedWalletForDetail?.type === "DIGITAL_WALLET" && <Smartphone className="w-5 h-5" />}
                   {selectedWalletForDetail?.type === "CASH" && <Banknote className="w-5 h-5" />}
+                  {selectedWalletForDetail?.type === "CARD" && <CreditCard className="w-5 h-5" />}
                 </div>
                 <div>
                   <DialogTitle className="text-base font-bold flex items-center gap-2">
@@ -1854,6 +1906,7 @@ export default function WalletsManagement() {
                     {selectedWalletForDetail?.type === "BANK" && `Bank: ${selectedWalletForDetail.bankName || "—"} | A/C: ${selectedWalletForDetail.accountNumber || "—"}`}
                     {selectedWalletForDetail?.type === "DIGITAL_WALLET" && `Provider: ${selectedWalletForDetail.provider || "—"} | Mobile: ${selectedWalletForDetail.accountNumber || "—"}`}
                     {selectedWalletForDetail?.type === "CASH" && `Location: ${selectedWalletForDetail.location || "Safe"} | Custodian: ${selectedWalletForDetail.custodian || "—"}`}
+                    {selectedWalletForDetail?.type === "CARD" && `Card/POS: ${selectedWalletForDetail.bankName || "—"} | Terminal: ${selectedWalletForDetail.accountNumber || "—"}`}
                   </DialogDescription>
                 </div>
               </div>

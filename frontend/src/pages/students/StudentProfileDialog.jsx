@@ -104,7 +104,7 @@ export const StudentProfileDialog = ({
   const { data: studentFeesRaw = [] } = useQuery({
     queryKey: ["studentFees", studentId, "INSTALLMENT"],
     queryFn: () => getStudentFeeHistory(studentId, "INSTALLMENT"),
-    enabled: !!studentId,
+    enabled: open && !!studentId,
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -155,7 +155,7 @@ export const StudentProfileDialog = ({
   const { data: studentAttendanceRaw = [], isLoading: attendanceLoading } = useQuery({
     queryKey: ["studentAttendance", studentId],
     queryFn: () => getStudentAttendance(studentId),
-    enabled: !!studentId && activeProfileTab === "attendance",
+    enabled: open && !!studentId && activeProfileTab === "attendance",
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -172,7 +172,7 @@ export const StudentProfileDialog = ({
   const { data: studentResultsRaw = [], isLoading: resultsLoading } = useQuery({
     queryKey: ["studentResults", studentId],
     queryFn: () => getStudentResults(studentId),
-    enabled: !!studentId && activeProfileTab === "results",
+    enabled: open && !!studentId && activeProfileTab === "results",
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -198,7 +198,7 @@ export const StudentProfileDialog = ({
   const { data: studentHostelReg, isLoading: hostelRegLoading } = useQuery({
     queryKey: ["studentHostelReg", studentId],
     queryFn: () => getHostelRegistrationByStudent(studentId),
-    enabled: !!studentId && activeProfileTab === "boarding",
+    enabled: open && !!studentId && activeProfileTab === "boarding",
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -206,7 +206,7 @@ export const StudentProfileDialog = ({
   const { data: studentHostelRoom } = useQuery({
     queryKey: ["studentHostelRoom", studentId],
     queryFn: () => getHostelRoomByStudent(studentId),
-    enabled: !!studentId && activeProfileTab === "boarding",
+    enabled: open && !!studentId && activeProfileTab === "boarding",
   });
 
   const hostelRegId = studentHostelReg?.id || studentHostelReg?._id;
@@ -215,6 +215,7 @@ export const StudentProfileDialog = ({
     queryKey: ["studentHostelChallans", hostelRegId],
     queryFn: () => getHostelChallansDedicated({ registrationId: hostelRegId }),
     enabled:
+      open &&
       !!hostelRegId &&
       activeProfileTab === "boarding" &&
       activeBoardingSubTab === "challans",
@@ -224,6 +225,7 @@ export const StudentProfileDialog = ({
     queryKey: ["studentFees", studentId, "HOSTEL"],
     queryFn: () => getStudentFeeHistory(studentId, "HOSTEL"),
     enabled:
+      open &&
       !!studentId &&
       activeProfileTab === "boarding" &&
       activeBoardingSubTab === "challans",

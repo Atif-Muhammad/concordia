@@ -415,7 +415,7 @@ const DashboardLayout = ({ children }) => {
           sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"
         )}
       >
-        <main className="flex-1 px-4 py-3 sm:px-6 sm:py-4 w-full overflow-x-hidden">
+        <main className="flex-1 p-2 w-full overflow-x-hidden">
           <div className="lg:hidden mb-1.5">
             <Button
               variant="ghost"

@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "seed:september": "node scripts/seed_september_challans.js",
+    "seed:october": "node scripts/seed_october_challans.js"
   },
   "keywords": [],
   "author": "",

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,19 @@ export const StudentFormDialog = ({
   isSubmitting,
   onCancel,
 }) => {
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => {
+        setIsReady(true);
+      }, 0);
+      return () => clearTimeout(timer);
+    } else {
+      setIsReady(false);
+    }
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto">
@@ -35,11 +48,10 @@ export const StudentFormDialog = ({
           </DialogDescription>
         </DialogHeader>
 
-        {isLoading ? (
+        {isLoading || !isReady ? (
           <StudentFormSkeleton />
         ) : (
           <StudentForm
-            key={editingStudent?.id || editingStudent?._id || (open ? "new-student-open" : "new-student")}
             initialData={editingStudent || EMPTY_OBJECT}
             isEditing={!!editingStudent}
             programs={programData}

@@ -981,7 +981,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           <Table className="min-w-[2400px]">
             <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
               <TableRow>
-                <TableHead className="py-2 px-2 text-sm w-[40px] sticky left-0 z-20 bg-background">
+                <TableHead className="py-2 px-1 text-center w-[36px] min-w-[36px] max-w-[36px] md:sticky md:left-0 md:z-20 bg-background">
                   <Checkbox
                     checked={
                       selectedRows.size === localData.length &&
@@ -990,11 +990,11 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                     onCheckedChange={handleSelectAll}
                   />
                 </TableHead>
-                <TableHead className="py-2 px-2 text-sm w-[180px] sticky left-[40px] z-20 bg-background">
+                <TableHead className="py-2 px-2 text-xs font-semibold w-[130px] min-w-[130px] max-w-[130px] md:sticky md:left-[36px] md:z-20 bg-background">
                   Staff Details
                 </TableHead>
-                <TableHead className="py-2 px-2 text-sm w-[120px] sticky left-[220px] z-20 bg-background whitespace-nowrap">Basic Pay</TableHead>
-                <TableHead className="py-2 px-2 text-sm w-[130px] font-semibold text-primary sticky left-[340px] z-20 bg-background whitespace-nowrap shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]">Current Salary</TableHead>
+                <TableHead className="py-2 px-1 text-xs w-[80px] min-w-[80px] max-w-[80px] md:sticky md:left-[166px] md:z-20 bg-background whitespace-nowrap">Basic Pay</TableHead>
+                <TableHead className="py-2 px-1 text-xs w-[85px] min-w-[85px] max-w-[85px] font-semibold text-primary md:sticky md:left-[246px] md:z-20 bg-background whitespace-nowrap md:shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]">Current Salary</TableHead>
 
                 <TableHead
                   className="py-2 px-3 text-sm text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
@@ -1017,10 +1017,10 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                 <TableHead className="py-2 px-3 text-sm min-w-[50px]"></TableHead>
               </TableRow>
               <TableRow>
-                <TableHead className="sticky left-0 z-20 bg-background w-[40px]"></TableHead>
-                <TableHead className="sticky left-[40px] z-20 bg-background w-[180px]"></TableHead>
-                <TableHead className="sticky left-[220px] z-20 bg-background w-[120px]"></TableHead>
-                <TableHead className="sticky left-[340px] z-20 bg-background w-[130px] shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]"></TableHead>
+                <TableHead className="md:sticky md:left-0 md:z-20 bg-background w-[36px] min-w-[36px] max-w-[36px]"></TableHead>
+                <TableHead className="md:sticky md:left-[36px] md:z-20 bg-background w-[130px] min-w-[130px] max-w-[130px]"></TableHead>
+                <TableHead className="md:sticky md:left-[166px] md:z-20 bg-background w-[80px] min-w-[80px] max-w-[80px]"></TableHead>
+                <TableHead className="md:sticky md:left-[246px] md:z-20 bg-background w-[85px] min-w-[85px] max-w-[85px] md:shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]"></TableHead>
 
                 <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Security
@@ -1090,7 +1090,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
             <TableBody>
               {localData.map((row, index) => (
                 <TableRow key={row.id}>
-                  <TableCell className="py-2 px-2 text-sm w-[40px] sticky left-0 z-10 bg-background">
+                  <TableCell className="py-2 px-1 text-center w-[36px] min-w-[36px] max-w-[36px] md:sticky md:left-0 md:z-10 bg-background">
                     <Checkbox
                       checked={selectedRows.has(index)}
                       onCheckedChange={(checked) =>
@@ -1098,15 +1098,15 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       }
                     />
                   </TableCell>
-                  <TableCell className="py-2 px-2 text-sm w-[180px] sticky left-[40px] z-10 bg-background">
-                    <div className="font-medium">{row.name}</div>
-                    <div className="text-xs text-muted-foreground">{row.roleLabel || row.designation || "N/A"}</div>
-                    <div className="text-xs text-muted-foreground">{row.roleDepartmentLabel || row.department || "N/A"}</div>
+                  <TableCell className="py-2 px-2 text-xs w-[130px] min-w-[130px] max-w-[130px] md:sticky md:left-[36px] md:z-10 bg-background">
+                    <div className="font-medium truncate" title={row.name}>{row.name}</div>
+                    <div className="text-[11px] text-muted-foreground truncate" title={row.roleLabel || row.designation}>{row.roleLabel || row.designation || "N/A"}</div>
+                    <div className="text-[10px] text-muted-foreground/80 truncate" title={row.roleDepartmentLabel || row.department}>{row.roleDepartmentLabel || row.department || "N/A"}</div>
                   </TableCell>
-                  <TableCell className="py-2 px-2 text-sm text-muted-foreground whitespace-nowrap w-[120px] sticky left-[220px] z-10 bg-background">
+                  <TableCell className="py-2 px-1 text-xs text-muted-foreground whitespace-nowrap w-[80px] min-w-[80px] max-w-[80px] md:sticky md:left-[166px] md:z-10 bg-background">
                     PKR {Number(row.baseSalary ?? row.basicSalary ?? 0).toLocaleString()}
                   </TableCell>
-                  <TableCell className="py-2 px-2 text-sm font-semibold text-primary whitespace-nowrap w-[130px] sticky left-[340px] z-10 bg-background shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                  <TableCell className="py-2 px-1 text-xs font-semibold text-primary whitespace-nowrap w-[85px] min-w-[85px] max-w-[85px] md:sticky md:left-[246px] md:z-10 bg-background md:shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)]">
                     PKR {Number(row.currentSalary ?? row.basicSalary ?? 0).toLocaleString()}
                   </TableCell>
 

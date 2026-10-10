@@ -10,7 +10,7 @@ export const PayrollTab = () => {
           <CardTitle>Payroll Management</CardTitle>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-2 sm:p-6 pt-0">
         <PayrollManagementDialog open={true} onOpenChange={() => {}} />
       </CardContent>
     </Card>

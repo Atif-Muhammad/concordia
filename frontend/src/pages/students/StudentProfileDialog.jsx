@@ -1508,19 +1508,19 @@ export const StudentProfileDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[90vw] h-[90vh] overflow-y-auto flex flex-col">
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <DialogContent className="w-[95vw] sm:w-[90vw] h-[90vh] flex flex-col p-4 sm:p-6 overflow-hidden">
+        <DialogHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 shrink-0 border-b">
           <div>
             <DialogTitle>Student Profile</DialogTitle>
             <DialogDescription>
               Complete student information and statistics
             </DialogDescription>
           </div>
-          <div className="flex items-center gap-2 mr-6">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5 text-slate-800 border-slate-300 hover:bg-slate-50"
+              className="gap-1.5 text-slate-800 border-slate-300 hover:bg-slate-50 flex-1 sm:flex-initial"
               onClick={() => setProfilePrintOpen(true)}
               disabled={detailsLoading && !studentDetails}
             >
@@ -1530,7 +1530,7 @@ export const StudentProfileDialog = ({
               <Button
                 size="sm"
                 variant="outline"
-                className="gap-1.5"
+                className="gap-1.5 flex-1 sm:flex-initial"
                 onClick={() => {
                   onOpenChange(false);
                   onEditStudent(studentDetails || viewStudent);
@@ -1546,19 +1546,22 @@ export const StudentProfileDialog = ({
         {detailsLoading && !studentDetails ? (
           <StudentProfileSkeleton />
         ) : (
-          <Tabs
-            value={activeProfileTab}
-            onValueChange={setActiveProfileTab}
-            className="w-full"
-          >
-            <TabsList className="grid w-full grid-cols-6">
-              <TabsTrigger value="info">Info</TabsTrigger>
-              <TabsTrigger value="fees">Fees</TabsTrigger>
-              <TabsTrigger value="attendance">Attendance</TabsTrigger>
-              <TabsTrigger value="results">Results</TabsTrigger>
-              <TabsTrigger value="history">Status History</TabsTrigger>
-              <TabsTrigger value="boarding">Boarding</TabsTrigger>
-            </TabsList>
+          <div className="flex-1 min-h-0 overflow-y-auto pt-3">
+            <Tabs
+              value={activeProfileTab}
+              onValueChange={setActiveProfileTab}
+              className="w-full"
+            >
+              <div className="overflow-x-auto pb-1">
+                <TabsList className="flex w-max sm:grid sm:w-full sm:grid-cols-6">
+                  <TabsTrigger value="info">Info</TabsTrigger>
+                  <TabsTrigger value="fees">Fees</TabsTrigger>
+                  <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                  <TabsTrigger value="results">Results</TabsTrigger>
+                  <TabsTrigger value="history">Status History</TabsTrigger>
+                  <TabsTrigger value="boarding">Boarding</TabsTrigger>
+                </TabsList>
+              </div>
 
             {/* ── INFO TAB ── */}
             <TabsContent value="info" className="space-y-4">
@@ -3293,6 +3296,7 @@ export const StudentProfileDialog = ({
             )}
           </TabsContent>
         </Tabs>
+          </div>
       )}
 
         {/* Student Profile Form Print / PDF Preview Dialog */}

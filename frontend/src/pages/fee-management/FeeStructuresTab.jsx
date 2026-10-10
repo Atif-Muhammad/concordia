@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -214,10 +214,10 @@ export const FeeStructuresTab = ({
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle>Fee Structures</CardTitle>
-            <div className="flex items-center gap-3">
-              <div className="w-56">
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <div className="w-full sm:w-56">
                 <Select value={filterProgramId} onValueChange={setFilterProgramId}>
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-9 w-full">
                     <SelectValue placeholder="Filter by Program" />
                   </SelectTrigger>
                   <SelectContent>
@@ -239,7 +239,7 @@ export const FeeStructuresTab = ({
                     resetStructureForm();
                     setStructureOpen(true);
                   }}
-                  className="gap-2 h-9"
+                  className="gap-2 h-9 w-full sm:w-auto"
                 >
                   <Plus className="w-4 h-4" />
                   Add Fee Structure
@@ -446,7 +446,7 @@ export const FeeStructuresTab = ({
               />
             </div>
 
-            <div className="flex gap-2 justify-end pt-2">
+            <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
               <Button variant="outline" onClick={() => setStructureOpen(false)}>
                 Cancel
               </Button>
@@ -460,7 +460,7 @@ export const FeeStructuresTab = ({
                   ? "Update"
                   : "Add"}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

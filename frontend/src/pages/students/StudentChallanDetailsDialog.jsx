@@ -60,7 +60,7 @@ export const StudentChallanDetailsDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex justify-between items-center">
+          <DialogTitle className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <span>
               Challan Preview &amp; Details
               {isLoading && (
@@ -74,7 +74,7 @@ export const StudentChallanDetailsDialog = ({
                 variant="outline"
                 size="sm"
                 onClick={() => onPrint(challan)}
-                className="gap-2"
+                className="gap-2 w-full sm:w-auto"
                 disabled={isLoading || isPrinting}
               >
                 <Printer className="w-4 h-4" /> {isPrinting ? "Preparing..." : "Print Challan"}
@@ -570,7 +570,7 @@ export const StudentChallanDetailsDialog = ({
         </div>
 
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

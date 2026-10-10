@@ -25,6 +25,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -280,7 +281,7 @@ export const AdvanceSalaryTab = () => {
               <CardTitle className="text-base sm:text-lg">Advance Salary</CardTitle>
               <p className="text-xs sm:text-sm text-muted-foreground">Manage advance salary requests for all staff</p>
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
               <div className="flex items-center gap-1.5">
                 <Label className="hidden sm:inline text-xs sm:text-sm">Role:</Label>
                 <Select value={advanceRoleFilter} onValueChange={setAdvanceRoleFilter}>
@@ -688,7 +689,7 @@ export const AdvanceSalaryTab = () => {
               <Label htmlFor="adjusted" className="cursor-pointer font-medium text-sm">Mark as Adjusted (Deducted from payroll)</Label>
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-4">
+          <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
             <Button
               variant="outline"
               disabled={createAdvanceMutation.isPending || updateAdvanceMutation.isPending}
@@ -713,7 +714,7 @@ export const AdvanceSalaryTab = () => {
               )}
               {editingAdvance ? "Update Advance" : "Save Advance"}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

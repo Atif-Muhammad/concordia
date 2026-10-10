@@ -957,13 +957,13 @@ export const StudentDataExportDialog = ({
                 Export comprehensive student records, personal information, and fee installment plans to Excel or PDF/Print.
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleExportToExcel}
                 disabled={isExportingExcel || isLoading || studentsList.length === 0}
-                className="gap-1.5 h-8 text-xs font-semibold text-emerald-700 hover:text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800"
+                className="gap-1.5 h-8 text-xs font-semibold text-emerald-700 hover:text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 flex-1 sm:flex-initial"
               >
                 {isExportingExcel ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
@@ -977,7 +977,7 @@ export const StudentDataExportDialog = ({
                 size="sm"
                 onClick={handleExportAsPrint}
                 disabled={isExportingPrint || isLoading || studentsList.length === 0}
-                className="gap-1.5 h-8 text-xs font-semibold"
+                className="gap-1.5 h-8 text-xs font-semibold flex-1 sm:flex-initial"
               >
                 {isExportingPrint ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1276,19 +1276,19 @@ export const StudentDataExportDialog = ({
         </div>
 
         {/* Footer */}
-        <DialogFooter className="px-4 py-2 border-t border-border flex items-center justify-between flex-shrink-0 text-xs text-muted-foreground mt-0">
+        <DialogFooter className="px-4 py-2 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-2 flex-shrink-0 text-xs text-muted-foreground mt-0">
           <div>
             Showing <strong className="text-foreground">{studentsList.length}</strong> matching students
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="h-8 px-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="h-8 px-3 text-xs flex-1 sm:flex-initial">
               Close
             </Button>
             <Button
               size="sm"
               onClick={handleExportToExcel}
               disabled={isExportingExcel || isLoading || studentsList.length === 0}
-              className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+              className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 flex-1 sm:flex-initial"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               Download Excel

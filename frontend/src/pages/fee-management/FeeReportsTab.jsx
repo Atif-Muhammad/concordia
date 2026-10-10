@@ -1051,7 +1051,7 @@ export const FeeReportsTab = ({
               View student fee summaries and click any row to reveal itemized pending challans
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             {studentReports.length > 0 && (
               <>
                 <Button

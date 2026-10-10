@@ -195,7 +195,7 @@ export default function FinanceReportsTab() {
             </div>
             <Button
               size="sm"
-              className="h-8 text-xs px-3"
+              className="h-8 text-xs px-3 w-full sm:w-auto"
               onClick={() =>
                 setAppliedReportsFilter({
                   dateFrom: reportsDateFrom,
@@ -209,7 +209,7 @@ export default function FinanceReportsTab() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs px-3"
+                className="h-8 text-xs px-3 w-full sm:w-auto"
                 onClick={() => {
                   setReportsDateFrom("");
                   setReportsDateTo("");

@@ -29,6 +29,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -242,14 +243,14 @@ export default function ClassesTab() {
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2">
               <BookOpen className="w-5 h-5" /> Classes / Semesters
             </CardTitle>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               {canCreate && (
                 <DialogTrigger asChild>
-                  <Button onClick={openAdd}>
+                  <Button onClick={openAdd} className="w-full sm:w-auto">
                     <PlusCircle className="w-4 h-4 mr-2" /> Add Class
                   </Button>
                 </DialogTrigger>
@@ -450,21 +451,23 @@ export default function ClassesTab() {
                     </p>
                   </div>
 
-                  <Button
-                    onClick={handleSubmit}
-                    className="w-full mt-2"
-                    disabled={
-                      !classForm.programId ||
-                      !classForm.name?.trim() ||
-                      classMutation.isPending
-                    }
-                  >
-                    {classMutation.isPending
-                      ? "Saving..."
-                      : editing
-                      ? "Update Class"
-                      : "Add Class"}
-                  </Button>
+                  <DialogFooter className="pt-2 border-t mt-4 flex items-center justify-end">
+                    <Button
+                      onClick={handleSubmit}
+                      className="w-full sm:w-auto"
+                      disabled={
+                        !classForm.programId ||
+                        !classForm.name?.trim() ||
+                        classMutation.isPending
+                      }
+                    >
+                      {classMutation.isPending
+                        ? "Saving..."
+                        : editing
+                        ? "Update Class"
+                        : "Add Class"}
+                    </Button>
+                  </DialogFooter>
                 </div>
               </DialogContent>
             </Dialog>

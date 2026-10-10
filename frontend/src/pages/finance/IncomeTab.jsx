@@ -22,6 +22,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -224,10 +225,10 @@ export default function IncomeTab() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle>Income Records</CardTitle>
             {canCreate && (
-              <Button onClick={() => setIncomeOpen(true)}>
+              <Button onClick={() => setIncomeOpen(true)} className="w-full sm:w-auto">
                 <TrendingUp className="mr-2 h-4 w-4" />
                 Add Income
               </Button>
@@ -528,12 +529,15 @@ export default function IncomeTab() {
               />
             </div>
           </div>
-          <Button
-            onClick={handleAddIncome}
-            disabled={addIncomeMutation.isPending}
-          >
-            {addIncomeMutation.isPending ? "Adding..." : "Add Income"}
-          </Button>
+          <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
+            <Button
+              onClick={handleAddIncome}
+              disabled={addIncomeMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {addIncomeMutation.isPending ? "Adding..." : "Add Income"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -24,6 +24,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -331,10 +332,10 @@ export default function ExpenseTab() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle>Expense Records</CardTitle>
             {canCreate && (
-              <Button onClick={() => setExpenseOpen(true)}>
+              <Button onClick={() => setExpenseOpen(true)} className="w-full sm:w-auto">
                 <TrendingDown className="mr-2 h-4 w-4" />
                 Add Expense
               </Button>
@@ -878,12 +879,20 @@ export default function ExpenseTab() {
               />
             </div>
           </div>
-          <Button
-            onClick={handleAddExpense}
-            disabled={addExpenseMutation.isPending}
-          >
-            {addExpenseMutation.isPending ? "Submitting..." : "Submit Expense"}
-          </Button>
+          <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setExpenseOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddExpense}
+              disabled={addExpenseMutation.isPending}
+            >
+              {addExpenseMutation.isPending ? "Submitting..." : "Submit Expense"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

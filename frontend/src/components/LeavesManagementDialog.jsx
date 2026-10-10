@@ -253,7 +253,7 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
                         />
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-1">
+                    <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t flex items-center justify-end gap-2 shrink-0">
                         <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                             Cancel
                         </Button>
@@ -261,7 +261,7 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
                             {isSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                             Save
                         </Button>
-                    </div>
+                    </DialogFooter>
                 </div>
             </DialogContent>
         </Dialog>
@@ -718,7 +718,7 @@ const LeavesManagementDialog = () => {
                             type="button"
                             onClick={() => setCreateDialogOpen(true)}
                             variant="outline"
-                            className="text-xs font-medium h-8 sm:h-9 px-2.5 sm:px-3"
+                            className="text-xs font-medium h-8 sm:h-9 px-2.5 sm:px-3 w-full sm:w-auto"
                         >
                             <Plus className="mr-1 sm:mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             Create Request
@@ -1088,7 +1088,7 @@ const LeavesManagementDialog = () => {
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex justify-end gap-2 pt-4">
+                        <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
                             <Button
                                 variant="outline"
                                 disabled={isCreating}
@@ -1109,7 +1109,7 @@ const LeavesManagementDialog = () => {
                                 {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Create Leave Request
                             </Button>
-                        </div>
+                        </DialogFooter>
                     </div>
                 </DialogContent>
             </Dialog>

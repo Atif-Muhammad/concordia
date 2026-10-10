@@ -20,6 +20,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -155,14 +156,14 @@ export default function SessionsTab() {
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <CardTitle>Academic Sessions</CardTitle>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             {canCreate && (
               <DialogTrigger asChild>
-                <Button onClick={openAdd}>
+                <Button onClick={openAdd} className="w-full sm:w-auto">
                   <PlusCircle className="mr-2" /> Add Session
                 </Button>
               </DialogTrigger>
@@ -216,17 +217,19 @@ export default function SessionsTab() {
                   />
                   <Label htmlFor="isActive">Set as Active Session</Label>
                 </div>
-                <Button
-                  onClick={handleSubmit}
-                  className="w-full"
-                  disabled={sessionMutation.isPending}
-                >
-                  {sessionMutation.isPending
-                    ? "Saving..."
-                    : editing
-                    ? "Update Session"
-                    : "Add Session"}
-                </Button>
+                <DialogFooter className="pt-2 border-t mt-4 flex items-center justify-end">
+                  <Button
+                    onClick={handleSubmit}
+                    className="w-full sm:w-auto"
+                    disabled={sessionMutation.isPending}
+                  >
+                    {sessionMutation.isPending
+                      ? "Saving..."
+                      : editing
+                      ? "Update Session"
+                      : "Add Session"}
+                  </Button>
+                </DialogFooter>
               </div>
             </DialogContent>
           </Dialog>

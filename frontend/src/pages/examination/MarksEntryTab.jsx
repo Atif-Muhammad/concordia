@@ -628,11 +628,11 @@ export const MarksEntryTab = () => {
             </div>
           </div>
         </div>
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2 mt-2">
           {canEnterMarks && (
             <Button
               variant="outline"
-              className="ml-2"
+              className="w-full sm:w-auto"
               onClick={() => {
                 setBulkExamId(marksFilterExam !== "*" ? marksFilterExam : "");
                 setBulkSectionId(isSectionApplicable && marksFilterSection !== "*" ? marksFilterSection : (isSectionApplicable ? "*" : ""));
@@ -646,36 +646,37 @@ export const MarksEntryTab = () => {
               Bulk Marks Entry
             </Button>
           )}
+        </div>
 
-          <Dialog
-            open={bulkMarksDialog}
-            onOpenChange={(open) => {
-              if (!bulkMarksMutation.isPending) {
-                setBulkMarksDialog(open);
-              }
+        <Dialog
+          open={bulkMarksDialog}
+          onOpenChange={(open) => {
+            if (!bulkMarksMutation.isPending) {
+              setBulkMarksDialog(open);
+            }
+          }}
+        >
+          <DialogContent
+            className="max-w-7xl h-[100dvh] sm:h-[95vh] flex flex-col p-0"
+            onPointerDownOutside={(e) => {
+              if (bulkMarksMutation.isPending) e.preventDefault();
+            }}
+            onEscapeKeyDown={(e) => {
+              if (bulkMarksMutation.isPending) e.preventDefault();
             }}
           >
-            <DialogContent
-              className="max-w-7xl h-[95vh] flex flex-col p-0"
-              onPointerDownOutside={(e) => {
-                if (bulkMarksMutation.isPending) e.preventDefault();
-              }}
-              onEscapeKeyDown={(e) => {
-                if (bulkMarksMutation.isPending) e.preventDefault();
-              }}
-            >
-              <DialogHeader className="p-4 sm:p-6 border-b">
-                <DialogTitle className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-                  <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
-                  Bulk Marks Entry
-                </DialogTitle>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  Select exam and class/section to enter marks for all students at once.
-                </p>
-              </DialogHeader>
-              <div className="flex-1 overflow-hidden flex flex-col">
-                {!bulkMarksEditMode && (
-                  <div className="p-3 sm:p-6 bg-muted/30 border-y grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+            <DialogHeader className="p-3 sm:p-6 border-b shrink-0">
+              <DialogTitle className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
+                Bulk Marks Entry
+              </DialogTitle>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                Select exam and class/section to enter marks for all students at once.
+              </p>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              {!bulkMarksEditMode && (
+                <div className="p-3 sm:p-6 bg-muted/30 border-y grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 shrink-0">
                     <div className="space-y-2">
                       <Label>Select Exam</Label>
                       <Select
@@ -754,7 +755,7 @@ export const MarksEntryTab = () => {
                   </div>
                 )}
 
-                <div className="flex-1 overflow-auto p-0 flex flex-col">
+                <div className="flex-1 min-h-0 overflow-auto p-0 flex flex-col">
                   {isLoadingStudents || isLoadingExistingMarks ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="flex flex-col items-center gap-2 py-20">
@@ -1111,8 +1112,7 @@ export const MarksEntryTab = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
-      </CardHeader>
+        </CardHeader>
 
       <CardContent>
         {!hasActiveMarksFilter ? (

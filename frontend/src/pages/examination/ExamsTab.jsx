@@ -540,7 +540,7 @@ export function ExamsTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <CardTitle className="flex items-center gap-2">
           <BookOpen className="w-5 h-5" />
           Exam Management
@@ -997,15 +997,15 @@ export function ExamsTab() {
         <Dialog open={viewExamDialog} onOpenChange={setViewExamDialog}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col p-0">
             <DialogHeader className="px-6 pt-6 pb-4 border-b">
-              <div className="flex justify-between items-center w-full">
-                <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-                  <BookOpen className="w-6 h-6 text-primary" />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+                <DialogTitle className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                   Exam Details
                 </DialogTitle>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex items-center gap-2 text-primary border-border hover:bg-primary/5"
+                  className="flex items-center gap-2 text-primary border-border hover:bg-primary/5 self-start sm:self-auto"
                   onClick={() => handlePrintDateSheet(viewingExam)}
                 >
                   <Printer className="w-4 h-4" />
@@ -1137,18 +1137,19 @@ export function ExamsTab() {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex-1 max-w-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="w-full sm:max-w-sm">
               <Input
                 placeholder="Search exams..."
                 value={examSearch}
                 onChange={(e) => setExamSearch(e.target.value)}
+                className="w-full"
               />
             </div>
             <Button
               variant="outline"
               size="sm"
-              className="gap-2"
+              className="gap-2 self-start sm:self-auto shrink-0"
               onClick={() => setShowExamsFilters((s) => !s)}
             >
               <SlidersHorizontal className="w-4 h-4" />

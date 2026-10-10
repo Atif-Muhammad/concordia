@@ -20,6 +20,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -646,7 +647,7 @@ export default function TimetableTab() {
             </CardDescription>
           </div>
           {canCreate && (
-            <Button onClick={() => openTimetableDialog(null)} className="shrink-0 gap-2">
+            <Button onClick={() => openTimetableDialog(null)} className="shrink-0 gap-2 w-full sm:w-auto">
               <PlusCircle className="w-4 h-4" /> Add / Edit Timetable
             </Button>
           )}
@@ -1101,22 +1102,24 @@ export default function TimetableTab() {
                 </div>
               )}
 
-              <Button
-                className="w-full mt-4"
-                onClick={handleTimetableSave}
-                disabled={
-                  !ttClassId ||
-                  (dialogClassAllowsSections && !ttSectionId) ||
-                  ttSubjectSchedules.length === 0 ||
-                  ttSaving
-                }
-              >
-                {ttSaving
-                  ? "Saving Timetable..."
-                  : editingId
-                  ? "Update Timetable"
-                  : "Save Timetable"}
-              </Button>
+              <DialogFooter className="pt-2 border-t mt-4 flex items-center justify-end">
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={handleTimetableSave}
+                  disabled={
+                    !ttClassId ||
+                    (dialogClassAllowsSections && !ttSectionId) ||
+                    ttSubjectSchedules.length === 0 ||
+                    ttSaving
+                  }
+                >
+                  {ttSaving
+                    ? "Saving Timetable..."
+                    : editingId
+                    ? "Update Timetable"
+                    : "Save Timetable"}
+                </Button>
+              </DialogFooter>
             </div>
           </DialogContent>
         </Dialog>

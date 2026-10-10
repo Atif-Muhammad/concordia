@@ -690,10 +690,11 @@ export default function AttendanceReportsTab({ onBack }) {
           </div>
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <Button
             onClick={() => refetchReport()}
             disabled={!reportStartDate || !reportEndDate || isFetchingReport}
+            className="w-full sm:w-auto"
           >
             Generate Report
           </Button>
@@ -701,7 +702,7 @@ export default function AttendanceReportsTab({ onBack }) {
             variant="outline"
             onClick={printAttendanceReport}
             disabled={!reportData.length}
-            className="gap-2"
+            className="gap-2 w-full sm:w-auto"
           >
             <Printer className="w-4 h-4" />
             Print Report

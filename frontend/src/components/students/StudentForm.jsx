@@ -1385,9 +1385,9 @@ const StudentForm = ({
                 </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-6 border-t mt-6">
-                <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>Cancel</Button>
-                <Button onClick={internalSubmit} disabled={isSubmitting}>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4 sm:pt-6 border-t mt-6 shrink-0">
+                <Button variant="outline" onClick={onCancel} disabled={isSubmitting} className="w-full sm:w-auto">Cancel</Button>
+                <Button onClick={internalSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
                     {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                     {isEditing ? "Update" : "Create"} Student
                 </Button>

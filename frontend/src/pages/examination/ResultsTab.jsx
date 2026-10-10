@@ -972,12 +972,12 @@ export const ResultsTab = () => {
       <TabsContent value="class-results">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <CardTitle className="flex items-center gap-2">
                 <Award className="w-5 h-5" />
                 Examination Results by Class
               </CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1342,14 +1342,14 @@ export const ResultsTab = () => {
                   return (
                     <Card key={examIdStr} className="mb-4">
                       <CardHeader>
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <CardTitle>{exam.examName}</CardTitle>
                             <p className="text-sm text-muted-foreground">
                               {exam.program?.name} | {exam.session}
                             </p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             {canUpdate && (
                               <Button
                                 size="sm"

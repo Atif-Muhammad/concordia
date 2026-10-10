@@ -40,30 +40,32 @@ export const StudentFormDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[90vh] flex flex-col p-4 sm:p-6 overflow-hidden">
+        <DialogHeader className="shrink-0 pb-2 border-b">
           <DialogTitle>{editingStudent || isLoading ? "Edit" : "Add"} Student</DialogTitle>
           <DialogDescription>
             All fields marked * are required
           </DialogDescription>
         </DialogHeader>
 
-        {isLoading || !isReady ? (
-          <StudentFormSkeleton />
-        ) : (
-          <StudentForm
-            initialData={editingStudent || EMPTY_OBJECT}
-            isEditing={!!editingStudent}
-            programs={programData}
-            classes={classesData}
-            sections={sectionsData}
-            academicSessions={academicSessions}
-            rollNumberMap={(rollNumberMap && typeof rollNumberMap === "object") ? rollNumberMap : EMPTY_OBJECT}
-            onCancel={onCancel}
-            onSubmit={onSubmit}
-            isSubmitting={isSubmitting}
-          />
-        )}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          {isLoading || !isReady ? (
+            <StudentFormSkeleton />
+          ) : (
+            <StudentForm
+              initialData={editingStudent || EMPTY_OBJECT}
+              isEditing={!!editingStudent}
+              programs={programData}
+              classes={classesData}
+              sections={sectionsData}
+              academicSessions={academicSessions}
+              rollNumberMap={(rollNumberMap && typeof rollNumberMap === "object") ? rollNumberMap : EMPTY_OBJECT}
+              onCancel={onCancel}
+              onSubmit={onSubmit}
+              isSubmitting={isSubmitting}
+            />
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1344,7 +1344,7 @@ export const ChallansTab = ({
               placeholder="Challan #, name, roll..."
               value={challanSearch}
               onChange={(e) => { setChallanSearch(e.target.value); setPage(1); }}
-              className="w-[180px] h-9 text-xs"
+              className="w-full sm:w-[180px] h-9 text-xs"
             />
 
             {/* Program Filter */}
@@ -1357,7 +1357,7 @@ export const ChallansTab = ({
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-[140px] h-9 text-xs">
+              <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
                 <SelectValue placeholder="All Programs" />
               </SelectTrigger>
               <SelectContent>
@@ -1379,7 +1379,7 @@ export const ChallansTab = ({
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-[130px] h-9 text-xs">
+              <SelectTrigger className="w-full sm:w-[130px] h-9 text-xs">
                 <SelectValue placeholder="All Classes" />
               </SelectTrigger>
               <SelectContent>
@@ -1401,7 +1401,7 @@ export const ChallansTab = ({
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-[130px] h-9 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+              <SelectTrigger className="w-full sm:w-[130px] h-9 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
                 <SelectValue
                   placeholder={
                     !isTableClassSelected
@@ -1722,7 +1722,7 @@ export const ChallansTab = ({
               onClick={handleBulkPrintSelected}
               disabled={selectedChallanIds.length === 0 || isBulkPrintingSelected}
               className={cn(
-                "h-9 gap-2 shrink-0 transition-all",
+                "h-9 gap-2 shrink-0 transition-all w-full sm:w-auto",
                 selectedChallanIds.length > 0 && "bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
               )}
               title={
@@ -1762,7 +1762,7 @@ export const ChallansTab = ({
                   setGenerateResults(null);
                   setGenerateDialogOpen(true);
                 }}
-                className="h-9 gap-2 shrink-0"
+                className="h-9 gap-2 shrink-0 w-full sm:w-auto"
               >
                 <Plus className="w-4 h-4" /> Generate Challans
               </Button>
@@ -2895,19 +2895,19 @@ export const ChallansTab = ({
             </div>
           ) : (
             <div className="space-y-4 py-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h3 className="text-sm font-bold">Generation Results</h3>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
+                    className="gap-1.5 w-full sm:w-auto"
                     onClick={() => printGeneratedChallans(generateResults)}
                     disabled={generatedPrintingKey === "all" || !generateResults.some(r => r.challan?.id)}
                   >
                     <Printer className="w-3.5 h-3.5" /> Print All Generated
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setGenerateResults(null)}>Back to Form</Button>
+                  <Button variant="outline" size="sm" onClick={() => setGenerateResults(null)} className="w-full sm:w-auto">Back to Form</Button>
                 </div>
               </div>
 

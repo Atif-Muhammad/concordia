@@ -134,9 +134,9 @@ const DialogContent = React.forwardRef(({
         className={cn(
           // Full-height right panel
           "fixed top-0 right-0 z-50",
-          "h-dvh min-h-screen w-full sm:w-[80dvw]",
+          "h-[100dvh] max-h-[100dvh] w-full sm:w-[80dvw]",
           "bg-background border-l border-border",
-          "flex flex-col overflow-y-auto",
+          "flex flex-col overflow-hidden",
           // Slide from right
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
@@ -175,7 +175,7 @@ const DialogContent = React.forwardRef(({
           props.onSubmit?.(e);
         }}
         {...props}
-        style={{ height: '100dvh', minHeight: '100vh', maxHeight: '100dvh', ...props.style }}
+        style={{ height: '100dvh', maxHeight: '100dvh', ...props.style }}
       >
         {/* Close button with dirty check */}
         <button
@@ -228,7 +228,7 @@ const DialogContent = React.forwardRef(({
             <>
               {header}
               {body.length > 0 && (
-                <div className={cn("px-6 py-5 flex-1 flex flex-col gap-4", bodyClassName || (className?.includes('p-0') ? 'p-0 gap-2' : undefined))}>
+                <div className={cn("px-4 py-3 sm:px-6 sm:py-5 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto", bodyClassName || (className?.includes('p-0') ? 'p-0 gap-2' : undefined))}>
                   {body}
                 </div>
               )}
@@ -297,7 +297,7 @@ DialogHeader.displayName = "DialogHeader";
 const DialogFooter = ({ className, ...props }) => (
   <div
     className={cn(
-      "px-6 py-4 border-t border-border flex items-center justify-end gap-2 shrink-0 mt-auto sticky bottom-0 bg-background/95 backdrop-blur-xs z-20",
+      "px-4 py-3 sm:px-6 sm:py-4 border-t border-border flex items-center justify-end gap-2 shrink-0 bg-background/95 backdrop-blur-xs z-30",
       className
     )}
     {...props}

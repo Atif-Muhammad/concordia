@@ -2,6 +2,7 @@ import React from "react";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -80,9 +81,9 @@ export const StudentPaymentHistoryDialog = ({
               </TableBody>
             </Table>
           </div>
-          <div className="flex justify-end pt-2">
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
-          </div>
+          <DialogFooter className="pt-2 border-t mt-4 flex items-center justify-end">
+            <Button onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Close</Button>
+          </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>

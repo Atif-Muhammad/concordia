@@ -711,18 +711,17 @@ export default function MarkAttendanceTab() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-center justify-between border-t pt-4">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={handleLoadStudents}
-                disabled={isFetching || !selectedProgramId || !selectedClassId || !selectedSubjectId}
-              >
-                {isFetching ? "Loading Students..." : "Load Students"}
-              </Button>
-            </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t pt-4">
+            <Button
+              onClick={handleLoadStudents}
+              disabled={isFetching || !selectedProgramId || !selectedClassId || !selectedSubjectId}
+              className="w-full sm:w-auto"
+            >
+              {isFetching ? "Loading Students..." : "Load Students"}
+            </Button>
 
             {canMarkAttendance && (
-              <Button onClick={handleSaveAttendance} disabled={!fetchedStudents.length}>
+              <Button onClick={handleSaveAttendance} disabled={!fetchedStudents.length} className="w-full sm:w-auto">
                 Save Attendance
               </Button>
             )}

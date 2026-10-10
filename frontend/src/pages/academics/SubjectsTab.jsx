@@ -178,7 +178,7 @@ export default function SubjectsTab() {
               <Button
                 onClick={handleCreateSubjectInline}
                 disabled={!newSubjectName.trim() || subjectMutation.isPending}
-                className="gap-2 shrink-0"
+                className="gap-2 shrink-0 w-full sm:w-auto"
               >
                 <PlusCircle className="w-4 h-4" /> Add Subject
               </Button>

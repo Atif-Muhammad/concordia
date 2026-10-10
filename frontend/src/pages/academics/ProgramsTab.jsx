@@ -27,6 +27,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -183,14 +184,14 @@ export default function ProgramsTab() {
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2">
             <GraduationCap className="w-5 h-5" /> Programs
           </CardTitle>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             {canCreate && (
               <DialogTrigger asChild>
-                <Button onClick={openAdd}>
+                <Button onClick={openAdd} className="w-full sm:w-auto">
                   <PlusCircle className="w-4 h-4 mr-2" /> Add Program
                 </Button>
               </DialogTrigger>
@@ -416,22 +417,24 @@ export default function ProgramsTab() {
                     Prefix for student roll numbers in this program.
                   </p>
                 </div>
-                <Button
-                  onClick={handleSubmit}
-                  className="w-full"
-                  disabled={
-                    !programForm.name ||
-                    !programForm.departmentId ||
-                    !programForm.duration ||
-                    programMutation.isPending
-                  }
-                >
-                  {programMutation.isPending
-                    ? "Saving..."
-                    : editing
-                    ? "Update Program"
-                    : "Add Program"}
-                </Button>
+                <DialogFooter className="pt-2 border-t mt-4 flex items-center justify-end">
+                  <Button
+                    onClick={handleSubmit}
+                    className="w-full sm:w-auto"
+                    disabled={
+                      !programForm.name ||
+                      !programForm.departmentId ||
+                      !programForm.duration ||
+                      programMutation.isPending
+                    }
+                  >
+                    {programMutation.isPending
+                      ? "Saving..."
+                      : editing
+                      ? "Update Program"
+                      : "Add Program"}
+                  </Button>
+                </DialogFooter>
               </div>
             </DialogContent>
           </Dialog>

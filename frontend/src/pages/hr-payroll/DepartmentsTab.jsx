@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Tooltip,
@@ -134,7 +135,7 @@ export const DepartmentsTab = () => {
             {canCreate && (
               <Button
                 size="sm"
-                className="h-8 sm:h-9 text-xs sm:text-sm"
+                className="h-8 sm:h-9 text-xs sm:text-sm w-full sm:w-auto"
                 onClick={() => {
                   setEditingDepartment(null);
                   setDeptFormData({
@@ -292,9 +293,17 @@ export const DepartmentsTab = () => {
               />
             </div>
           </div>
-          <Button onClick={editingDepartment ? () => handleUpdateDepartment(deptFormData.id) : handleAddDepartment}>
-            {editingDepartment ? "Update Department" : "Add Department"}
-          </Button>
+          <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setDeptOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={editingDepartment ? () => handleUpdateDepartment(deptFormData.id) : handleAddDepartment}>
+              {editingDepartment ? "Update Department" : "Add Department"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

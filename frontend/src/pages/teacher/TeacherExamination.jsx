@@ -704,9 +704,9 @@ export default function TeacherExamination() {
 
         {/* Enter Marks Dialog */}
         <Dialog open={marksDialogOpen} onOpenChange={setMarksDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-6">
-            <DialogHeader className="pb-3 border-b">
-              <div className="flex items-center justify-between">
+          <DialogContent className="max-w-4xl h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col p-4 sm:p-6">
+            <DialogHeader className="pb-3 border-b shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
                     <Edit3 className="w-5 h-5 text-primary" />
@@ -717,7 +717,7 @@ export default function TeacherExamination() {
                     {activeSubjectForMarks?.sectionName ? ` (${activeSubjectForMarks.sectionName})` : ' (All Sections)'}
                   </DialogDescription>
                 </div>
-                <Badge className="bg-primary/10 text-primary border-primary/20 text-xs font-semibold px-2.5 py-1">
+                <Badge className="bg-primary/10 text-primary border-primary/20 text-xs font-semibold px-2.5 py-1 self-start sm:self-auto">
                   Teacher Authorized
                 </Badge>
               </div>
@@ -760,7 +760,7 @@ export default function TeacherExamination() {
             </div>
 
             {/* Student Marks Entry Table */}
-            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-[260px] border rounded-lg">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto min-h-[260px] border rounded-lg">
               {isClassStudentsLoading || isExistingMarksLoading ? (
                 <div className="flex h-48 items-center justify-center">
                   <Loader2 className="h-7 w-7 animate-spin text-primary" />

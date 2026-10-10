@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -683,9 +684,10 @@ export const StudentPromotionDialog = ({
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
+            <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t mt-4 shrink-0">
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   onOpenChange(false);
                   setSelectedForPromotion([]);
@@ -695,6 +697,7 @@ export const StudentPromotionDialog = ({
                 Cancel
               </Button>
               <Button
+                className="w-full sm:w-auto"
                 onClick={handleApply}
                 disabled={
                   isSubmitting ||
@@ -706,7 +709,7 @@ export const StudentPromotionDialog = ({
               >
                 {isSubmitting ? "Processing..." : `Apply (${selectedForPromotion.length} selected)`}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

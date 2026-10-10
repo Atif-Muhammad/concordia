@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -150,13 +150,13 @@ export const FeeHeadsTab = () => {
     <div className="space-y-6">
       <Card className="shadow-soft">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle>Fee Heads</CardTitle>
             {canCreate && (
               <Button onClick={() => {
                 resetFeeHeadForm();
                 setFeeHeadOpen(true);
-              }} className="gap-2">
+              }} className="gap-2 w-full sm:w-auto">
                 <Plus className="w-4 h-4" />Add Fee Head
               </Button>
             )}
@@ -452,7 +452,7 @@ export const FeeHeadsTab = () => {
                 <Label htmlFor="isOther">Others</Label>
               </div>
             </div>
-            <div className="flex gap-2 justify-end">
+            <DialogFooter className="px-4 py-3 sm:px-6 sm:py-4 border-t mt-4 flex items-center justify-end gap-2 shrink-0">
               <Button variant="outline" onClick={() => setFeeHeadOpen(false)}>Cancel</Button>
               <Button
                 onClick={handleSubmitFeeHead}
@@ -460,7 +460,7 @@ export const FeeHeadsTab = () => {
               >
                 {createHeadMutation.isPending || updateHeadMutation.isPending ? "Saving..." : (editingFeeHead ? "Update" : "Add")}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

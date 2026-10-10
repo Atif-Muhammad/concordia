@@ -363,7 +363,7 @@ export const StudentReportsTab = ({
               <Button
                 size="sm"
                 onClick={() => setProfilePrintOpen(true)}
-                className="gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-xs"
+                className="gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-xs w-full sm:w-auto"
               >
                 <Printer className="w-3.5 h-3.5 text-orange-400" />
                 Re-open {selectedStudent.fName || "Student"}'s Report

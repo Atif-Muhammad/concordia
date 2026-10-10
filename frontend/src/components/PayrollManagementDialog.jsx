@@ -852,81 +852,90 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
   };
   return (
     <div className="w-full h-full flex flex-col min-h-[600px]">
-      <div className="flex items-center gap-4 mb-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Label>Month:</Label>
-          <div className="w-48">
-            <MonthPicker
-              value={month}
-              onChange={(val) => {
-                if (val) setMonth(val);
-              }}
-              className="h-9 text-xs"
-            />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        {/* Filters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label className="shrink-0 text-xs font-semibold">Month:</Label>
+            <div className="w-40 sm:w-44">
+              <MonthPicker
+                value={month}
+                onChange={(val) => {
+                  if (val) setMonth(val);
+                }}
+                className="h-9 text-xs"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="shrink-0 text-xs font-semibold">Role:</Label>
+            <Select value={activeTab} onValueChange={setActiveTab}>
+              <SelectTrigger className="w-36 sm:w-40 h-9 text-xs">
+                <SelectValue placeholder="All Staff" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Staff</SelectItem>
+                <SelectItem value="teacher">Teachers</SelectItem>
+                <SelectItem value="employee">Non-Teaching Staff</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Label>Role:</Label>
-          <Select value={activeTab} onValueChange={setActiveTab}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="All Staff" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Staff</SelectItem>
-              <SelectItem value="teacher">Teachers</SelectItem>
-              <SelectItem value="employee">Non-Teaching Staff</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex gap-2 ml-auto">
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
           {(canCreate || canUpdate) && (
             <Button
               onClick={handleGenerateOrRegenerate}
               disabled={generateMutation.isPending}
+              size="sm"
+              className="flex-1 sm:flex-initial"
             >
               {generateMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <CalendarPlus className="mr-2 h-4 w-4" />
+                <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />
               )}
               {localData.length > 0
-                ? `Re-generate Payroll${selectedRows.size > 0 ? ` (${selectedRows.size})` : ""}`
+                ? `Re-generate${selectedRows.size > 0 ? ` (${selectedRows.size})` : ""}`
                 : "Generate Payroll"}
             </Button>
           )}
-          <Button onClick={handlePrintMonth} variant="outline" disabled={localData.length === 0}>
-            <Printer className="mr-2 h-4 w-4" />
-            Print Sheet
+          <Button onClick={handlePrintMonth} variant="outline" size="sm" disabled={localData.length === 0} className="flex-1 sm:flex-initial">
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Print
           </Button>
-          <Button onClick={handlePreviewSheet} variant="outline" disabled={localData.length === 0}>
-            <Eye className="mr-2 h-4 w-4" />
-            Preview Sheet
+          <Button onClick={handlePreviewSheet} variant="outline" size="sm" disabled={localData.length === 0} className="flex-1 sm:flex-initial">
+            <Eye className="mr-1.5 h-3.5 w-3.5" />
+            Preview
           </Button>
           {canUpdate && (
             <Button
               onClick={handleBulkMarkPaid}
               disabled={selectedRows.size === 0}
               variant="outline"
-              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              size="sm"
+              className="text-green-600 hover:text-green-700 hover:bg-green-50 flex-1 sm:flex-initial"
             >
-              <CheckCircle className="mr-2 h-4 w-4" />
+              <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
               Paid ({selectedRows.size})
             </Button>
           )}
           <Button
             onClick={() => setWalletLogsDialogOpen(true)}
             variant="outline"
-            className="text-primary hover:text-primary hover:bg-primary/10 border-primary/30"
+            size="sm"
+            className="text-primary hover:text-primary hover:bg-primary/10 border-primary/30 flex-1 sm:flex-initial"
           >
-            <Wallet className="mr-2 h-4 w-4" />
-            Deduction Logs
+            <Wallet className="mr-1.5 h-3.5 w-3.5" />
+            Logs
           </Button>
           {canUpdate && (
-            <Button onClick={handleBulkSave} disabled={isSaving}>
+            <Button onClick={handleBulkSave} disabled={isSaving} size="sm" className="w-full sm:w-auto font-medium">
               {isSaving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <SaveAll className="mr-2 h-4 w-4" />
+                <SaveAll className="mr-1.5 h-3.5 w-3.5" />
               )}
               Save All
             </Button>
@@ -935,18 +944,18 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
       </div>
 
       {localData.length > 0 && missingStaff.length > 0 && !dismissedMissing && (
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-center justify-between gap-3">
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <div className="font-medium">New staff detected without payroll for this month.</div>
-            <div>{missingStaff.length} staff member(s) can be added to {new Date(`${month}-01`).toLocaleString("default", { month: "long", year: "numeric" })} payroll.</div>
+            <div className="text-xs sm:text-sm">{missingStaff.length} staff member(s) can be added to {new Date(`${month}-01`).toLocaleString("default", { month: "long", year: "numeric" })} payroll.</div>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 w-full sm:w-auto">
             {(canCreate || canUpdate) && (
-              <Button size="sm" onClick={handleAddMissingStaff} disabled={generateMutation.isPending}>
+              <Button size="sm" onClick={handleAddMissingStaff} disabled={generateMutation.isPending} className="flex-1 sm:flex-initial">
                 Add to Payroll
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={() => setDismissedMissing(true)}>
+            <Button size="sm" variant="outline" onClick={() => setDismissedMissing(true)} className="flex-1 sm:flex-initial">
               Not Now
             </Button>
           </div>

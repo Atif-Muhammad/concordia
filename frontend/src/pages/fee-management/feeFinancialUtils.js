@@ -915,6 +915,116 @@ export const resolveHeadName = (h, feeHeads = []) => {
   return "Fee Head";
 };
 
+export const formatPartialPaymentDateTime = (dateVal, timeVal) => {
+  if (!dateVal && !timeVal) return "";
+  if (timeVal) {
+    const res = format12HourDateTime(dateVal, timeVal);
+    return res.replace(/\b(am|pm)\b/i, m => m.toUpperCase());
+  }
+  if (dateVal) {
+    const str = String(dateVal);
+    if (str.includes('T') || str.includes(':') || dateVal instanceof Date) {
+      const res = format12HourDateTime(dateVal);
+      return res.replace(/\b(am|pm)\b/i, m => m.toUpperCase());
+    }
+    return safeFormatDate(dateVal, "dd MMM yyyy");
+  }
+  return "";
+};
+
+export const extractChallanPartialPayments = (challan, options = {}) => {
+  if (!challan) return [];
+
+  const feeChallans = options.feeChallans || [];
+  const cId = String(challan.id || challan._id || '');
+  const cNo = String(challan.challanNumber || challan.challanNo || '');
+  const hasOwnReceipts = Array.isArray(challan.receipts) && challan.receipts.length > 0;
+  const hasOwnHist = Boolean(challan.paymentHistory);
+  const matchedSibling = (!hasOwnReceipts && !hasOwnHist && feeChallans.length > 0)
+    ? feeChallans.find(fc =>
+        (cId && String(fc?.id || fc?._id || '') === cId) ||
+        (cNo && String(fc?.challanNumber || fc?.challanNo || '') === cNo)
+      )
+    : null;
+
+  let rawList = [];
+
+  // 1. receipts
+  if (hasOwnReceipts) {
+    rawList = challan.receipts;
+  } else if (Array.isArray(options.receipts) && options.receipts.length > 0) {
+    rawList = options.receipts;
+  } else if (matchedSibling && Array.isArray(matchedSibling.receipts) && matchedSibling.receipts.length > 0) {
+    rawList = matchedSibling.receipts;
+  }
+  // 2. paymentHistory (array or JSON string)
+  else if (challan.paymentHistory || matchedSibling?.paymentHistory) {
+    const rawHist = challan.paymentHistory || matchedSibling?.paymentHistory;
+    if (typeof rawHist === 'string') {
+      try {
+        const parsed = JSON.parse(rawHist);
+        if (Array.isArray(parsed)) rawList = parsed;
+      } catch (e) {
+        rawList = [];
+      }
+    } else if (Array.isArray(rawHist)) {
+      rawList = rawHist;
+    }
+  }
+  // 3. payments
+  else if (Array.isArray(challan.payments) && challan.payments.length > 0) {
+    rawList = challan.payments;
+  }
+  // 4. transactions
+  else if (Array.isArray(challan.transactions) && challan.transactions.length > 0) {
+    rawList = challan.transactions;
+  }
+  // 5. partialPayments
+  else if (Array.isArray(challan.partialPayments) && challan.partialPayments.length > 0) {
+    rawList = challan.partialPayments;
+  }
+
+  const validEntries = rawList
+    .map((entry, idx) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const amt = Number(entry.amountPaid ?? entry.amount ?? entry.paidAmount ?? 0);
+      if (amt <= 0) return null;
+      if (entry.receiptType === 'ARREARS_SETTLEMENT' || entry.isArrearsSettlement) return null;
+      const date = entry.date || entry.paidDate || entry.paymentDate || entry.createdAt || null;
+      const time = entry.time || entry.paidTime || entry.paymentTime || null;
+      return {
+        id: entry.id || entry._id || idx,
+        amount: amt,
+        date,
+        time,
+      };
+    })
+    .filter(Boolean);
+
+  if (
+    validEntries.length === 0 &&
+    Number(challan.directPaidAmount ?? challan.paidAmount ?? 0) > 0 &&
+    !(Number(challan.advanceApplied || challan.appliedAdvance || 0) > 0 && Number(challan.totalAmount ?? 0) === 0)
+  ) {
+    const directAmt = Number(challan.directPaidAmount ?? challan.paidAmount ?? 0);
+    validEntries.push({
+      id: challan.id || challan._id || 'direct',
+      amount: directAmt,
+      date: challan.paidDate || challan.updatedAt || challan.createdAt || null,
+      time: challan.paidTime || null,
+    });
+  }
+
+  // Sort ascending by payment date/time
+  validEntries.sort((a, b) => {
+    const timeA = a.date ? new Date(a.date).getTime() : 0;
+    const timeB = b.date ? new Date(b.date).getTime() : 0;
+    return timeA - timeB;
+  });
+
+  return validEntries;
+};
+
 export const generateChallanHtml = (rawChallan, manualTemplate = null, options = {}) => {
   if (!rawChallan) return "";
 
@@ -1365,10 +1475,16 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
 
   if (shouldShowBalanceRows) {
     const isAdvanceCovered = appliedAdvance > 0 && standardTotal === 0;
-    const hasCashPayment = alreadyPaid > 0 && alreadyPaid !== appliedAdvance;
+    const partialPayments = extractChallanPartialPayments(challan, options);
+    const isPartialStatus = challan.status === 'PARTIAL' || (alreadyPaid > 0 && alreadyPaid < standardTotal);
+    const hasMultiplePayments = partialPayments.length > 1;
+    const shouldShowPartialPaymentRows = !isAdvanceCovered && (hasMultiplePayments || (partialPayments.length > 0 && isPartialStatus));
+
+    const hasDirectReceiptPayment = partialPayments.some(p => p.amount > 0);
+    const hasCashPayment = !isAdvanceCovered && (alreadyPaid > 0) && (hasDirectReceiptPayment || alreadyPaid !== appliedAdvance || appliedAdvance === 0);
     const isAdvanceOnly = appliedAdvance > 0 && !hasCashPayment;
     const isCompletelyUnpaid = !hasCashPayment && appliedAdvance === 0;
-    const shouldShowPaidAmountRow = !isAdvanceOnly && !isCompletelyUnpaid;
+    const shouldShowPaidAmountRow = !isAdvanceCovered && !isAdvanceOnly && !isCompletelyUnpaid && !(shouldShowPartialPaymentRows && partialPayments.length === 1 && partialPayments[0].amount === alreadyPaid);
 
     const paidDisplay = (isAdvanceCovered || isAdvanceOnly)
       ? `${appliedAdvance.toLocaleString()} (Advance)`
@@ -1391,6 +1507,18 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
         <td style="font-size: 10px; text-align: right; color: #555; font-weight: normal;">${advanceGenerated.toLocaleString()}</td>
       </tr>` : '';
 
+    const showPartialPaymentRows = shouldShowPartialPaymentRows
+      ? partialPayments.map(p => {
+          const dt = formatPartialPaymentDateTime(p.date, p.time);
+          const dateSnippet = dt ? ` <span style="font-size: 9px; font-weight: normal; color: #64748b; margin-left: 4px;">(${dt})</span>` : '';
+          return `
+      <tr style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;">
+        <td>Partial Paid${dateSnippet}</td>
+        <td>${p.amount.toLocaleString()}</td>
+      </tr>`;
+        }).join('')
+      : '';
+
     const showRemainingRow = isActuallyFullyPaid || !/<tr[^>]*>[\s\S]*?Total Payable within due date/i.test(html);
     const showPaidAmountRow = shouldShowPaidAmountRow ? `
       <tr style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;">
@@ -1400,6 +1528,7 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
 
     const paidRowHtml = `
       ${showTotalRowInPaid}
+      ${showPartialPaymentRows}
       ${showPaidAmountRow}
       ${showAdvanceGeneratedRow}
       ${showRemainingRow && remainingPayable > 0 && remainingPayable !== standardTotal ? `
@@ -1606,102 +1735,108 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     return { candidateChallan, arrearAlloc };
   };
 
+  const resolveHistoryChallanTotal = (candidateChallan, fallbackItem, arrearAlloc) => {
+    let tot = 0;
+    if (candidateChallan) {
+      const explicit = Number(
+        candidateChallan.totalAmount ??
+        candidateChallan.grossAmount ??
+        candidateChallan.netPayable ??
+        candidateChallan.snapshotTotalDue ??
+        0
+      );
+      if (explicit > 0) {
+        tot = explicit;
+      } else {
+        tot = Number(getChallanTotal(candidateChallan) || 0);
+      }
+
+      if (tot <= 0) {
+        const base = Number(candidateChallan.basePayable ?? candidateChallan.amount ?? 0);
+        const heads = Number(getSelectedHeadsTotal(candidateChallan) || candidateChallan.headsAmount || 0);
+        const arrears = Number(candidateChallan.arrearsAmount ?? 0);
+        const fine = Number(candidateChallan.lateFeeAmount ?? candidateChallan.fineAmount ?? 0);
+        const disc = Number(candidateChallan.discountAmount ?? candidateChallan.discount ?? 0);
+        const sum = base + heads + arrears + fine - disc;
+        if (sum > 0) tot = sum;
+      }
+    }
+
+    if (tot <= 0 && fallbackItem) {
+      const explicit = Number(
+        fallbackItem.totalAmount ??
+        fallbackItem.grossAmount ??
+        fallbackItem.netPayable ??
+        fallbackItem.snapshotTotalDue ??
+        0
+      );
+      if (explicit > 0) {
+        tot = explicit;
+      } else {
+        tot = Number(getChallanTotal(fallbackItem) || 0);
+      }
+
+      if (tot <= 0) {
+        const base = Number(fallbackItem.basePayable ?? fallbackItem.amount ?? 0);
+        const heads = Number(getSelectedHeadsTotal(fallbackItem) || fallbackItem.headsAmount || 0);
+        const arrears = Number(fallbackItem.arrearsAmount ?? 0);
+        const fine = Number(fallbackItem.lateFeeAmount ?? fallbackItem.fineAmount ?? 0);
+        const disc = Number(fallbackItem.discountAmount ?? fallbackItem.discount ?? 0);
+        const sum = base + heads + arrears + fine - disc;
+        if (sum > 0) tot = sum;
+      }
+    }
+
+    if (arrearAlloc) {
+      const allocAmt = Number(arrearAlloc.originalDueAmount || arrearAlloc.amountCarriedForward || 0);
+      if (allocAmt > 0) {
+        tot = Math.max(tot, allocAmt);
+      }
+    }
+
+    return tot;
+  };
+
   const histTotals = displayHistory.map(i => {
     if (!i) return '<td>—</td>';
     const { candidateChallan, arrearAlloc } = resolveHistoryItem(i) || {};
-
-    let tot = 0;
-    if (candidateChallan) {
-      const cBase = Number(candidateChallan.basePayable ?? candidateChallan.amount ?? 0);
-      const cHeads = Number(candidateChallan.headsAmount ?? 0);
-      const cFine = Number(candidateChallan.lateFeeAmount ?? candidateChallan.fineAmount ?? 0);
-      const cDisc = Number(candidateChallan.discountAmount ?? candidateChallan.discount ?? 0);
-      const ownGross = cBase + cHeads + cFine - cDisc;
-      if (ownGross > 0) {
-        tot = ownGross;
-      } else {
-        const fullTotal = Number(candidateChallan.grossAmount ?? candidateChallan.totalAmount ?? candidateChallan.netPayable ?? 0);
-        const cArrears = Number(candidateChallan.arrearsAmount ?? 0);
-        tot = Math.max(0, fullTotal - cArrears);
-      }
-    }
-
-    if (tot === 0) {
-      const base = Number(i.basePayable ?? i.amount ?? 0);
-      const heads = Number(i.headsAmount ?? 0);
-      const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
-      const disc = Number(i.discountAmount ?? i.discount ?? 0);
-      const ownGross = base + heads + fine - disc;
-      if (ownGross > 0) {
-        tot = ownGross;
-      } else {
-        const fullTotal = Number(i.grossAmount ?? i.totalAmount ?? i.netPayable ?? i.snapshotTotalDue ?? 0);
-        const arrears = Number(i.arrearsAmount ?? 0);
-        tot = Math.max(0, fullTotal - arrears);
-      }
-    }
-
-    if (arrearAlloc && (!candidateChallan || Number(candidateChallan.arrearsAmount || 0) === 0)) {
-      const allocTotal = Number(arrearAlloc.originalDueAmount || arrearAlloc.amountCarriedForward || 0);
-      if (allocTotal > 0) {
-        tot = Math.max(tot, allocTotal);
-      }
-    }
-
+    const tot = resolveHistoryChallanTotal(candidateChallan, i, arrearAlloc);
     return `<td>${tot > 0 ? tot.toFixed(0) : '0'}</td>`;
   }).join('');
 
   const histPaid = displayHistory.map(i => {
     if (!i) return '<td>—</td>';
-    const { candidateChallan, arrearAlloc } = resolveHistoryItem(i) || {};
-
-    let itemTotal = 0;
-    if (candidateChallan) {
-      const cBase = Number(candidateChallan.basePayable ?? candidateChallan.amount ?? 0);
-      const cHeads = Number(candidateChallan.headsAmount ?? 0);
-      const cFine = Number(candidateChallan.lateFeeAmount ?? candidateChallan.fineAmount ?? 0);
-      const cDisc = Number(candidateChallan.discountAmount ?? candidateChallan.discount ?? 0);
-      const ownGross = cBase + cHeads + cFine - cDisc;
-      itemTotal = ownGross > 0 ? ownGross : Math.max(0, Number(candidateChallan.totalAmount || 0) - Number(candidateChallan.arrearsAmount || 0));
-    }
-    if (itemTotal === 0) {
-      const base = Number(i.basePayable ?? i.amount ?? 0);
-      const heads = Number(i.headsAmount ?? 0);
-      const fine = Number(i.lateFeeAmount ?? i.fineAmount ?? 0);
-      const disc = Number(i.discountAmount ?? i.discount ?? 0);
-      const ownGross = base + heads + fine - disc;
-      itemTotal = ownGross > 0 ? ownGross : Math.max(0, Number(i.totalAmount ?? i.grossAmount ?? 0) - Number(i.arrearsAmount || 0));
-    }
-    if (itemTotal === 0 && arrearAlloc) {
-      itemTotal = Number(arrearAlloc.originalDueAmount || arrearAlloc.amountCarriedForward || 0);
-    }
+    const { candidateChallan } = resolveHistoryItem(i) || {};
 
     const targetObj = candidateChallan || i;
-    const directPaid = Number(targetObj.paidAmount ?? targetObj.directPaidAmount ?? targetObj.amountReceived ?? 0);
+    const directPaid = Number(
+      (targetObj.paidAmount != null && Number(targetObj.paidAmount) > 0 ? targetObj.paidAmount : null) ??
+      (targetObj.directPaidAmount != null && Number(targetObj.directPaidAmount) > 0 ? targetObj.directPaidAmount : null) ??
+      (targetObj.amountReceived != null && Number(targetObj.amountReceived) > 0 ? targetObj.amountReceived : null) ??
+      (i?.paidAmount != null && Number(i.paidAmount) > 0 ? i.paidAmount : null) ??
+      targetObj.paidAmount ??
+      targetObj.directPaidAmount ??
+      targetObj.amountReceived ??
+      i?.paidAmount ??
+      0
+    );
     const advancePaid = Number(targetObj.advanceApplied ?? targetObj.advanceAmount ?? 0);
-    const statusStr = String(targetObj.status || i.status || '').toUpperCase();
-    const settledArrears = Number(targetObj.settledViaArrearsAmount ?? targetObj.settledAmount ?? arrearAlloc?.amountSettled ?? 0);
 
-    let paid = directPaid + advancePaid + settledArrears;
+    let paid = directPaid + advancePaid;
 
-    const subChallans = Array.isArray(i.challans) ? i.challans : [];
+    const subChallans = Array.isArray(targetObj?.challans) && targetObj.challans.length > 0
+      ? targetObj.challans
+      : (Array.isArray(i?.challans) ? i.challans : []);
     if (subChallans.length > 0) {
       const preferred = subChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase())) || subChallans[0];
       if (preferred) {
         const pDirect = Number(preferred.amountReceived ?? preferred.paidAmount ?? preferred.directPaidAmount ?? 0);
         const pAdv = Number(preferred.advanceApplied ?? preferred.advanceAmount ?? 0);
-        const pSettled = Number(preferred.settledViaArrearsAmount ?? preferred.settledAmount ?? 0);
-        const pPaid = pDirect + pAdv + pSettled;
+        const pPaid = pDirect + pAdv;
         if (pPaid > 0) {
           paid = Math.max(paid, pPaid);
         }
       }
-    }
-
-    if (['PAID', 'SETTLED'].includes(statusStr)) {
-      paid = itemTotal > 0 ? itemTotal : (paid > 0 ? paid : 0);
-    } else if (itemTotal > 0 && paid > itemTotal) {
-      paid = itemTotal;
     }
 
     return `<td>${paid > 0 ? paid.toFixed(0) : '0'}</td>`;

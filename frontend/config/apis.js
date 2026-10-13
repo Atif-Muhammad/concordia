@@ -2777,6 +2777,34 @@ export const getStudentArrears = async (studentId) => {
   }
 };
 
+export const getStudentInstallmentReport = async (filters = {}, options = {}) => {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        if (Array.isArray(value)) {
+          if (value.length > 0) params.append(key, value.join(','));
+        } else {
+          params.append(key, value);
+        }
+      }
+    });
+
+    const url = `${base_url}/fee-management/reports/student-installments${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await axios.get(url, {
+      withCredentials: true,
+      signal: options?.signal,
+    });
+    return response.data;
+  } catch (error) {
+    if (axios.isCancel(error) || error?.name === 'CanceledError' || error?.name === 'AbortError') {
+      return null;
+    }
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const getInstallmentPlans = async (filters = {}, options = {}) => {
   try {
     const params = new URLSearchParams();
@@ -4617,6 +4645,52 @@ export const getHrPayrollReport = async (month) => {
       withCredentials: true,
     });
     return response.data || [];
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getPayrollMonthWiseReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.year) params.append("year", filters.year);
+    if (filters.month) params.append("month", filters.month);
+    if (filters.search) params.append("search", filters.search);
+    if (filters.role) params.append("role", filters.role);
+    if (filters.status) params.append("status", filters.status);
+
+    const response = await axios.get(`${base_url}/hr/reports/payroll-month-wise?${params.toString()}`, {
+      withCredentials: true,
+    });
+    return response.data || { records: [], summary: {} };
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getPayrollTotalsReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.year) params.append("year", filters.year);
+    if (filters.month) params.append("month", filters.month);
+    if (filters.search) params.append("search", filters.search);
+    if (filters.role) params.append("role", filters.role);
+    if (filters.status) params.append("status", filters.status);
+
+    const response = await axios.get(`${base_url}/hr/reports/payroll-totals?${params.toString()}`, {
+      withCredentials: true,
+    });
+    return response.data || { staffTotals: [], combined: {} };
   } catch (error) {
     const message =
       error.response?.data?.message ||

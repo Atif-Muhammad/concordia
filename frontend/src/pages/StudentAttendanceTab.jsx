@@ -81,9 +81,25 @@ export const StudentAttendanceTab = ({
         return dates;
     }, [startDate, endDate]);
 
-    const printAttendanceReport = () => {
+    const printAttendanceReport = async () => {
         const printContent = document.querySelector('.individual-attendance-table');
         if (!printContent || !selectedStudent) return;
+
+        let logoDataUrl = "/logo.png";
+        try {
+            const res = await fetch("/logo.png");
+            if (res.ok) {
+                const blob = await res.blob();
+                logoDataUrl = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = () => resolve(`${window.location.origin}/logo.png`);
+                    reader.readAsDataURL(blob);
+                });
+            }
+        } catch {
+            logoDataUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/logo.png";
+        }
 
         const sessionObj = academicSessions.find((s) => String(s.id) === String(sessionId));
         const sessionLabel = sessionObj?.name || (sessionId === "all" ? "All Sessions" : sessionId);
@@ -107,7 +123,7 @@ export const StudentAttendanceTab = ({
             <title>Individual Attendance Report - ${studentName}</title>
             <link rel="preconnect" href="https://fonts.googleapis.com">
             <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-            <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600&family=Great+Vibes&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
             <style>
               @page {
                 size: A4 landscape;
@@ -247,10 +263,11 @@ export const StudentAttendanceTab = ({
           <body>
             <div class="header-container">
               <div class="logo-box">
-                <img src="/logo.png" alt="Concordia College Peshawar" />
+                <img src="${logoDataUrl}" alt="Concordia College Peshawar" />
               </div>
               <div class="header-text">
                 <h1 class="college-title">CONCORDIA COLLEGE PESHAWAR</h1>
+                <div style="font-size: 9.5px; font-weight: 600; text-transform: uppercase; color: #475569; letter-spacing: 0.5px; margin-top: 2px;">A Project of Beaconhouse</div>
                 <div class="report-subtitle">Individual Student Attendance Report</div>
               </div>
             </div>

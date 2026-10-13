@@ -51,6 +51,8 @@ router.post('/holidays', authMiddleware, attendanceController.createHoliday);
 router.delete('/holidays', authMiddleware, attendanceController.deleteHoliday);
 
 // Reports
+router.get('/reports/payroll-month-wise', hrController.getPayrollMonthWiseReport);
+router.get('/reports/payroll-totals', hrController.getPayrollTotalsReport);
 router.get('/reports/analytics', hrController.getAnalytics);
 
 module.exports = router;

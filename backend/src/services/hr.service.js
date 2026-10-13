@@ -1118,6 +1118,270 @@ class HrService {
 
     return { totalBasic, totalPaid, totalUnpaid, count: records.length };
   }
+
+  // Optimized Month-Wise Payroll Report
+  async getPayrollMonthWiseReport(filters = {}) {
+    const query = {};
+    const year = String(filters.year || new Date().getFullYear()).trim();
+    
+    if (filters.month && filters.month !== 'all') {
+      const m = String(filters.month).trim();
+      if (m.includes('-')) {
+        query.month = m;
+      } else {
+        query.month = `${year}-${m.padStart(2, '0')}`;
+      }
+    } else if (year && year !== 'all') {
+      query.month = { $regex: new RegExp(`^${year}-`) };
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      const s = String(filters.status).trim();
+      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
+    }
+
+    const payrolls = await Payroll.find(query)
+      .populate({
+        path: 'staffId',
+        select: 'staffId name fatherName designation empDepartment departmentId isTeaching isNonTeaching phone email basicPay',
+        populate: { path: 'departmentId', select: 'name' }
+      })
+      .sort({ month: -1, createdAt: -1 })
+      .lean();
+
+    const search = (filters.search || filters.searchQuery || '').trim().toLowerCase();
+    const role = (filters.role || 'all').toLowerCase();
+
+    const filtered = payrolls.filter(p => {
+      const s = p.staffId;
+      if (!s) return false;
+      if (role === 'teacher' && !s.isTeaching) return false;
+      if (role === 'employee' && (s.isTeaching && !s.isNonTeaching)) return false;
+      if (search) {
+        const nameMatch = (s.name || '').toLowerCase().includes(search);
+        const idMatch = (s.staffId || '').toLowerCase().includes(search);
+        const fatherMatch = (s.fatherName || '').toLowerCase().includes(search);
+        const desigMatch = (s.designation || '').toLowerCase().includes(search);
+        const deptMatch = (s.departmentId?.name || s.empDepartment || '').toLowerCase().includes(search);
+        if (!nameMatch && !idMatch && !fatherMatch && !desigMatch && !deptMatch) return false;
+      }
+      return true;
+    });
+
+    const records = filtered.map(p => {
+      const s = p.staffId || {};
+      const basicSalary = Number(p.currentSalary || p.basicSalary || s.basicPay || 0);
+      const totalAllowances = Number(p.totalAllowances || 0);
+      const totalDeductions = Number(p.totalDeductions || 0);
+      const netSalary = Number(p.netSalary || 0);
+      const paidAmount = Number(p.paidAmount || 0);
+
+      return {
+        id: p._id.toString(),
+        payrollId: p._id.toString(),
+        staffId: s._id ? s._id.toString() : '',
+        empId: s.staffId || '-',
+        staffName: s.name || 'Unknown Staff',
+        fatherName: s.fatherName || '-',
+        designation: s.designation || '-',
+        department: s.departmentId?.name || s.empDepartment || '-',
+        isTeaching: Boolean(s.isTeaching),
+        isNonTeaching: Boolean(s.isNonTeaching),
+        month: p.month,
+        basicSalary,
+        totalAllowances,
+        allowanceBreakdown: {
+          travel: Number(p.travelAllowance || 0),
+          medical: Number(p.medicalAllowance || 0),
+          houseRent: Number(p.houseRentAllowance || 0),
+          extra: Number(p.extraAllowance || 0),
+          insurance: Number(p.insuranceAllowance || 0),
+          other: Number(p.otherAllowance || 0),
+        },
+        totalDeductions,
+        deductionBreakdown: {
+          absent: Number(p.absentDeduction || 0),
+          leave: Number(p.leaveDeduction || 0),
+          advance: Number(p.advanceDeduction || 0),
+          tax: Number(p.incomeTax || 0),
+          eobi: Number(p.eobi || 0),
+          security: Number(p.securityDeduction || 0),
+          lateArrival: Number(p.lateArrivalDeduction || 0),
+          other: Number(p.otherDeduction || 0),
+        },
+        netSalary,
+        paidAmount,
+        status: (p.status || 'PENDING').toUpperCase(),
+        paymentDate: p.paymentDate || null,
+        paidBy: p.paidBy || 'Cash',
+        remarks: p.remarks || '',
+      };
+    });
+
+    const summary = {
+      totalRecords: records.length,
+      totalBasic: records.reduce((sum, r) => sum + r.basicSalary, 0),
+      totalAllowances: records.reduce((sum, r) => sum + r.totalAllowances, 0),
+      totalDeductions: records.reduce((sum, r) => sum + r.totalDeductions, 0),
+      totalNet: records.reduce((sum, r) => sum + r.netSalary, 0),
+      totalPaid: records.reduce((sum, r) => sum + r.paidAmount, 0),
+      totalPending: records.reduce((sum, r) => sum + Math.max(0, r.netSalary - r.paidAmount), 0),
+    };
+
+    return { records, summary };
+  }
+
+  // Optimized Payroll Totals Report (Combined Allowances & Deductions per Month Card)
+  async getPayrollTotalsReport(filters = {}) {
+    const query = {};
+    const year = filters.year && filters.year !== 'all' ? String(filters.year).trim() : String(new Date().getFullYear());
+    
+    if (filters.month && filters.month !== 'all') {
+      const m = String(filters.month).trim();
+      if (m.includes('-')) {
+        query.month = m;
+      } else {
+        query.month = `${year}-${m.padStart(2, '0')}`;
+      }
+    } else if (year && year !== 'all') {
+      query.month = { $regex: new RegExp(`^${year}-`) };
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      const s = String(filters.status).trim();
+      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
+    }
+
+    const payrolls = await Payroll.find(query)
+      .populate({
+        path: 'staffId',
+        select: 'staffId name fatherName designation empDepartment departmentId isTeaching isNonTeaching phone email basicPay',
+        populate: { path: 'departmentId', select: 'name' }
+      })
+      .sort({ month: 1, createdAt: 1 })
+      .lean();
+
+    const search = (filters.search || filters.searchQuery || '').trim().toLowerCase();
+    const role = (filters.role || 'all').toLowerCase();
+
+    // Group by month
+    const monthMap = new Map();
+
+    for (const p of payrolls) {
+      const s = p.staffId;
+      if (!s) continue;
+      if (role === 'teacher' && !s.isTeaching) continue;
+      if (role === 'employee' && (s.isTeaching && !s.isNonTeaching)) continue;
+      if (search) {
+        const nameMatch = (s.name || '').toLowerCase().includes(search);
+        const idMatch = (s.staffId || '').toLowerCase().includes(search);
+        const fatherMatch = (s.fatherName || '').toLowerCase().includes(search);
+        const desigMatch = (s.designation || '').toLowerCase().includes(search);
+        const deptMatch = (s.departmentId?.name || s.empDepartment || '').toLowerCase().includes(search);
+        if (!nameMatch && !idMatch && !fatherMatch && !desigMatch && !deptMatch) continue;
+      }
+
+      const mKey = p.month || 'Unknown';
+      if (!monthMap.has(mKey)) {
+        monthMap.set(mKey, {
+          id: mKey,
+          month: mKey,
+          staffCount: 0,
+          totalBasic: 0,
+          totalAllowances: 0,
+          allowanceBreakdown: {
+            travel: 0,
+            medical: 0,
+            houseRent: 0,
+            extra: 0,
+            insurance: 0,
+            other: 0,
+          },
+          totalDeductions: 0,
+          deductionBreakdown: {
+            absent: 0,
+            leave: 0,
+            advance: 0,
+            tax: 0,
+            eobi: 0,
+            security: 0,
+            lateArrival: 0,
+            other: 0,
+          },
+          totalNet: 0,
+          totalPaid: 0,
+          totalPending: 0,
+          paidCount: 0,
+          pendingCount: 0,
+          partialCount: 0,
+        });
+      }
+
+      const mItem = monthMap.get(mKey);
+      mItem.staffCount += 1;
+      mItem.totalBasic += Number(s.basicPay || p.currentSalary || p.basicSalary || 0);
+      mItem.totalAllowances += Number(p.totalAllowances || 0);
+      mItem.allowanceBreakdown.travel += Number(p.travelAllowance || 0);
+      mItem.allowanceBreakdown.medical += Number(p.medicalAllowance || 0);
+      mItem.allowanceBreakdown.houseRent += Number(p.houseRentAllowance || 0);
+      mItem.allowanceBreakdown.extra += Number(p.extraAllowance || 0);
+      mItem.allowanceBreakdown.insurance += Number(p.insuranceAllowance || 0);
+      mItem.allowanceBreakdown.other += Number(p.otherAllowance || 0);
+
+      mItem.totalDeductions += Number(p.totalDeductions || 0);
+      mItem.deductionBreakdown.absent += Number(p.absentDeduction || 0);
+      mItem.deductionBreakdown.leave += Number(p.leaveDeduction || 0);
+      mItem.deductionBreakdown.advance += Number(p.advanceDeduction || 0);
+      mItem.deductionBreakdown.tax += Number(p.incomeTax || 0);
+      mItem.deductionBreakdown.eobi += Number(p.eobi || 0);
+      mItem.deductionBreakdown.security += Number(p.securityDeduction || 0);
+      mItem.deductionBreakdown.lateArrival += Number(p.lateArrivalDeduction || 0);
+      mItem.deductionBreakdown.other += Number(p.otherDeduction || 0);
+
+      mItem.totalNet += Number(p.netSalary || 0);
+      mItem.totalPaid += Number(p.paidAmount || 0);
+      mItem.totalPending += Math.max(0, Number(p.netSalary || 0) - Number(p.paidAmount || 0));
+
+      const status = (p.status || '').toUpperCase();
+      if (status === 'PAID') mItem.paidCount += 1;
+      else if (status === 'PARTIAL') mItem.partialCount += 1;
+      else mItem.pendingCount += 1;
+    }
+
+    const monthCards = Array.from(monthMap.values()).map(item => ({
+      ...item,
+      status: item.pendingCount > 0 ? (item.paidCount > 0 || item.partialCount > 0 ? 'PARTIAL' : 'PENDING') : 'PAID',
+    })).sort((a, b) => a.month.localeCompare(b.month));
+
+    const combined = {
+      totalStaffCount: payrolls.length,
+      totalBasicCombined: monthCards.reduce((sum, m) => sum + m.totalBasic, 0),
+      totalAllowancesCombined: monthCards.reduce((sum, m) => sum + m.totalAllowances, 0),
+      totalDeductionsCombined: monthCards.reduce((sum, m) => sum + m.totalDeductions, 0),
+      totalNetCombined: monthCards.reduce((sum, m) => sum + m.totalNet, 0),
+      totalPaidCombined: monthCards.reduce((sum, m) => sum + m.totalPaid, 0),
+      allowanceBreakdown: {
+        travel: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.travel, 0),
+        medical: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.medical, 0),
+        houseRent: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.houseRent, 0),
+        extra: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.extra, 0),
+        insurance: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.insurance, 0),
+        other: monthCards.reduce((sum, m) => sum + m.allowanceBreakdown.other, 0),
+      },
+      deductionBreakdown: {
+        absent: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.absent, 0),
+        leave: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.leave, 0),
+        advance: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.advance, 0),
+        tax: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.tax, 0),
+        eobi: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.eobi, 0),
+        security: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.security, 0),
+        lateArrival: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.lateArrival, 0),
+        other: monthCards.reduce((sum, m) => sum + m.deductionBreakdown.other, 0),
+      }
+    };
+
+    return { monthCards, staffTotals: monthCards, combined };
+  }
 }
 
 module.exports = new HrService();

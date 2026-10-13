@@ -2954,8 +2954,122 @@ class FeeService {
     return this.getFeeReportsAnalytics(filters);
   }
 
+  // Optimized Lean Report API for Student Installment Reports
+  async getStudentInstallmentReport(filters = {}) {
+    const query = {};
+    if (filters.status && filters.status !== 'all') {
+      const s = String(filters.status).trim();
+      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
+    } else {
+      query.status = { $regex: /^active$/i };
+    }
+
+    if (filters.studentId) {
+      query._id = filters.studentId;
+    }
+
+    if (filters.programId && filters.programId !== 'all') {
+      const pIds = Array.isArray(filters.programId)
+        ? filters.programId
+        : String(filters.programId).split(',').map(s => s.trim()).filter(Boolean);
+      if (pIds.length === 1) query.programId = pIds[0];
+      else if (pIds.length > 1) query.programId = { $in: pIds };
+    }
+
+    if (filters.classId && filters.classId !== 'all') {
+      const cIds = Array.isArray(filters.classId)
+        ? filters.classId
+        : String(filters.classId).split(',').map(s => s.trim()).filter(Boolean);
+      if (cIds.length === 1) query.classId = cIds[0];
+      else if (cIds.length > 1) query.classId = { $in: cIds };
+    }
+
+    if (filters.sectionId && filters.sectionId !== 'all') {
+      const sIds = Array.isArray(filters.sectionId)
+        ? filters.sectionId
+        : String(filters.sectionId).split(',').map(s => s.trim()).filter(Boolean);
+      if (sIds.length === 1) query.sectionId = sIds[0];
+      else if (sIds.length > 1) query.sectionId = { $in: sIds };
+    }
+
+    if (filters.sessionId && filters.sessionId !== 'all') {
+      const sessIds = Array.isArray(filters.sessionId)
+        ? filters.sessionId
+        : String(filters.sessionId).split(',').map(s => s.trim()).filter(Boolean);
+      if (sessIds.length === 1) query.sessionId = sessIds[0];
+      else if (sessIds.length > 1) query.sessionId = { $in: sessIds };
+    }
+
+    const search = (filters.search || filters.searchQuery || '').trim();
+    if (search) {
+      const re = new RegExp(search, 'i');
+      query.$or = [
+        { fName: re },
+        { lName: re },
+        { rollNumber: re },
+        { fatherOrguardian: re }
+      ];
+    }
+
+    // Lean, targeted projection - only fetch needed fields!
+    const students = await Student.find(query)
+      .select('fName lName fatherOrguardian rollNumber tuitionFee numberOfInstallments installments programId classId sectionId sessionId status')
+      .populate('programId', 'name')
+      .populate('classId', 'name allowSections')
+      .populate('sectionId', 'name')
+      .populate('sessionId', 'name')
+      .sort({ rollNumber: 1 })
+      .lean();
+
+    return students.map(s => {
+      const fullName = [s.fName, s.lName].filter(Boolean).join(' ').trim() || 'Unknown Student';
+      const fatherName = s.fatherOrguardian || '-';
+      const rollNumber = (s.rollNumber ?? '').toString() || '-';
+
+      const installments = (s.installments || []).map(inst => ({
+        id: inst._id?.toString() || `${s._id}-inst-${inst.installmentNumber}`,
+        installmentNumber: inst.installmentNumber,
+        month: inst.month || '-',
+        dueDate: inst.dueDate,
+        amount: Number(inst.amount ?? inst.basePayable ?? 0),
+        paidAmount: Number(inst.paidAmount ?? 0),
+        pendingAmount: Number(inst.pendingAmount ?? 0),
+        status: (inst.status || 'PENDING').toUpperCase()
+      })).sort((a, b) => a.installmentNumber - b.installmentNumber);
+
+      const totalInstallmentAmount = installments.reduce((sum, i) => sum + i.amount, 0);
+      const totalPaidAmount = installments.reduce((sum, i) => sum + i.paidAmount, 0);
+      const totalPendingAmount = installments.reduce((sum, i) => sum + i.pendingAmount, 0);
+      const decidedTuitionFee = Number(s.tuitionFee || totalInstallmentAmount || 0);
+
+      return {
+        id: s._id.toString(),
+        studentName: fullName,
+        fatherName,
+        rollNumber,
+        program: s.programId ? { id: s.programId._id?.toString(), name: s.programId.name } : null,
+        class: s.classId ? { id: s.classId._id?.toString(), name: s.classId.name, allowSections: s.classId.allowSections } : null,
+        section: s.sectionId ? { id: s.sectionId._id?.toString(), name: s.sectionId.name } : null,
+        session: s.sessionId ? { id: s.sessionId._id?.toString(), name: s.sessionId.name } : null,
+        programName: s.programId?.name || '-',
+        className: s.classId?.name || '-',
+        sectionName: s.sectionId?.name || '',
+        sessionName: s.sessionId?.name || '-',
+        tuitionFee: decidedTuitionFee,
+        totalFee: totalInstallmentAmount,
+        totalPaid: totalPaidAmount,
+        totalPending: totalPendingAmount,
+        installments,
+        totalInstallmentsCount: installments.length
+      };
+    });
+  }
+
   // Installment Plans & Bulk Challans
   async getInstallmentPlans(filters = {}) {
+    if (filters.reportOnly || filters.report) {
+      return this.getStudentInstallmentReport(filters);
+    }
     const query = {};
     if (filters.status && filters.status !== 'all') {
       const s = String(filters.status).trim();

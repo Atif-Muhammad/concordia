@@ -217,6 +217,24 @@ class HrController {
       next(err);
     }
   }
+
+  async getPayrollMonthWiseReport(req, res, next) {
+    try {
+      const report = await hrService.getPayrollMonthWiseReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getPayrollTotalsReport(req, res, next) {
+    try {
+      const report = await hrService.getPayrollTotalsReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new HrController();

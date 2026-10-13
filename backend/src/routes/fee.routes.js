@@ -73,6 +73,8 @@ router.get('/settings', feeController.getSettings);
 router.patch('/settings', authMiddleware, feeController.updateSettings);
 
 // Reports
+router.get('/reports/student-installments', feeController.getStudentInstallmentReport);
+router.get('/installment-report', feeController.getStudentInstallmentReport);
 router.get('/reports/analytics', feeController.getFeeReportsAnalytics);
 router.get('/reports/summary', feeController.getFeeReportSummary);
 router.get('/reports/class-stats', feeController.getClassStats);

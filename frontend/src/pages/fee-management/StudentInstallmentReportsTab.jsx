@@ -27,7 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   CalendarRange,
   Search,
@@ -35,23 +40,15 @@ import {
   Printer,
   RotateCcw,
   ChevronDown,
-  ChevronRight,
   AlertCircle,
-  Clock,
-  CheckCircle2,
   Users,
-  Coins,
-  Calendar,
-  Layers,
-  ChevronUp,
   X,
-  ListFilter,
-  Eye,
   ArrowLeft,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
-import { getInstallmentPlans } from "@/services/api";
+import { cn } from "@/lib/utils";
+import { getStudentInstallmentReport } from "@/services/api";
 
 const extractId = (val) => {
   if (!val) return "";
@@ -83,40 +80,140 @@ const formatDueDate = (dateStr) => {
   }
 };
 
-const getStatusBadge = (status) => {
-  const s = (status || "PENDING").toUpperCase();
-  if (s === "PAID") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-800">
-        PAID
-      </span>
-    );
-  }
-  if (s === "SETTLED") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-400 dark:border-blue-800">
-        SETTLED
-      </span>
-    );
-  }
-  if (s === "PARTIAL") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800">
-        PARTIAL
-      </span>
-    );
-  }
-  if (s === "OVERDUE") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-800">
-        OVERDUE
-      </span>
-    );
-  }
+/**
+ * Reusable Multi-Select Checkbox Dropdown Filter
+ */
+const MultiSelectFilter = ({
+  title,
+  placeholder = "All",
+  options = [],
+  selected = [],
+  onChange,
+  disabled = false,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options;
+    const q = search.toLowerCase();
+    return options.filter((o) => (o.name || "").toLowerCase().includes(q));
+  }, [options, search]);
+
+  const handleToggle = (id) => {
+    if (selected.includes(id)) {
+      onChange(selected.filter((x) => x !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChange(options.map((o) => o.id));
+  };
+
+  const handleClear = () => {
+    onChange([]);
+  };
+
+  const labelText = useMemo(() => {
+    if (selected.length === 0) return placeholder;
+    if (selected.length === options.length && options.length > 0) {
+      return `All ${title} (${options.length})`;
+    }
+    if (selected.length === 1) {
+      const match = options.find((o) => o.id === selected[0]);
+      return match ? match.name : `1 ${title} selected`;
+    }
+    return `${selected.length} ${title} selected`;
+  }, [selected, options, placeholder, title]);
+
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-      PENDING
-    </span>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn(
+            "h-9 w-full justify-between text-xs font-normal px-2.5 bg-background",
+            selected.length > 0 && "border-primary text-foreground font-semibold bg-primary/5",
+            disabled && "opacity-50 cursor-not-allowed"
+          )}
+        >
+          <span className="truncate">{labelText}</span>
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            {selected.length > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.2 text-[10px] font-bold">
+                {selected.length}
+              </span>
+            )}
+            <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+          </div>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2 shadow-lg" align="start">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-1 pb-1 border-b border-border text-xs">
+            <span className="font-semibold text-foreground">Select {title}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                className="text-[11px] text-primary hover:underline font-semibold"
+              >
+                All
+              </button>
+              <span className="text-muted-foreground">•</span>
+              <button
+                type="button"
+                onClick={handleClear}
+                className="text-[11px] text-muted-foreground hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {options.length > 5 && (
+            <div className="relative">
+              <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={`Search ${title.toLowerCase()}...`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-7 text-xs pl-7 pr-2"
+              />
+            </div>
+          )}
+
+          <div className="max-h-52 overflow-y-auto space-y-0.5 py-0.5">
+            {filteredOptions.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-2">
+                No {title.toLowerCase()} found
+              </p>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isChecked = selected.includes(opt.id);
+                return (
+                  <label
+                    key={opt.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/70 cursor-pointer text-xs transition-colors"
+                  >
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={() => handleToggle(opt.id)}
+                    />
+                    <span className="truncate font-medium">{opt.name}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 };
 
@@ -129,19 +226,15 @@ export const StudentInstallmentReportsTab = ({
 }) => {
   const { toast } = useToast();
 
-  // Filter States
+  // Multi-Select Checkbox Filter States
   const [selectedSession, setSelectedSession] = useState("all");
-  const [selectedProgram, setSelectedProgram] = useState("all");
-  const [selectedClass, setSelectedClass] = useState("all");
-  const [selectedSection, setSelectedSection] = useState("all");
+  const [selectedPrograms, setSelectedPrograms] = useState([]);
+  const [selectedClasses, setSelectedClasses] = useState([]);
+  const [selectedSections, setSelectedSections] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  // UI View States
-  const [viewMode, setViewMode] = useState("grouped"); // "grouped" | "flat"
-  const [expandedStudentIds, setExpandedStudentIds] = useState(new Set());
-  const [hasAutoExpandedFirst, setHasAutoExpandedFirst] = useState(false);
+  const [showAllRecords, setShowAllRecords] = useState(false);
 
   // Debounce student search input
   const searchTimeoutRef = useRef(null);
@@ -155,112 +248,122 @@ export const StudentInstallmentReportsTab = ({
     };
   }, [searchQuery]);
 
-  // Classes cascaded from selectedProgram
-  const availableClasses = useMemo(() => {
-    if (!selectedProgram || selectedProgram === "all") return classes;
-    return classes.filter(
-      (c) => extractId(c.programId || c.program) === selectedProgram
-    );
-  }, [classes, selectedProgram]);
+  // Normalized Programs for MultiSelect
+  const programOptions = useMemo(() => {
+    return programs.map((p) => ({
+      id: extractId(p),
+      name: p.name || p.programName || p.title || "Program",
+    }));
+  }, [programs]);
 
-  // Sections cascaded from selectedClass
+  // Classes cascaded from selectedPrograms
+  const availableClasses = useMemo(() => {
+    if (selectedPrograms.length === 0) return classes;
+    return classes.filter((c) =>
+      selectedPrograms.includes(extractId(c.programId || c.program))
+    );
+  }, [classes, selectedPrograms]);
+
+  const classOptions = useMemo(() => {
+    return availableClasses.map((c) => ({
+      id: extractId(c),
+      name: c.name || c.className || "Class",
+    }));
+  }, [availableClasses]);
+
+  // Sections cascaded from selectedClasses / selectedPrograms
   const availableSections = useMemo(() => {
-    if (!selectedClass || selectedClass === "all") {
-      if (!selectedProgram || selectedProgram === "all") return sections;
+    if (selectedClasses.length === 0) {
+      if (selectedPrograms.length === 0) return sections;
       const validClassIds = availableClasses.map((c) => extractId(c));
       return sections.filter((s) =>
         validClassIds.includes(extractId(s.classId || s.class))
       );
     }
-    return sections.filter(
-      (s) => extractId(s.classId || s.class) === selectedClass
+    return sections.filter((s) =>
+      selectedClasses.includes(extractId(s.classId || s.class))
     );
-  }, [sections, selectedClass, selectedProgram, availableClasses]);
+  }, [sections, selectedClasses, selectedPrograms, availableClasses]);
 
-  // Whether sections are applicable for current selection
+  const sectionOptions = useMemo(() => {
+    return availableSections.map((s) => ({
+      id: extractId(s),
+      name: s.name || s.sectionName || "Section",
+    }));
+  }, [availableSections]);
+
+  // Automatic clean up of dependent child selections when parent filter changes
+  useEffect(() => {
+    if (selectedPrograms.length > 0) {
+      const validClassIds = new Set(availableClasses.map((c) => extractId(c)));
+      setSelectedClasses((prev) => prev.filter((id) => validClassIds.has(id)));
+    }
+  }, [selectedPrograms, availableClasses]);
+
+  useEffect(() => {
+    if (selectedClasses.length > 0 || selectedPrograms.length > 0) {
+      const validSectionIds = new Set(availableSections.map((s) => extractId(s)));
+      setSelectedSections((prev) => prev.filter((id) => validSectionIds.has(id)));
+    }
+  }, [selectedClasses, availableSections, selectedPrograms]);
+
+  // Whether sections are applicable
   const isSectionApplicable = useMemo(() => {
-    if (selectedClass === "all") return true;
-    const selectedClassObj = classes.find(
-      (c) => extractId(c) === selectedClass
+    if (selectedClasses.length === 0) return availableSections.length > 0;
+    const selectedClassObjs = classes.filter((c) =>
+      selectedClasses.includes(extractId(c))
     );
-    if (selectedClassObj && selectedClassObj.allowSections === false) {
-      return false;
-    }
-    return availableSections.length > 0;
-  }, [selectedClass, classes, availableSections]);
-
-  // Cascading change handlers
-  const handleProgramChange = (progId) => {
-    setSelectedProgram(progId);
-    if (progId !== "all") {
-      const validClassIds = classes
-        .filter((c) => extractId(c.programId || c.program) === progId)
-        .map((c) => extractId(c));
-      if (!validClassIds.includes(selectedClass)) {
-        setSelectedClass("all");
-        setSelectedSection("all");
-      }
-    } else {
-      setSelectedClass("all");
-      setSelectedSection("all");
-    }
-  };
-
-  const handleClassChange = (clsId) => {
-    setSelectedClass(clsId);
-    if (clsId !== "all") {
-      const validSectionIds = sections
-        .filter((s) => extractId(s.classId || s.class) === clsId)
-        .map((s) => extractId(s));
-      if (!validSectionIds.includes(selectedSection)) {
-        setSelectedSection("all");
-      }
-    } else {
-      setSelectedSection("all");
-    }
-  };
+    const allDisallow = selectedClassObjs.every(
+      (c) => c.allowSections === false
+    );
+    return !allDisallow && availableSections.length > 0;
+  }, [selectedClasses, classes, availableSections]);
 
   const handleResetFilters = () => {
     setSelectedSession("all");
-    setSelectedProgram("all");
-    setSelectedClass("all");
-    setSelectedSection("all");
+    setSelectedPrograms([]);
+    setSelectedClasses([]);
+    setSelectedSections([]);
     setSelectedMonth("all");
     setSearchQuery("");
     setDebouncedSearch("");
-    setExpandedStudentIds(new Set());
+    setShowAllRecords(false);
   };
 
   // Determine if query is enabled:
-  // Requires either a program selected OR a search query typed (minimum 2 chars)
+  // Requires at least one program/class/section selected OR search query typed OR showAllRecords
   const isFilterActive =
-    (selectedProgram && selectedProgram !== "all") ||
-    (debouncedSearch && debouncedSearch.length >= 2);
+    selectedPrograms.length > 0 ||
+    selectedClasses.length > 0 ||
+    selectedSections.length > 0 ||
+    selectedSession !== "all" ||
+    (debouncedSearch && debouncedSearch.length >= 2) ||
+    showAllRecords;
 
   const {
     data: rawStudentsData = [],
     isLoading,
     isFetching,
-    refetch,
   } = useQuery({
     queryKey: [
-      "installmentPlansReport",
+      "studentInstallmentReport",
       selectedSession,
-      selectedProgram,
-      selectedClass,
-      selectedSection,
+      selectedPrograms.slice().sort().join(","),
+      selectedClasses.slice().sort().join(","),
+      selectedSections.slice().sort().join(","),
       debouncedSearch,
+      showAllRecords,
     ],
     queryFn: async () => {
       const filters = {
         sessionId: selectedSession !== "all" ? selectedSession : undefined,
-        programId: selectedProgram !== "all" ? selectedProgram : undefined,
-        classId: selectedClass !== "all" ? selectedClass : undefined,
-        sectionId: selectedSection !== "all" ? selectedSection : undefined,
+        programId: selectedPrograms.length > 0 ? selectedPrograms.join(",") : undefined,
+        classId: selectedClasses.length > 0 ? selectedClasses.join(",") : undefined,
+        sectionId: selectedSections.length > 0 ? selectedSections.join(",") : undefined,
         searchQuery: debouncedSearch || undefined,
         status: "all",
       };
-      const res = await getInstallmentPlans(filters);
+      const res = await getStudentInstallmentReport(filters);
       return Array.isArray(res) ? res : res?.data || res?.students || [];
     },
     enabled: Boolean(isFilterActive),
@@ -281,16 +384,24 @@ export const StudentInstallmentReportsTab = ({
 
       const progName =
         getName(s.program) ||
+        s.programName ||
         programs.find((p) => extractId(p) === extractId(s.programId))?.name ||
         "-";
       const clsName =
         getName(s.class) ||
+        s.className ||
         classes.find((c) => extractId(c) === extractId(s.classId))?.name ||
         "-";
       const secName =
         getName(s.section) ||
+        s.sectionName ||
         sections.find((sec) => extractId(sec) === extractId(s.sectionId))?.name ||
         "";
+      const sessName =
+        getName(s.session) ||
+        s.sessionName ||
+        academicSessions.find((sess) => extractId(sess) === extractId(s.sessionId))?.name ||
+        "-";
 
       const pcs = [progName, clsName, secName].filter(Boolean).join(" / ");
 
@@ -320,8 +431,6 @@ export const StudentInstallmentReportsTab = ({
           paidAmount,
           pendingAmount,
           status,
-          challanGenerated: Boolean(inst.challanGenerated || (inst.challans && inst.challans.length > 0)),
-          challans: inst.challans || [],
         };
       });
 
@@ -344,6 +453,9 @@ export const StudentInstallmentReportsTab = ({
         0
       );
 
+      // Total decided tuition fee: priority to s.tuitionFee, fallback to sum of installments
+      const decidedTuitionFee = Number(s.tuitionFee ?? totalFee ?? 0);
+
       return {
         id: sId,
         studentName: fullName,
@@ -352,10 +464,12 @@ export const StudentInstallmentReportsTab = ({
         programName: progName,
         className: clsName,
         sectionName: secName,
+        sessionName: sessName,
         programClassSection: pcs,
         allInstallments: mappedInsts,
         displayInstallments: displayInsts,
         totalInstallmentsCount: mappedInsts.length,
+        tuitionFee: decidedTuitionFee,
         totalFee,
         totalPaid,
         totalPending,
@@ -366,6 +480,7 @@ export const StudentInstallmentReportsTab = ({
     programs,
     classes,
     sections,
+    academicSessions,
     selectedMonth,
   ]);
 
@@ -377,56 +492,10 @@ export const StudentInstallmentReportsTab = ({
     );
   }, [processedStudents, selectedMonth]);
 
-  // Auto-expand first student when records first load
-  useEffect(() => {
-    if (!hasAutoExpandedFirst && filteredStudents.length > 0) {
-      setExpandedStudentIds(new Set([filteredStudents[0].id]));
-      setHasAutoExpandedFirst(true);
-    }
-  }, [filteredStudents, hasAutoExpandedFirst]);
-
-  const toggleStudent = (id) => {
-    setExpandedStudentIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleExpandAll = () => {
-    if (expandedStudentIds.size === filteredStudents.length) {
-      setExpandedStudentIds(new Set());
-    } else {
-      setExpandedStudentIds(new Set(filteredStudents.map((s) => s.id)));
-    }
-  };
-
-  // Summary Metrics calculations
-  const summaryMetrics = useMemo(() => {
-    const totalStudents = filteredStudents.length;
-    let totalInstallments = 0;
-    let totalAmount = 0;
-    let totalPaid = 0;
-    let totalPending = 0;
-
-    for (const s of filteredStudents) {
-      const instsToCount =
-        selectedMonth === "all" ? s.allInstallments : s.displayInstallments;
-      totalInstallments += instsToCount.length;
-      totalAmount += instsToCount.reduce((acc, i) => acc + i.amount, 0);
-      totalPaid += instsToCount.reduce((acc, i) => acc + i.paidAmount, 0);
-      totalPending += instsToCount.reduce((acc, i) => acc + i.pendingAmount, 0);
-    }
-
-    return {
-      totalStudents,
-      totalInstallments,
-      totalAmount,
-      totalPaid,
-      totalPending,
-    };
-  }, [filteredStudents, selectedMonth]);
+  // Grand Total calculation for exports and print footer
+  const grandTotalTuitionFee = useMemo(() => {
+    return filteredStudents.reduce((sum, s) => sum + s.tuitionFee, 0);
+  }, [filteredStudents]);
 
   // Print / Save as PDF Handler
   const handlePrint = async () => {
@@ -439,7 +508,7 @@ export const StudentInstallmentReportsTab = ({
       return;
     }
 
-    // 1. Fetch brand logo as Data URL for standalone printing
+    // Fetch brand logo as Data URL
     let logoDataUrl = "/logo.png";
     try {
       const res = await fetch("/logo.png");
@@ -465,21 +534,28 @@ export const StudentInstallmentReportsTab = ({
       sessionObj?.name ||
       sessionObj?.sessionName ||
       (selectedSession === "all" ? "All Sessions" : "Selected Session");
-    const programName =
-      selectedProgram === "all"
+
+    const programLabel =
+      selectedPrograms.length === 0
         ? "All Programs"
-        : programs.find((p) => extractId(p) === selectedProgram)?.name ||
-          selectedProgram;
-    const className =
-      selectedClass === "all"
+        : selectedPrograms
+            .map((id) => programs.find((p) => extractId(p) === id)?.name || id)
+            .join(", ");
+
+    const classLabel =
+      selectedClasses.length === 0
         ? "All Classes"
-        : classes.find((c) => extractId(c) === selectedClass)?.name ||
-          selectedClass;
-    const sectionName =
-      selectedSection === "all"
+        : selectedClasses
+            .map((id) => classes.find((c) => extractId(c) === id)?.name || id)
+            .join(", ");
+
+    const sectionLabel =
+      selectedSections.length === 0
         ? "All Sections"
-        : sections.find((s) => extractId(s) === selectedSection)?.name ||
-          selectedSection;
+        : selectedSections
+            .map((id) => sections.find((s) => extractId(s) === id)?.name || id)
+            .join(", ");
+
     const monthName = selectedMonth === "all" ? "All Months" : selectedMonth;
     const exportDate = format(new Date(), "dd MMMM yyyy, hh:mm a");
 
@@ -488,7 +564,7 @@ export const StudentInstallmentReportsTab = ({
       <html>
         <head>
           <meta charset="UTF-8" />
-          <title>Student Installment Months &amp; Schedule Report</title>
+          <title>Student Installment Months Report</title>
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
           <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600;700&family=Great+Vibes&display=swap" rel="stylesheet">
@@ -501,7 +577,7 @@ export const StudentInstallmentReportsTab = ({
             * { box-sizing: border-box; }
             body {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-              color: #1e293b;
+              color: #0f172a;
               background: #ffffff;
               margin: 0;
               padding: 10px;
@@ -515,7 +591,7 @@ export const StudentInstallmentReportsTab = ({
               margin: 0 auto;
               background: #ffffff;
               border: 1.5px solid #0f172a;
-              border-top: 3px solid #0f172a;
+              border-top: 3.5px solid #0f172a;
               padding: 12px 14px;
             }
             .form-header {
@@ -534,7 +610,7 @@ export const StudentInstallmentReportsTab = ({
               flex: 1;
             }
             .brand-logo {
-              height: 50px;
+              height: 48px;
               width: auto;
               max-width: 120px;
               object-fit: contain;
@@ -557,24 +633,21 @@ export const StudentInstallmentReportsTab = ({
               margin-top: 2px;
             }
             .meta-box {
-              font-size: 9.5px;
+              font-size: 9px;
               color: #64748b;
               line-height: 1.4;
               text-align: right;
             }
-            .meta-box strong {
-              color: #0f172a;
-            }
+            .meta-box strong { color: #0f172a; }
             .center-calligraphy-title {
               text-align: center;
-              font-family: 'Alex Brush', 'Great Vibes', 'Dancing Script', 'Brush Script MT', 'Lucida Calligraphy', 'Segoe Script', cursive, serif;
+              font-family: 'Alex Brush', 'Great Vibes', 'Dancing Script', 'Brush Script MT', 'Lucida Calligraphy', cursive, serif;
               font-size: 26px;
               font-weight: 500;
               color: #0f172a;
               margin: 4px 0 8px 0;
               padding: 2px 0 6px 0;
               border-bottom: 1px dashed #cbd5e1;
-              letter-spacing: 0.5px;
             }
             .filters-bar {
               background: #f8fafc;
@@ -589,21 +662,6 @@ export const StudentInstallmentReportsTab = ({
             }
             .filter-item strong { color: #334155; }
             .filter-item span { color: #0f172a; font-weight: 600; }
-            .table-summary-bar {
-              background: #f8fafc;
-              border: 1px solid #cbd5e1;
-              border-bottom: none;
-              border-radius: 4px 4px 0 0;
-              padding: 6px 12px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              flex-wrap: wrap;
-              gap: 12px;
-              font-size: 10px;
-              color: #334155;
-            }
-            .table-summary-bar .summary-item strong { color: #0f172a; font-weight: 700; }
             table {
               width: 100%;
               border-collapse: collapse;
@@ -621,53 +679,83 @@ export const StudentInstallmentReportsTab = ({
               border: 1px solid #cbd5e1;
             }
             td {
-              padding: 5px 8px;
+              padding: 6px 8px;
               font-size: 9.5px;
-              border: 1px solid #e2e8f0;
-            }
-            .student-row {
-              background: #ffffff;
-              font-weight: 600;
-            }
-            .student-row:nth-child(4n+1) { background-color: #fafafa; }
-            .text-right { text-align: right; }
-            .text-center { text-align: center; }
-            .subtable-wrapper {
-              padding: 5px 10px 8px 24px;
-              background: #f8fafc;
-              border: 1px solid #e2e8f0;
-              border-top: none;
-            }
-            .subtable {
-              width: 100%;
               border: 1px solid #cbd5e1;
-              border-radius: 3px;
+              vertical-align: top;
             }
-            .subtable th {
-              background: #e2e8f0;
-              color: #334155;
-              font-size: 8.5px;
+            .student-row { background: #ffffff; }
+            .student-row:nth-child(even) { background-color: #fafafa; }
+            .student-cell .student-name {
+              font-size: 11px;
               font-weight: 700;
-              padding: 3.5px 6px;
-              border: 1px solid #cbd5e1;
+              color: #0f172a;
+              margin-bottom: 2px;
             }
-            .subtable td {
-              padding: 3.5px 6px;
+            .student-cell .student-father {
+              font-size: 9.5px;
+              color: #475569;
+              margin-bottom: 3px;
+            }
+            .student-cell .roll-pill {
+              display: inline-block;
+              font-family: monospace;
               font-size: 9px;
-              border: 1px solid #e2e8f0;
-              background: #ffffff;
-            }
-            .badge-status {
-              padding: 1.5px 5px;
-              border-radius: 3px;
-              font-size: 8px;
               font-weight: 700;
-              text-transform: uppercase;
+              background: #f1f5f9;
+              border: 1px solid #cbd5e1;
+              padding: 1px 4px;
+              border-radius: 2px;
+              color: #0f172a;
             }
-            .status-paid { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-            .status-pending { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
-            .status-partial { background: #fefce8; color: #854d0e; border: 1px solid #fef08a; }
-            .status-overdue { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+            .academic-cell .academic-prog {
+              font-size: 10.5px;
+              font-weight: 700;
+              color: #0f172a;
+            }
+            .academic-cell .academic-class {
+              font-size: 9.5px;
+              font-weight: 600;
+              color: #334155;
+              margin-top: 1px;
+            }
+            .academic-cell .academic-sess {
+              font-size: 8.5px;
+              color: #64748b;
+              margin-top: 1px;
+            }
+            .inst-tags-container {
+              display: block;
+              line-height: 1.8;
+              margin-bottom: 4px;
+            }
+            .inst-tag {
+              display: inline-block;
+              font-size: 9px;
+              line-height: 1.25;
+              padding: 2px 6px;
+              margin: 1.5px 2.5px;
+              border-radius: 3px;
+              white-space: nowrap;
+              vertical-align: middle;
+              background: #ffffff;
+              border: 1px dashed #94a3b8;
+              color: #334155;
+              font-weight: 500;
+            }
+            .inst-tally-line {
+              margin-top: 4px;
+              padding-top: 3px;
+              border-top: 1px dashed #cbd5e1;
+              text-align: right;
+              font-size: 9px;
+              font-weight: 600;
+              color: #334155;
+            }
+            .inst-tally-line strong {
+              color: #0f172a;
+              font-size: 9.5px;
+            }
             tfoot tr.grand-total-row {
               background: #f1f5f9;
               border-top: 2px solid #0f172a;
@@ -683,8 +771,8 @@ export const StudentInstallmentReportsTab = ({
             .footer-sign {
               display: flex;
               justify-content: space-between;
-              margin-top: 22px;
-              padding-top: 14px;
+              margin-top: 24px;
+              padding-top: 12px;
               border-top: 1.5px solid #0f172a;
               font-size: 9.5px;
               color: #475569;
@@ -696,7 +784,7 @@ export const StudentInstallmentReportsTab = ({
             <!-- BRAND HEADER -->
             <div class="form-header">
               <div class="header-logo-area">
-                <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
+                <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Logo" />
                 <div class="header-title-block">
                   <h1>Concordia College Peshawar</h1>
                   <div class="tagline">A Project of Beaconhouse</div>
@@ -705,100 +793,77 @@ export const StudentInstallmentReportsTab = ({
               <div class="meta-box">
                 <div><strong>Generated:</strong> ${exportDate}</div>
                 <div><strong>Total Students:</strong> ${filteredStudents.length}</div>
-                <div><strong>Total Installments:</strong> ${summaryMetrics.totalInstallments}</div>
               </div>
             </div>
 
             <!-- CENTERED CALLIGRAPHY REPORT TITLE -->
             <div class="center-calligraphy-title">
-              Student Installment Months &amp; Schedule Report
+              Student Installment Months Report
             </div>
 
             <div class="filters-bar">
               <div class="filter-item"><strong>Session:</strong> <span>${sessionName}</span></div>
-              <div class="filter-item"><strong>Program:</strong> <span>${programName}</span></div>
-              <div class="filter-item"><strong>Class:</strong> <span>${className}</span></div>
-              <div class="filter-item"><strong>Section:</strong> <span>${sectionName}</span></div>
+              <div class="filter-item"><strong>Program:</strong> <span>${programLabel}</span></div>
+              <div class="filter-item"><strong>Class:</strong> <span>${classLabel}</span></div>
+              <div class="filter-item"><strong>Section:</strong> <span>${sectionLabel}</span></div>
               <div class="filter-item"><strong>Month:</strong> <span>${monthName}</span></div>
-            </div>
-
-            <!-- TOP TABLE SUMMARY ROW -->
-            <div class="table-summary-bar">
-              <div class="summary-item">Total Students: <strong>${summaryMetrics.totalStudents}</strong></div>
-              <div class="summary-item">Scheduled Installments: <strong>${summaryMetrics.totalInstallments}</strong></div>
-              <div class="summary-item">Total Scheduled Amount: <strong>PKR ${summaryMetrics.totalAmount.toLocaleString()}</strong></div>
-              <div class="summary-item">Total Paid: <strong>PKR ${summaryMetrics.totalPaid.toLocaleString()}</strong></div>
-              <div class="summary-item">Total Pending: <strong>PKR ${summaryMetrics.totalPending.toLocaleString()}</strong></div>
             </div>
 
             <table>
               <thead>
                 <tr>
-                  <th style="width: 28px;">#</th>
-                  <th>Roll No.</th>
-                  <th>Student Name</th>
-                  <th>Father Name</th>
-                  <th>Program / Class / Section</th>
-                  <th class="text-center" style="width: 80px;">Installments</th>
-                  <th class="text-right" style="width: 100px;">Total Amount</th>
+                  <th style="width: 32px; text-align: center;">#</th>
+                  <th style="width: 28%;">Student Details</th>
+                  <th style="width: 24%;">Program / Class / Section</th>
+                  <th style="width: 44%;">Installment Months</th>
                 </tr>
               </thead>
               <tbody>
-                ${filteredStudents.map((s, idx) => `
+                ${filteredStudents
+                  .map(
+                    (s, idx) => `
                   <tr class="student-row no-break">
-                    <td>${idx + 1}</td>
-                    <td><strong>${s.rollNumber}</strong></td>
-                    <td>${s.studentName}</td>
-                    <td>${s.fatherName}</td>
-                    <td>${s.programClassSection}</td>
-                    <td class="text-center">${s.displayInstallments.length} / ${s.totalInstallmentsCount}</td>
-                    <td class="text-right">PKR ${s.totalFee.toLocaleString()}</td>
-                  </tr>
-                  <tr class="no-break">
-                    <td colspan="7" style="padding: 0;">
-                      <div class="subtable-wrapper">
-                        <table class="subtable">
-                          <thead>
-                            <tr>
-                              <th style="width: 70px;">Inst #</th>
-                              <th>Scheduled Month</th>
-                              <th>Due Date</th>
-                              <th class="text-right">Scheduled Amount</th>
-                              <th class="text-right">Paid</th>
-                              <th class="text-right">Pending</th>
-                              <th class="text-center" style="width: 75px;">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            ${s.displayInstallments.map((inst) => `
-                              <tr>
-                                <td><strong>Inst ${inst.installmentNumber}</strong></td>
-                                <td>${inst.month}</td>
-                                <td>${inst.formattedDueDate}</td>
-                                <td class="text-right">PKR ${inst.amount.toLocaleString()}</td>
-                                <td class="text-right">PKR ${inst.paidAmount.toLocaleString()}</td>
-                                <td class="text-right" style="${inst.pendingAmount > 0 ? 'color: #991b1b; font-weight: 600;' : ''}">
-                                  PKR ${inst.pendingAmount.toLocaleString()}
-                                </td>
-                                <td class="text-center">
-                                  <span class="badge-status status-${inst.status.toLowerCase()}">
-                                    ${inst.status}
-                                  </span>
-                                </td>
-                              </tr>
-                            `).join('')}
-                          </tbody>
-                        </table>
+                    <td style="text-align: center; font-weight: 700;">${idx + 1}</td>
+                    <td>
+                      <div class="student-cell">
+                        <div class="student-name">${s.studentName}</div>
+                        <div class="student-father"><span style="color: #64748b; font-weight: 600;">Father:</span> ${s.fatherName}</div>
+                        <div>
+                          <span style="font-size: 8.5px; color: #64748b; font-weight: 600; text-transform: uppercase;">Roll:</span>
+                          <span class="roll-pill">${s.rollNumber}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="academic-cell">
+                        <div class="academic-prog">${s.programName}</div>
+                        <div class="academic-class">${s.className} ${s.sectionName ? `(${s.sectionName})` : ""}</div>
+                        ${s.sessionName && s.sessionName !== "-" ? `<div class="academic-sess">Session: ${s.sessionName}</div>` : ""}
+                      </div>
+                    </td>
+                    <td>
+                      <div class="inst-tags-container">
+                        ${s.displayInstallments
+                          .map((inst) => `<span class="inst-tag">${inst.installmentNumber} | ${inst.month}</span>`)
+                          .join("")}
+                      </div>
+                      <div class="inst-tally-line">
+                        Total Decided Tuition Fee: <strong>PKR ${Number(s.tuitionFee || s.totalFee || 0).toLocaleString()}</strong>
                       </div>
                     </td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join("")}
               </tbody>
               <tfoot>
                 <tr class="grand-total-row no-break">
-                  <td colspan="5" style="text-align: right; font-weight: 700;">TOTAL (${summaryMetrics.totalStudents} Students):</td>
-                  <td class="text-center" style="font-weight: 700;">${summaryMetrics.totalInstallments} Insts</td>
-                  <td class="text-right" style="font-weight: 700;">PKR ${summaryMetrics.totalAmount.toLocaleString()}</td>
+                  <td colspan="3" style="text-align: right; font-weight: 700;">
+                    GRAND TOTAL (${filteredStudents.length} Students):
+                  </td>
+                  <td style="text-align: right; font-weight: 700;">
+                    Total Decided Tuition Fee: PKR ${grandTotalTuitionFee.toLocaleString()}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -816,7 +881,7 @@ export const StudentInstallmentReportsTab = ({
 
     await openManagedPrintWindow({
       html,
-      title: "Student Installment Months & Schedule Report",
+      title: "Student Installment Months Report",
       toast,
     });
   };
@@ -835,7 +900,7 @@ export const StudentInstallmentReportsTab = ({
     try {
       const wb = XLSX.utils.book_new();
 
-      // 1. Student Summary Sheet
+      // Student Summary Sheet with unified columns
       const summaryRows = filteredStudents.map((s, idx) => ({
         "S.No": idx + 1,
         "Roll Number": s.rollNumber,
@@ -844,119 +909,44 @@ export const StudentInstallmentReportsTab = ({
         "Program": s.programName,
         "Class": s.className,
         "Section": s.sectionName || "N/A",
-        "Total Installments": s.totalInstallmentsCount,
-        "Scheduled Months": s.allInstallments.map((i) => i.month).join(", "),
-        "Total Fee (PKR)": s.totalFee,
-        "Paid Amount (PKR)": s.totalPaid,
-        "Pending Amount (PKR)": s.totalPending,
+        "Installment Months": s.displayInstallments
+          .map((i) => `${i.installmentNumber} | ${i.month}`)
+          .join(", "),
+        "Total Decided Tuition Fee (PKR)": s.tuitionFee,
       }));
 
-      // Append Total Row to Summary
+      // Append Grand Total Row
       summaryRows.push({
         "S.No": "TOTAL",
-        "Roll Number": `${summaryMetrics.totalStudents} Students`,
+        "Roll Number": `${filteredStudents.length} Students`,
         "Student Name": "",
         "Father Name": "",
         "Program": "",
         "Class": "",
         "Section": "",
-        "Total Installments": summaryMetrics.totalInstallments,
-        "Scheduled Months": "",
-        "Total Fee (PKR)": summaryMetrics.totalAmount,
-        "Paid Amount (PKR)": summaryMetrics.totalPaid,
-        "Pending Amount (PKR)": summaryMetrics.totalPending,
+        "Installment Months": "",
+        "Total Decided Tuition Fee (PKR)": grandTotalTuitionFee,
       });
 
       const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
       wsSummary["!cols"] = [
         { wch: 8 },
-        { wch: 15 },
+        { wch: 16 },
         { wch: 24 },
         { wch: 22 },
-        { wch: 18 },
+        { wch: 20 },
         { wch: 16 },
         { wch: 12 },
-        { wch: 18 },
-        { wch: 32 },
-        { wch: 18 },
-        { wch: 18 },
-        { wch: 18 },
+        { wch: 45 },
+        { wch: 26 },
       ];
-      XLSX.utils.book_append_sheet(wb, wsSummary, "Students Summary");
-
-      // 2. Itemized Installments Schedule Sheet
-      const itemizedRows = [];
-      let itemIdx = 1;
-
-      for (const s of filteredStudents) {
-        const instsToExport =
-          selectedMonth === "all" ? s.allInstallments : s.displayInstallments;
-        for (const inst of instsToExport) {
-          itemizedRows.push({
-            "S.No": itemIdx++,
-            "Roll Number": s.rollNumber,
-            "Student Name": s.studentName,
-            "Father Name": s.fatherName,
-            "Program": s.programName,
-            "Class": s.className,
-            "Section": s.sectionName || "N/A",
-            "Installment No": inst.installmentNumber,
-            "Scheduled Month": inst.month,
-            "Due Date": inst.formattedDueDate,
-            "Scheduled Amount (PKR)": inst.amount,
-            "Paid Amount (PKR)": inst.paidAmount,
-            "Pending Amount (PKR)": inst.pendingAmount,
-            "Status": inst.status,
-            "Challan Issued": inst.challanGenerated ? "YES" : "NO",
-          });
-        }
-      }
-
-      if (itemizedRows.length > 0) {
-        itemizedRows.push({
-          "S.No": "TOTAL",
-          "Roll Number": `${summaryMetrics.totalStudents} Students`,
-          "Student Name": "",
-          "Father Name": "",
-          "Program": "",
-          "Class": "",
-          "Section": "",
-          "Installment No": `${summaryMetrics.totalInstallments} Installments`,
-          "Scheduled Month": "",
-          "Due Date": "",
-          "Scheduled Amount (PKR)": summaryMetrics.totalAmount,
-          "Paid Amount (PKR)": summaryMetrics.totalPaid,
-          "Pending Amount (PKR)": summaryMetrics.totalPending,
-          "Status": "",
-          "Challan Issued": "",
-        });
-
-        const wsItemized = XLSX.utils.json_to_sheet(itemizedRows);
-        wsItemized["!cols"] = [
-          { wch: 8 },
-          { wch: 15 },
-          { wch: 24 },
-          { wch: 22 },
-          { wch: 18 },
-          { wch: 16 },
-          { wch: 12 },
-          { wch: 14 },
-          { wch: 16 },
-          { wch: 14 },
-          { wch: 22 },
-          { wch: 18 },
-          { wch: 18 },
-          { wch: 14 },
-          { wch: 16 },
-        ];
-        XLSX.utils.book_append_sheet(wb, wsItemized, "Installments Schedule");
-      }
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Installment Reports");
 
       const dateStr = format(new Date(), "yyyy-MM-dd");
-      XLSX.writeFile(wb, `Student_Installment_Schedule_${dateStr}.xlsx`);
+      XLSX.writeFile(wb, `Student_Installment_Report_${dateStr}.xlsx`);
       toast({
         title: "Export Successful",
-        description: `Exported ${filteredStudents.length} student installment records to Excel.`,
+        description: `Exported ${filteredStudents.length} student records to Excel.`,
       });
     } catch (err) {
       console.error("Excel export error:", err);
@@ -990,7 +980,7 @@ export const StudentInstallmentReportsTab = ({
               Student Installment Month Reports
             </CardTitle>
             <CardDescription>
-              Fetch and audit student installment plans — installment numbers, scheduled months, fee amounts, and due dates with cascaded filters or direct student search.
+              Audit student installment months, installment numbers, and decided tuition fees with multi-select checkboxes for program, class, and section.
             </CardDescription>
           </div>
 
@@ -1015,33 +1005,16 @@ export const StudentInstallmentReportsTab = ({
                   <Printer className="w-3.5 h-3.5" />
                   Print / Save as PDF
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExpandAll}
-                  className="gap-1.5 h-9 text-xs text-muted-foreground"
-                >
-                  {expandedStudentIds.size === filteredStudents.length ? (
-                    <>
-                      <ChevronUp className="w-3.5 h-3.5" />
-                      Collapse All
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="w-3.5 h-3.5" />
-                      Expand All
-                    </>
-                  )}
-                </Button>
               </>
             )}
 
-            {(selectedProgram !== "all" ||
-              selectedClass !== "all" ||
-              selectedSection !== "all" ||
+            {(selectedPrograms.length > 0 ||
+              selectedClasses.length > 0 ||
+              selectedSections.length > 0 ||
               selectedSession !== "all" ||
               selectedMonth !== "all" ||
-              searchQuery) && (
+              searchQuery ||
+              showAllRecords) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -1056,7 +1029,7 @@ export const StudentInstallmentReportsTab = ({
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* Cascading Filter Bar */}
+          {/* Multi-Select Cascading Filter Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end bg-muted/20 p-3.5 rounded-lg border border-border/50">
             {/* Academic Session */}
             <div className="space-y-1">
@@ -1067,7 +1040,7 @@ export const StudentInstallmentReportsTab = ({
                 value={selectedSession}
                 onValueChange={setSelectedSession}
               >
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-9 text-xs bg-background">
                   <SelectValue placeholder="All Sessions" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1084,96 +1057,48 @@ export const StudentInstallmentReportsTab = ({
               </Select>
             </div>
 
-            {/* Program */}
+            {/* Program Multi-Select */}
             <div className="space-y-1">
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Program <span className="text-primary font-bold">*</span>
+                Program (Multi)
               </Label>
-              <Select
-                value={selectedProgram}
-                onValueChange={handleProgramChange}
-              >
-                <SelectTrigger
-                  className={`h-9 text-xs ${
-                    selectedProgram === "all" && !debouncedSearch
-                      ? "border-amber-400/80 bg-amber-50/30 dark:bg-amber-950/20"
-                      : ""
-                  }`}
-                >
-                  <SelectValue placeholder="Select Program..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Programs</SelectItem>
-                  {programs.map((p) => {
-                    const val = extractId(p);
-                    return (
-                      <SelectItem key={val || Math.random()} value={val}>
-                        {p.name || p.programName || p.title || "Program"}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                title="Programs"
+                placeholder="All Programs"
+                options={programOptions}
+                selected={selectedPrograms}
+                onChange={setSelectedPrograms}
+              />
             </div>
 
-            {/* Class */}
+            {/* Class Multi-Select */}
             <div className="space-y-1">
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Class
+                Class (Multi)
               </Label>
-              <Select
-                value={selectedClass}
-                onValueChange={handleClassChange}
-                disabled={selectedProgram === "all" && availableClasses.length === 0}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="All Classes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Classes</SelectItem>
-                  {availableClasses.map((c) => {
-                    const val = extractId(c);
-                    return (
-                      <SelectItem key={val || Math.random()} value={val}>
-                        {c.name || c.className || "Class"}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                title="Classes"
+                placeholder="All Classes"
+                options={classOptions}
+                selected={selectedClasses}
+                onChange={setSelectedClasses}
+                disabled={classOptions.length === 0}
+              />
             </div>
 
-            {/* Section (if applicable) */}
+            {/* Section Multi-Select */}
             <div className="space-y-1">
               <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Section {!isSectionApplicable ? "(N/A)" : ""}
+                Section (Multi) {!isSectionApplicable ? "(N/A)" : ""}
               </Label>
-              <Select
-                value={selectedSection}
-                onValueChange={setSelectedSection}
-                disabled={!isSectionApplicable || availableSections.length === 0}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue
-                    placeholder={
-                      !isSectionApplicable
-                        ? "Not Applicable"
-                        : "All Sections"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sections</SelectItem>
-                  {availableSections.map((s) => {
-                    const val = extractId(s);
-                    return (
-                      <SelectItem key={val || Math.random()} value={val}>
-                        {s.name || s.sectionName || "Section"}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                title="Sections"
+                placeholder={!isSectionApplicable ? "Not Applicable" : "All Sections"}
+                options={sectionOptions}
+                selected={selectedSections}
+                onChange={setSelectedSections}
+                disabled={!isSectionApplicable || sectionOptions.length === 0}
+              />
             </div>
 
             {/* Scheduled Month Filter */}
@@ -1185,7 +1110,7 @@ export const StudentInstallmentReportsTab = ({
                 value={selectedMonth}
                 onValueChange={setSelectedMonth}
               >
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-9 text-xs bg-background">
                   <SelectValue placeholder="All Months" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1210,7 +1135,7 @@ export const StudentInstallmentReportsTab = ({
                   placeholder="Name or roll no..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-9 pl-8 pr-7 text-xs"
+                  className="h-9 pl-8 pr-7 text-xs bg-background"
                 />
                 {searchQuery && (
                   <button
@@ -1224,61 +1149,6 @@ export const StudentInstallmentReportsTab = ({
             </div>
           </div>
 
-          {/* Integrated Summary Metrics Bar */}
-          {filteredStudents.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-3 bg-muted/30 rounded-lg border border-border/60 text-xs">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary shrink-0" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground font-medium">Students</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {summaryMetrics.totalStudents}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground font-medium">Scheduled Insts</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {summaryMetrics.totalInstallments}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Coins className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground font-medium">Total Scheduled</p>
-                  <p className="text-sm font-bold text-foreground">
-                    PKR {summaryMetrics.totalAmount.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground font-medium">Total Paid</p>
-                  <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                    PKR {summaryMetrics.totalPaid.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-rose-600 shrink-0" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground font-medium">Total Pending</p>
-                  <p className="text-sm font-bold text-rose-700 dark:text-rose-400">
-                    PKR {summaryMetrics.totalPending.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Table / Content Body */}
           {!isFilterActive ? (
             <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed rounded-lg bg-muted/10 my-4 space-y-3">
@@ -1287,183 +1157,137 @@ export const StudentInstallmentReportsTab = ({
               </div>
               <div>
                 <h3 className="font-semibold text-sm text-foreground">
-                  Select Program or Search Student
+                  Select Filters or Search Student
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                  Select a <strong>Program</strong> (and optional Class/Section) from the filters above, or type a student's <strong>name or roll number</strong> in the search bar to view their full installment schedule.
+                  Select one or more <strong>Programs</strong>, <strong>Classes</strong>, or <strong>Sections</strong> using the checkboxes above, or type a student's name or roll number to load their installment records.
                 </p>
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAllRecords(true)}
+                    className="text-xs gap-1.5"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Load All Students
+                  </Button>
+                </div>
               </div>
             </div>
           ) : isLoading || isFetching ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground space-y-2">
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs font-medium">Loading student installment schedules...</p>
+              <p className="text-xs font-medium">Loading student installment records...</p>
             </div>
           ) : filteredStudents.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-10 text-center border border-dashed rounded-lg bg-muted/10 my-4 space-y-2">
               <AlertCircle className="w-8 h-8 text-muted-foreground" />
-              <h3 className="font-semibold text-sm">No Student Installment Plans Found</h3>
+              <h3 className="font-semibold text-sm">No Student Installment Records Found</h3>
               <p className="text-xs text-muted-foreground max-w-sm">
-                No students matching the selected filters have configured installment schedules.
+                No students matching the selected multi-filter criteria were found.
               </p>
             </div>
           ) : (
-            <div className="rounded-lg border border-border overflow-hidden">
-              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <div className="rounded-lg border border-border overflow-hidden bg-card">
+              <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
                 <Table className="w-full text-xs">
-                  <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                    <TableRow className="bg-muted/50 hover:bg-muted/50 border-b">
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground w-12">#</TableHead>
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Roll No.</TableHead>
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Student Name</TableHead>
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Father Name</TableHead>
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Program / Class / Section</TableHead>
-                      <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground text-center">Installments</TableHead>
-                      <TableHead className="py-2.5 px-4 text-xs font-semibold text-muted-foreground text-right">Scheduled Amount</TableHead>
+                  <TableHeader className="sticky top-0 bg-background z-10 shadow-xs border-b">
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="py-2.5 px-3 w-12 text-center text-xs font-semibold text-muted-foreground">
+                        #
+                      </TableHead>
+                      <TableHead className="py-2.5 px-3 min-w-[200px] text-xs font-semibold text-muted-foreground">
+                        Student Details
+                      </TableHead>
+                      <TableHead className="py-2.5 px-3 min-w-[180px] text-xs font-semibold text-muted-foreground">
+                        Program / Class / Section
+                      </TableHead>
+                      <TableHead className="py-2.5 px-3 min-w-[340px] text-xs font-semibold text-muted-foreground">
+                        Installment Months
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredStudents.map((student, idx) => {
-                      const isExpanded = expandedStudentIds.has(student.id);
-                      return (
-                        <React.Fragment key={student.id}>
-                          <TableRow
-                            onClick={() => toggleStudent(student.id)}
-                            className={`cursor-pointer transition-colors hover:bg-muted/40 ${
-                              isExpanded ? "bg-muted/20" : ""
-                            }`}
-                          >
-                            <TableCell className="py-3 px-3">
-                              <div className="flex items-center gap-1.5 font-medium">
-                                {isExpanded ? (
-                                  <ChevronDown className="w-3.5 h-3.5 text-primary" />
-                                ) : (
-                                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                                )}
-                                <span>{idx + 1}</span>
-                              </div>
-                            </TableCell>
+                    {filteredStudents.map((student, idx) => (
+                      <TableRow
+                        key={student.id}
+                        className="transition-colors hover:bg-muted/20 border-b"
+                      >
+                        {/* Column 0: Index (Clean number only, no chevron/detail) */}
+                        <TableCell className="py-3 px-3 text-center align-top font-medium text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
 
-                            <TableCell className="py-3 px-3 font-mono font-bold text-foreground">
-                              {student.rollNumber}
-                            </TableCell>
-
-                            <TableCell className="py-3 px-3 font-semibold text-foreground">
+                        {/* Column 1: Student Name / Father Name / Roll Number (in one cell) */}
+                        <TableCell className="py-3 px-3 align-top">
+                          <div className="space-y-1">
+                            <div className="font-bold text-foreground text-sm leading-snug">
                               {student.studentName}
-                            </TableCell>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium text-muted-foreground/80">Father:</span> {student.fatherName}
+                            </div>
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
+                                Roll:
+                              </span>
+                              <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-muted/80 border border-border/70 text-foreground">
+                                {student.rollNumber}
+                              </span>
+                            </div>
+                          </div>
+                        </TableCell>
 
-                            <TableCell className="py-3 px-3 text-muted-foreground">
-                              {student.fatherName}
-                            </TableCell>
+                        {/* Column 2: Program / Class / Section (in 2nd cell) */}
+                        <TableCell className="py-3 px-3 align-top">
+                          <div className="space-y-1">
+                            <div className="font-bold text-foreground text-xs leading-snug">
+                              {student.programName}
+                            </div>
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {student.className} {student.sectionName ? `(${student.sectionName})` : ""}
+                            </div>
+                            {student.sessionName && student.sessionName !== "-" && (
+                              <div className="text-[11px] text-muted-foreground">
+                                Session: {student.sessionName}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
 
-                            <TableCell className="py-3 px-3 text-muted-foreground">
-                              {student.programClassSection}
-                            </TableCell>
+                        {/* Column 3: Installment Months (pills with number only: "<number> | <month>") */}
+                        <TableCell className="py-3 px-3 align-top">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              {student.displayInstallments.length > 0 ? (
+                                student.displayInstallments.map((inst) => (
+                                  <span
+                                    key={inst.id}
+                                    className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border border-dashed border-slate-300 dark:border-slate-700 bg-background text-slate-700 dark:text-slate-300 hover:border-slate-400 transition-colors"
+                                    title={`Installment ${inst.installmentNumber} • ${inst.month} • Due: ${inst.formattedDueDate || '-'} • Amount: PKR ${inst.amount.toLocaleString()}`}
+                                  >
+                                    {inst.installmentNumber} | {inst.month}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic">No installments configured</span>
+                              )}
+                            </div>
 
-                            <TableCell className="py-3 px-3 text-center">
-                              <Badge
-                                variant="secondary"
-                                className="font-mono text-[11px] font-semibold"
-                              >
-                                {student.displayInstallments.length} / {student.totalInstallmentsCount} Insts
-                              </Badge>
-                            </TableCell>
-
-                            <TableCell className="py-3 px-4 text-right font-medium text-foreground">
-                              PKR {student.totalFee.toLocaleString()}
-                            </TableCell>
-                          </TableRow>
-
-                          {/* Expanded Itemized Installment Schedule */}
-                          {isExpanded && (
-                            <TableRow className="bg-muted/15 hover:bg-muted/15 border-b border-border/60">
-                              <TableCell colSpan={7} className="p-0">
-                                <div className="py-3 px-4 pl-10 border-t border-dashed border-border/60 space-y-2">
-                                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1">
-                                    <div className="flex items-center gap-2">
-                                      <Clock className="w-3.5 h-3.5 text-primary" />
-                                      <span className="font-semibold text-foreground">
-                                        Scheduled Installments for {student.studentName} ({student.rollNumber}):
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px]">
-                                      Paid: <strong className="text-emerald-700 dark:text-emerald-400">PKR {student.totalPaid.toLocaleString()}</strong> • 
-                                      Pending: <strong className="text-rose-700 dark:text-rose-400">PKR {student.totalPending.toLocaleString()}</strong>
-                                    </div>
-                                  </div>
-
-                                  <div className="overflow-x-auto rounded border border-border/60 bg-background">
-                                    <Table className="w-full text-xs">
-                                      <TableHeader>
-                                        <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/40">
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">
-                                            Inst #
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">
-                                            Scheduled Month
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground">
-                                            Due Date
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">
-                                            Scheduled Amount
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">
-                                            Paid
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-right">
-                                            Pending
-                                          </TableHead>
-                                          <TableHead className="h-8 py-1.5 px-3 text-[11px] font-semibold text-muted-foreground text-center">
-                                            Status
-                                          </TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {student.displayInstallments.map((inst) => (
-                                          <TableRow
-                                            key={inst.id}
-                                            className="hover:bg-muted/25 border-b border-border/30"
-                                          >
-                                            <TableCell className="py-2 px-3 font-semibold text-foreground">
-                                              Inst {inst.installmentNumber}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-muted-foreground font-medium">
-                                              {inst.month}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-muted-foreground font-mono text-[11px]">
-                                              {inst.formattedDueDate}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-right font-medium text-foreground">
-                                              PKR {inst.amount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-right text-muted-foreground">
-                                              PKR {inst.paidAmount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell
-                                              className={`py-2 px-3 text-right font-semibold ${
-                                                inst.pendingAmount > 0
-                                                  ? "text-rose-600 dark:text-rose-400"
-                                                  : "text-muted-foreground"
-                                              }`}
-                                            >
-                                              PKR {inst.pendingAmount.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="py-2 px-3 text-center">
-                                              {getStatusBadge(inst.status)}
-                                            </TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
+                            {/* Bottom line: Decided tuition fee only (no submissions, no pending text) */}
+                            <div className="flex justify-end items-center pt-1.5 border-t border-dashed border-border/60 text-xs">
+                              <div className="text-muted-foreground font-medium">
+                                Total Decided Tuition Fee:{" "}
+                                <span className="font-bold text-foreground">
+                                  PKR {Number(student.tuitionFee || student.totalFee || 0).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>

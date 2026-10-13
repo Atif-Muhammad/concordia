@@ -284,8 +284,8 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     };
 
     const html = generateChallanHtml(challanInst3, templateHtml, {});
-    // Oct should show own amount 12500 (10000 base + 2000 heads + 500 fine, excluding 1000 arrears) and total paid 12500
-    expect(html).toContain("<td>12500</td>");
+    // Oct should show full total amount 13500 (10000 base + 2000 heads + 1000 arrears + 500 fine) and total paid 13500
+    expect(html).toContain("<td>13500</td>");
     // Nov should show full gross 11000
     expect(html).toContain("<td>11000</td>");
     // Nov was SUPERSEDED with 0 paid amount, so Paid row must show 0, NOT 11000
@@ -524,7 +524,7 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     expect(html).not.toContain("PKR 750");
   });
 
-  it("shows challan's own amount in payment history excluding carried-forward arrears (October 10k, not 20k)", () => {
+  it("shows challan's total amount in payment history (October 20k, not base 10k) and actual paid amount", () => {
     const templateHtml = `
       <table>
         <tr><td>Month</td>{{paymentHistoryMonths}}</tr>
@@ -574,13 +574,11 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
       feeChallans: [septChallan, octChallan]
     });
 
-    // Both September and October must show their OWN amounts (10000 each), NOT 20000 with arrears
     expect(html).toContain("<td>September</td><td>October</td>");
+    // September total is 10000, October total is 20000 (total amount, not just base tuition fee)
+    expect(html).toContain("<td>10000</td><td>20000</td>");
+    // And both must show their actual paid amount (10000 each)
     expect(html).toContain("<td>10000</td><td>10000</td>");
-    // And both must show Paid as 10000 (100% paid), NOT 10k out of 20k
-    expect(html).toContain("<td>10000</td><td>10000</td>");
-    // Must NOT show 20000 in payment history totals
-    expect(html).not.toContain("<td>20000</td>");
   });
 
   it("itemizes Late Fee Fine (Overdue) in particulars and shows Total Payable (Overdue)", () => {
@@ -626,6 +624,214 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     // Gross: 4666 + 6000 + 1200 + lateFee (150+)
     // With 5800 paid, remaining payable reflects overdue total - 5800
     expect(normalized.lateFeeAmount).toBeGreaterThanOrEqual(150);
+  });
+
+  it("renders multiple partial payments in particulars table after Total Amount row with date/time and amount", () => {
+    const templateHtml = `
+      <table>
+        <tbody>
+          {{paidRow}}
+        </tbody>
+      </table>
+    `;
+
+    const challanWithPartialPayments = {
+      _id: "ch-multi-partial",
+      challanNumber: "CH-PARTIAL-101",
+      amount: 15000,
+      totalAmount: 15000,
+      paidAmount: 10000,
+      status: "PARTIAL",
+      paymentHistory: [
+        { amount: 4000, date: "2026-10-10", time: "11:30 AM" },
+        { amount: 6000, date: "2026-10-12", time: "03:15 PM" },
+      ],
+      student: { _id: "s-100", fName: "Test", lName: "Student" },
+    };
+
+    const html = generateChallanHtml(challanWithPartialPayments, templateHtml, {});
+
+    // Ensure Total Amount row exists
+    expect(html).toContain("Total Amount");
+    expect(html).toContain("15,000");
+
+    // Ensure Partial Paid rows exist
+    expect(html).toContain("Partial Paid");
+    expect(html).toContain("10 Oct 2026, 11:30 AM");
+    expect(html).toContain("4,000");
+    expect(html).toContain("12 Oct 2026, 03:15 PM");
+    expect(html).toContain("6,000");
+
+    // Ensure Paid Amount row exists with total paid
+    expect(html).toContain("Paid Amount");
+    expect(html).toContain("10,000");
+
+    // Verify ordering: Total Amount -> Partial Paid (1) -> Partial Paid (2) -> Paid Amount
+    const totalIdx = html.indexOf("Total Amount");
+    const partial1Idx = html.indexOf("10 Oct 2026, 11:30 AM");
+    const partial2Idx = html.indexOf("12 Oct 2026, 03:15 PM");
+    const paidIdx = html.indexOf("Paid Amount");
+
+    expect(totalIdx).toBeGreaterThan(-1);
+    expect(partial1Idx).toBeGreaterThan(totalIdx);
+    expect(partial2Idx).toBeGreaterThan(partial1Idx);
+    expect(paidIdx).toBeGreaterThan(partial2Idx);
+
+    // Verify styling matches Paid Amount font and style
+    expect(html).toContain('style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;"');
+  });
+
+  it("handles paymentHistory as JSON string and receipts array for multiple partial payments", () => {
+    const templateHtml = `<table><tbody>{{paidRow}}</tbody></table>`;
+
+    const challanJsonHist = {
+      _id: "ch-json-partial",
+      challanNumber: "CH-JSON-102",
+      amount: 20000,
+      totalAmount: 20000,
+      paidAmount: 15000,
+      status: "PARTIAL",
+      paymentHistory: JSON.stringify([
+        { amount: 5000, date: "2026-10-01", time: "10:00" },
+        { amount: 10000, date: "2026-10-05", time: "14:00" },
+      ]),
+      student: { _id: "s-101", fName: "JSON", lName: "Student" },
+    };
+
+    const htmlJson = generateChallanHtml(challanJsonHist, templateHtml, {});
+    expect(htmlJson).toContain("01 Oct 2026, 10:00 AM");
+    expect(htmlJson).toContain("5,000");
+    expect(htmlJson).toContain("05 Oct 2026, 02:00 PM");
+    expect(htmlJson).toContain("10,000");
+    expect(htmlJson).toContain("Paid Amount");
+    expect(htmlJson).toContain("15,000");
+
+    const challanReceipts = {
+      _id: "ch-receipts-partial",
+      challanNumber: "CH-REC-103",
+      amount: 10000,
+      totalAmount: 10000,
+      paidAmount: 8000,
+      status: "PARTIAL",
+      receipts: [
+        { amountPaid: 3000, paidDate: "2026-10-02T09:00:00.000Z", receiptType: "DIRECT" },
+        { amountPaid: 5000, paidDate: "2026-10-06T15:30:00.000Z", receiptType: "DIRECT" },
+      ],
+      student: { _id: "s-102", fName: "Receipt", lName: "Student" },
+    };
+
+    const htmlRec = generateChallanHtml(challanReceipts, templateHtml, {});
+    expect(htmlRec).toContain("Partial Paid");
+    expect(htmlRec).toContain("3,000");
+    expect(htmlRec).toContain("5,000");
+    expect(htmlRec).toContain("Paid Amount");
+    expect(htmlRec).toContain("8,000");
+  });
+
+  it("does not render Partial Paid rows when challan has a single full payment or is unpaid", () => {
+    const templateHtml = `<table><tbody>{{paidRow}}</tbody></table>`;
+
+    const singlePaidChallan = {
+      _id: "ch-single-paid",
+      challanNumber: "CH-SINGLE-104",
+      amount: 10000,
+      totalAmount: 10000,
+      paidAmount: 10000,
+      status: "PAID",
+      paymentHistory: [
+        { amount: 10000, date: "2026-10-01", time: "10:00 AM" }
+      ],
+      student: { _id: "s-103", fName: "Single", lName: "Paid" },
+    };
+
+    const htmlSingle = generateChallanHtml(singlePaidChallan, templateHtml, {});
+    expect(htmlSingle).not.toContain("Partial Paid");
+    expect(htmlSingle).toContain("Total Amount");
+    expect(htmlSingle).toContain("Paid Amount");
+
+    const unpaidChallan = {
+      _id: "ch-unpaid",
+      challanNumber: "CH-UNPAID-105",
+      amount: 10000,
+      totalAmount: 10000,
+      paidAmount: 0,
+      status: "PENDING",
+      student: { _id: "s-104", fName: "Unpaid", lName: "Student" },
+    };
+
+    const htmlUnpaid = generateChallanHtml(unpaidChallan, templateHtml, {});
+    expect(htmlUnpaid).not.toContain("Partial Paid");
+  });
+
+  it("renders partial payment row on a challan with advance adjustment and a direct partial payment", () => {
+    const templateHtml = `
+      <table>
+        <tbody>
+          <tr><td>Tuition Fee</td><td>{{Tuition Fee}}</td></tr>
+          {{arrearsRows}}
+          {{advanceRows}}
+          {{paidRow}}
+          <tr class="total-row"><td>Total Payable within due date</td><td>{{totalPayable}}</td></tr>
+        </tbody>
+      </table>
+    `;
+
+    const challanWithAdvanceAndPartial = {
+      _id: "ch-adv-partial-106",
+      challanNumber: "14766582",
+      amount: 20000,
+      basePayable: 20000,
+      advanceApplied: 5000,
+      advanceFromChallanNo: "14766581",
+      advanceFromMonth: "September",
+      paidAmount: 5000,
+      status: "PARTIAL",
+      receipts: [
+        {
+          receiptNo: "REC-251243-4108",
+          receiptType: "DIRECT",
+          amountPaid: 5000,
+          paidDate: "2026-10-12T10:10:00.000Z",
+          time: "07:10 PM",
+        },
+        {
+          receiptNo: "REC-ADV-93708289",
+          receiptType: "ADVANCE_SETTLEMENT",
+          amountPaid: 0,
+          advanceCreditUsed: 5000,
+          paidDate: "2026-10-12T19:10:00.000Z",
+        },
+      ],
+      student: { _id: "s-105", fName: "Advance", lName: "Student" },
+    };
+
+    const html = generateChallanHtml(challanWithAdvanceAndPartial, templateHtml, {});
+
+    // Advance adjustment
+    expect(html).toContain("September");
+    expect(html).toContain("-5,000");
+
+    // Total Amount: 15,000
+    expect(html).toContain("Total Amount");
+    expect(html).toContain("15,000");
+
+    // Partial Paid row should be present!
+    expect(html).toContain("Partial Paid");
+    expect(html).toContain("5,000");
+    expect(html).toContain("12 Oct 2026");
+
+    // Total Payable within due date: 10,000
+    expect(html).toContain("Total Payable within due date");
+    expect(html).toContain("10,000");
+
+    // Ensure order: Total Amount -> Partial Paid -> Total Payable within due date
+    const totalIdx = html.indexOf("Total Amount");
+    const partialIdx = html.indexOf("Partial Paid");
+    const payableIdx = html.indexOf("Total Payable within due date");
+
+    expect(totalIdx).toBeGreaterThan(-1);
+    expect(partialIdx).toBeGreaterThan(totalIdx);
+    expect(payableIdx).toBeGreaterThan(partialIdx);
   });
 });
 

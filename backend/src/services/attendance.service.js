@@ -828,41 +828,189 @@ class AttendanceService {
 
     const studentIds = students.map(s => s._id);
 
-    const attFilter = {
-      role: 'STUDENT',
-      studentId: { $in: studentIds },
-      date: { $gte: start, $lte: end }
-    };
-    if (sessionId && sessionId !== 'all') {
-      attFilter.sessionId = sessionId;
+    const classIds = [...new Set(students.map(s => String(s.classId?._id || s.classId?.id || s.classId || '')).filter(Boolean))];
+
+    // Build classId -> map of subjects (keyed by subjectId) using academicsService
+    const classSubjectsMap = new Map();
+    for (const cId of classIds) {
+      const subMap = new Map();
+      try {
+        const sessionParam = studentId ? null : (sessionId && sessionId !== 'all' ? sessionId : null);
+        const secParam = sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : undefined;
+        let subList = await academicsService.getSubjectsForClassWithAssignments(cId, sessionParam, secParam);
+        if (!subList || subList.length === 0) {
+          subList = await academicsService.getSubjectsForClassWithAssignments(cId, null, null);
+        }
+        (subList || []).forEach(sub => {
+          const sId = String(sub.id || sub._id || sub.subjectId || '');
+          const sName = sub.name || sub.code || '';
+          if (sId && sName && sName.toLowerCase() !== 'general') {
+            subMap.set(sId, {
+              subjectId: sId,
+              subjectName: sName,
+              code: sub.code || ''
+            });
+          }
+        });
+      } catch (err) {
+        console.error('Error fetching subjects for class:', cId, err);
+      }
+      classSubjectsMap.set(cId, subMap);
     }
 
-    const attendanceRecords = await Attendance.find(attFilter).populate('subjectId', '_id name');
+    const holidays = await Holiday.find({
+      $or: [
+        { date: { $gte: start, $lte: end } },
+        { date: { $lte: end }, endDate: { $gte: start } }
+      ]
+    });
+    const skips = await AttendanceSkip.find({
+      classId: { $in: classIds },
+      date: { $gte: start, $lte: end }
+    });
+
+    const holidayDateMap = new Map();
+    holidays.forEach(h => {
+      if (h.endDate && h.endDate > h.date) {
+        const cur = new Date(h.date + 'T00:00:00');
+        const last = new Date(h.endDate + 'T00:00:00');
+        while (cur <= last) {
+          holidayDateMap.set(cur.toISOString().slice(0, 10), h.title || 'Holiday');
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        holidayDateMap.set(h.date, h.title || 'Holiday');
+      }
+    });
+    skips.forEach(sk => {
+      holidayDateMap.set(`${sk.classId}_${sk.date}`, sk.reason || 'Holiday');
+    });
+
+    const studentObjIds = students.map(s => s._id);
+    const studentStrIds = students.map(s => String(s._id || s.id));
+    const allStudentIds = [...new Set([...studentObjIds, ...studentStrIds])];
+
+    const attFilter = {
+      studentId: { $in: allStudentIds },
+      date: { $gte: start, $lte: end }
+    };
+
+    // When querying an individual student, do NOT restrict by session (all attendance belongs to this student).
+    // For class reports, allow matching sessionId OR records where sessionId was omitted (null / undefined).
+    if (!studentId && sessionId && sessionId !== 'all') {
+      attFilter.$or = [
+        { sessionId },
+        { sessionId: null },
+        { sessionId: { $exists: false } }
+      ];
+    }
+
+    const attendanceRecords = await Attendance.find(attFilter).populate('subjectId', '_id name code');
 
     const recordMap = new Map();
     attendanceRecords.forEach(r => {
       const sId = String(r.studentId);
       if (!recordMap.has(sId)) recordMap.set(sId, new Map());
       const subMap = recordMap.get(sId);
-      const subId = r.subjectId?._id ? String(r.subjectId._id) : (r.subjectId ? String(r.subjectId) : 'general');
-      const subName = r.subjectId?.name || 'General';
-      if (!subMap.has(subId)) {
-        subMap.set(subId, { subjectId: subId, subjectName: subName, attendance: [] });
+      const subId = r.subjectId?._id ? String(r.subjectId._id) : (r.subjectId ? String(r.subjectId) : null);
+      const subName = r.subjectId?.name || r.subjectId?.code || null;
+
+      const key = subId || 'unassigned';
+      if (!subMap.has(key)) {
+        subMap.set(key, {
+          subjectId: subId || 'unassigned',
+          subjectName: subName || '',
+          attendance: []
+        });
       }
-      subMap.get(subId).attendance.push({
+      subMap.get(key).attendance.push({
         date: r.date,
-        status: (r.status || 'present').toLowerCase(),
+        status: String(r.status || 'present').toLowerCase(),
         notes: r.notes || ''
       });
     });
 
     return students.map(s => {
       const sId = String(s._id || s.id);
-      const subMap = recordMap.get(sId);
-      let subjects = subMap ? Array.from(subMap.values()) : [];
-      if (subjects.length === 0) {
-        subjects = [{ subjectId: 'general', subjectName: 'General', attendance: [] }];
+      const cIdStr = String(s.classId?._id || s.classId?.id || s.classId || '');
+      const classMappedSubs = classSubjectsMap.get(cIdStr) || new Map();
+      const recordedSubMap = recordMap.get(sId) || new Map();
+
+      const finalSubjectsMap = new Map();
+      classMappedSubs.forEach((subInfo, subId) => {
+        finalSubjectsMap.set(subId, {
+          subjectId: subId,
+          subjectName: subInfo.subjectName,
+          code: subInfo.code,
+          attendance: []
+        });
+      });
+
+      recordedSubMap.forEach((recEntry, subKey) => {
+        if (finalSubjectsMap.has(subKey)) {
+          finalSubjectsMap.get(subKey).attendance = recEntry.attendance;
+        } else if (subKey !== 'unassigned') {
+          finalSubjectsMap.set(subKey, {
+            subjectId: subKey,
+            subjectName: recEntry.subjectName || 'Subject',
+            attendance: recEntry.attendance
+          });
+        } else {
+          if (finalSubjectsMap.size === 0) {
+            const classDisplayName = s.classId?.name ? `${s.classId.name} Attendance` : 'Class Attendance';
+            finalSubjectsMap.set('class_attendance', {
+              subjectId: 'class_attendance',
+              subjectName: classDisplayName,
+              attendance: recEntry.attendance
+            });
+          } else {
+            // Merge general / class attendance date-by-date into all subjects where subject-specific attendance was not logged
+            finalSubjectsMap.forEach(sub => {
+              recEntry.attendance.forEach(attItem => {
+                const alreadyExists = sub.attendance.some(existing => existing.date === attItem.date);
+                if (!alreadyExists) {
+                  sub.attendance.push({ ...attItem });
+                }
+              });
+            });
+          }
+        }
+      });
+
+      // Sort attendance entries by date for consistent display
+      finalSubjectsMap.forEach(sub => {
+        sub.attendance.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      });
+
+      if (finalSubjectsMap.size === 0) {
+        const classDisplayName = s.classId?.name ? `${s.classId.name} Attendance` : 'Class Attendance';
+        finalSubjectsMap.set('class_attendance', {
+          subjectId: 'class_attendance',
+          subjectName: classDisplayName,
+          attendance: []
+        });
       }
+
+      holidayDateMap.forEach((holidayTitle, dKey) => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dKey) && dKey >= start && dKey <= end) {
+          finalSubjectsMap.forEach(subObj => {
+            const existing = subObj.attendance.find(a => a.date === dKey);
+            if (!existing) {
+              subObj.attendance.push({
+                date: dKey,
+                status: 'holiday',
+                notes: holidayTitle
+              });
+            } else if (!existing.status || existing.status === 'not_marked') {
+              existing.status = 'holiday';
+              existing.notes = holidayTitle;
+            }
+          });
+        }
+      });
+
+      const subjects = Array.from(finalSubjectsMap.values());
+
       return {
         id: sId,
         _id: s._id,

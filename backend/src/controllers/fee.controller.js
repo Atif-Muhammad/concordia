@@ -248,6 +248,15 @@ class FeeController {
   }
 
   // Installment Plans & Bulk Challans
+  async getStudentInstallmentReport(req, res, next) {
+    try {
+      const report = await feeService.getStudentInstallmentReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getInstallmentPlans(req, res, next) {
     try {
       const plans = await feeService.getInstallmentPlans(req.query);

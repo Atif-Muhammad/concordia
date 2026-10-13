@@ -1,6 +1,6 @@
 import * as React from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -27,8 +27,10 @@ export const MonthPicker = ({
   className,
   placeholder = "Select month",
   minYear = 2020,
-  maxYear = 2035,
+  maxYear = 2040,
   disabled = false,
+  allowAll = false,
+  clearable = false,
 }) => {
   const [open, setOpen] = React.useState(false);
 
@@ -36,7 +38,7 @@ export const MonthPicker = ({
   const [selectedYear, selectedMonth] = React.useMemo(() => {
     if (!value || typeof value !== "string" || !value.includes("-")) {
       const now = new Date();
-      return [now.getFullYear(), now.getMonth()];
+      return [now.getFullYear(), value === "all" ? null : now.getMonth()];
     }
     const parts = value.split("-").map(Number);
     return [parts[0] || new Date().getFullYear(), (parts[1] || 1) - 1];
@@ -51,6 +53,7 @@ export const MonthPicker = ({
   }, [selectedYear, open]);
 
   const displayLabel = React.useMemo(() => {
+    if (value === "all") return "All Months";
     if (!value || typeof value !== "string" || !value.includes("-")) return "";
     const parts = value.split("-").map(Number);
     if (!parts[0] || !parts[1]) return value;
@@ -88,7 +91,23 @@ export const MonthPicker = ({
           )}
         >
           <span className="truncate">{displayLabel || placeholder}</span>
-          <CalendarIcon className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            {clearable && value && value !== "all" && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange?.("all");
+                }}
+                className="p-0.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Clear to all months"
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            )}
+            <CalendarIcon className="h-4 w-4 opacity-50" />
+          </div>
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="start">
@@ -131,7 +150,7 @@ export const MonthPicker = ({
         </div>
         <div className="grid grid-cols-3 gap-1.5">
           {MONTHS.map((monthName, idx) => {
-            const isSelected = selectedYear === viewYear && selectedMonth === idx;
+            const isSelected = selectedMonth !== null && selectedYear === viewYear && selectedMonth === idx;
             const now = new Date();
             const isCurrentMonth =
               now.getFullYear() === viewYear && now.getMonth() === idx;
@@ -154,7 +173,21 @@ export const MonthPicker = ({
             );
           })}
         </div>
-        <div className="pt-2 mt-2 border-t flex justify-end">
+        <div className="pt-2 mt-2 border-t flex items-center justify-between">
+          {allowAll ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[11px] px-2 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                onChange?.("all");
+                setOpen(false);
+              }}
+            >
+              All Months
+            </Button>
+          ) : <div />}
           <Button
             type="button"
             variant="ghost"

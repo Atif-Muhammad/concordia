@@ -70,12 +70,24 @@ export const StudentDataExportDialog = ({
 }) => {
   const { toast } = useToast();
 
+  // Find active session
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? extractId(activeSession) : "";
+
   // Dialog filters state
   const [filterPrograms, setFilterPrograms] = useState([]);
   const [filterClasses, setFilterClasses] = useState([]);
   const [filterSections, setFilterSections] = useState([]);
   const [filterGender, setFilterGender] = useState("all");
-  const [filterSessionId, setFilterSessionId] = useState("all");
+  const [filterSessionId, setFilterSessionId] = useState(() => {
+    if (initialFilters.filterSessionId && initialFilters.filterSessionId !== "all") {
+      return initialFilters.filterSessionId;
+    }
+    const active = academicSessions.find((s) => s.isActive === true || s.isActive === "true");
+    return active ? extractId(active) : "all";
+  });
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isExportingExcel, setIsExportingExcel] = useState(false);
@@ -88,11 +100,20 @@ export const StudentDataExportDialog = ({
       setFilterClasses(initialFilters.filterClass && initialFilters.filterClass !== "all" ? [initialFilters.filterClass] : []);
       setFilterSections(initialFilters.filterSection && initialFilters.filterSection !== "all" ? [initialFilters.filterSection] : []);
       setFilterGender(initialFilters.gender || "all");
-      setFilterSessionId(initialFilters.filterSessionId || "all");
+      const initSess = initialFilters.filterSessionId && initialFilters.filterSessionId !== "all"
+        ? initialFilters.filterSessionId
+        : (activeSessionId || "all");
+      setFilterSessionId(initSess);
       setFilterStatus(initialFilters.status || status || "all");
       setSearchQuery(initialFilters.searchQuery || "");
     }
-  }, [open, initialFilters, status]);
+  }, [open, initialFilters, status, activeSessionId]);
+
+  useEffect(() => {
+    if (open && (filterSessionId === "all" || !filterSessionId) && activeSessionId && (!initialFilters.filterSessionId || initialFilters.filterSessionId === "all")) {
+      setFilterSessionId(activeSessionId);
+    }
+  }, [open, activeSessionId, initialFilters.filterSessionId, filterSessionId]);
 
   // Dependent dropdowns
   const availableClasses = useMemo(() => {
@@ -133,7 +154,7 @@ export const StudentDataExportDialog = ({
     setFilterClasses([]);
     setFilterSections([]);
     setFilterGender("all");
-    setFilterSessionId("all");
+    setFilterSessionId(activeSessionId || "all");
     setFilterStatus("all");
     setSearchQuery("");
   };
@@ -298,9 +319,13 @@ export const StudentDataExportDialog = ({
         const secId = extractId(s.sectionId || s.section);
         if (!filterSections.includes(secId)) return false;
       }
+      if (filterSessionId && filterSessionId !== "all") {
+        const sessId = extractId(s.sessionId || s.session);
+        if (sessId && sessId !== filterSessionId) return false;
+      }
       return true;
     });
-  }, [studentsResponse, programData, classesData, sectionsData, academicSessions, filterPrograms, filterClasses, filterSections]);
+  }, [studentsResponse, programData, classesData, sectionsData, academicSessions, filterPrograms, filterClasses, filterSections, filterSessionId]);
 
   // Overall statistics for preview and report
   const metrics = useMemo(() => {
@@ -1057,11 +1082,15 @@ export const StudentDataExportDialog = ({
                 </SelectTrigger>
                 <SelectContent className="max-h-56">
                   <SelectItem value="all">All Sessions</SelectItem>
-                  {academicSessions.map((s) => (
-                    <SelectItem key={s.id || s._id} value={extractId(s)} className="text-xs">
-                      {s.name || s.sessionName}
-                    </SelectItem>
-                  ))}
+                  {academicSessions.map((s) => {
+                    const sId = extractId(s);
+                    const isAct = s.isActive === true || s.isActive === "true";
+                    return (
+                      <SelectItem key={s.id || s._id || sId} value={sId} className="text-xs">
+                        {s.name || s.sessionName}{isAct ? " (Active)" : ""}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -1098,7 +1127,7 @@ export const StudentDataExportDialog = ({
               filterClasses.length > 0 ||
               filterSections.length > 0 ||
               filterGender !== "all" ||
-              filterSessionId !== "all" ||
+              (filterSessionId && filterSessionId !== (activeSessionId || "all")) ||
               filterStatus !== "all" ||
               searchQuery) && (
               <Button

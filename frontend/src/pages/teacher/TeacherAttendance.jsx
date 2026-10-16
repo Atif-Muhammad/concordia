@@ -23,7 +23,8 @@ import {
   getClasseOrSectionAttendance,
   updateAttendance,
   getHolidays,
-  getAttendanceSkips
+  getAttendanceSkips,
+  getAcademicSessions,
 } from '../../../config/apis';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -108,8 +109,21 @@ export default function TeacherAttendance() {
     }
   }, [assignedSubjects, selectedSubjectId]);
 
+  // Fetch academic sessions to resolve active session
+  const { data: academicSessions = [] } = useQuery({
+    queryKey: ['academicSessions'],
+    queryFn: getAcademicSessions,
+  });
+
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? (activeSession._id || activeSession.id || "").toString() : "";
+
   const classId = selectedClassDetails?.classId?._id || selectedClassDetails?.classId || selectedClassDetails?.class?._id;
   const sectionId = selectedClassDetails?.sectionId?._id || selectedClassDetails?.sectionId || selectedClassDetails?.section?._id;
+  const rawSessionId = selectedClassDetails?.sessionId?._id || selectedClassDetails?.sessionId || selectedClassDetails?.session?._id || selectedClassDetails?.session || selectedClassDetails?.academicSessionId?._id || selectedClassDetails?.academicSessionId;
+  const sessionId = rawSessionId ? String(rawSessionId) : activeSessionId;
   const targetId = sectionId || classId;
   const fetchFor = sectionId ? 'section' : 'class';
 
@@ -128,8 +142,8 @@ export default function TeacherAttendance() {
 
   // 3. Fetch attendance records for this class & date
   const { data: attendanceData, isLoading: isAttendanceLoading } = useQuery({
-    queryKey: ['classAttendance', targetId, date, fetchFor, selectedSubjectId],
-    queryFn: () => getClasseOrSectionAttendance(targetId, date, fetchFor, selectedSubjectId),
+    queryKey: ['classAttendance', targetId, date, fetchFor, selectedSubjectId, sessionId],
+    queryFn: () => getClasseOrSectionAttendance(targetId, date, fetchFor, selectedSubjectId, sessionId),
     enabled: !!targetId && !!date,
   });
 
@@ -211,8 +225,14 @@ export default function TeacherAttendance() {
         const s = record.student || record.studentId;
         const sId = (s?._id || s?.id || (typeof s === 'string' ? s : null))?.toString();
         if (sId) {
-          const raw = (record.status || 'Present').trim();
-          newState[sId] = raw.toUpperCase() === 'ABSENT' ? 'Absent' : 'Present';
+          const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+          if (isLeave) {
+            // Do not pre-select present or absent for students on leave
+            newState[sId] = null;
+          } else {
+            const raw = (record.status || 'Present').trim();
+            newState[sId] = raw.toUpperCase() === 'ABSENT' ? 'Absent' : 'Present';
+          }
         }
       });
       setAttendanceState(newState);
@@ -227,6 +247,9 @@ export default function TeacherAttendance() {
         description: `Successfully recorded attendance for ${date}.` 
       });
       queryClient.invalidateQueries(['classAttendance', targetId, date, fetchFor, selectedSubjectId]);
+      queryClient.invalidateQueries(['studentAttendance']);
+      queryClient.invalidateQueries(['attendanceReport']);
+      queryClient.invalidateQueries(['missingAttendanceReport']);
     },
     onError: (error) => {
       toast({ 
@@ -239,6 +262,14 @@ export default function TeacherAttendance() {
 
   const handleStatusChange = (studentId, status) => {
     if (isHoliday) return;
+    const target = students.find((r) => {
+      const s = r.student || r.studentId;
+      const sId = (s?._id || s?.id || (typeof s === 'string' ? s : null))?.toString();
+      return sId === studentId;
+    });
+    if (target && (target.isLeave || target.status === 'LEAVE' || target.status?.toUpperCase() === 'LEAVE')) {
+      return;
+    }
     setAttendanceState(prev => ({ ...prev, [studentId]: status }));
   };
 
@@ -249,13 +280,14 @@ export default function TeacherAttendance() {
       students.forEach(record => {
         const s = record.student || record.studentId;
         const sId = (s?._id || s?.id || (typeof s === 'string' ? s : null))?.toString();
-        if (sId) next[sId] = 'Present';
+        const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+        if (sId && !isLeave) next[sId] = 'Present';
       });
       return next;
     });
     toast({
       title: 'All Marked Present',
-      description: `All ${students.length} students set to Present.`,
+      description: `Eligible students set to Present.`,
     });
   };
 
@@ -266,13 +298,14 @@ export default function TeacherAttendance() {
       students.forEach(record => {
         const s = record.student || record.studentId;
         const sId = (s?._id || s?.id || (typeof s === 'string' ? s : null))?.toString();
-        if (sId) next[sId] = 'Absent';
+        const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+        if (sId && !isLeave) next[sId] = 'Absent';
       });
       return next;
     });
     toast({
       title: 'All Marked Absent',
-      description: `All ${students.length} students set to Absent.`,
+      description: `Eligible students set to Absent.`,
     });
   };
 
@@ -287,31 +320,27 @@ export default function TeacherAttendance() {
     }
     if (students.length === 0) return;
 
+    const formattedRows = students.map(record => {
+      const student = record.student || record.studentId;
+      const studentId = (student?._id || student?.id || (typeof student === 'string' ? student : null))?.toString();
+      const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+      const status = isLeave ? 'LEAVE' : (attendanceState[studentId] || 'Present');
+      return {
+        studentId,
+        status: status.toUpperCase(),
+        subjectId: selectedSubjectId || undefined,
+        notes: isLeave ? (record.leaveReason || record.notes || 'On Leave') : undefined,
+      };
+    });
+
     const payload = {
       classId,
       sectionId,
+      sessionId: (sessionId?._id || sessionId)?.toString() || undefined,
       subjectId: selectedSubjectId || undefined,
       date,
-      rows: students.map(record => {
-        const student = record.student || record.studentId;
-        const studentId = (student?._id || student?.id || (typeof student === 'string' ? student : null))?.toString();
-        const status = attendanceState[studentId] || 'Present';
-        return {
-          studentId,
-          status: status.toUpperCase(),
-          subjectId: selectedSubjectId || undefined,
-        };
-      }),
-      attendanceRecords: students.map(record => {
-        const student = record.student || record.studentId;
-        const studentId = (student?._id || student?.id || (typeof student === 'string' ? student : null))?.toString();
-        const status = attendanceState[studentId] || 'Present';
-        return {
-          studentId,
-          status: status.toUpperCase(),
-          subjectId: selectedSubjectId || undefined,
-        };
-      })
+      rows: formattedRows,
+      attendanceRecords: formattedRows,
     };
     updateMutation.mutate(payload);
   };
@@ -335,10 +364,16 @@ export default function TeacherAttendance() {
   const stats = useMemo(() => {
     let present = 0;
     let absent = 0;
+    let leave = 0;
     students.forEach((record) => {
       const student = record.student || record.studentId;
       const sId = (student?._id || student?.id || (typeof student === 'string' ? student : null))?.toString();
-      const status = attendanceState[sId] || record.status || 'Present';
+      const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+      if (isLeave) {
+        leave += 1;
+        return;
+      }
+      const status = attendanceState[sId] || (record.status ? (record.status.toUpperCase() === 'ABSENT' ? 'Absent' : 'Present') : 'Present');
       if (status.toLowerCase() === 'absent') {
         absent += 1;
       } else {
@@ -346,8 +381,9 @@ export default function TeacherAttendance() {
       }
     });
     const total = students.length;
-    const rate = total > 0 ? Math.round((present / total) * 100) : 0;
-    return { total, present, absent, rate };
+    const activeTotal = present + absent;
+    const rate = activeTotal > 0 ? Math.round((present / activeTotal) * 100) : 0;
+    return { total, present, absent, leave, rate };
   }, [students, attendanceState]);
 
   if (isUserLoading || isClassesLoading) {
@@ -455,6 +491,11 @@ export default function TeacherAttendance() {
                       <Badge variant="outline" className="text-xs font-semibold bg-red-500/10 text-red-600 border-red-200">
                         {stats.absent} Absent
                       </Badge>
+                      {stats.leave > 0 && (
+                        <Badge variant="outline" className="text-xs font-semibold bg-amber-500/10 text-amber-600 border-amber-200">
+                          {stats.leave} Leave
+                        </Badge>
+                      )}
                       <Badge variant="outline" className="text-xs font-mono bg-muted text-foreground">
                         {stats.rate}% Rate
                       </Badge>
@@ -589,8 +630,9 @@ export default function TeacherAttendance() {
                           `${student?.fName || student?.firstName || ''} ${student?.lName || student?.lastName || ''}`.trim() ||
                           'Student';
                         const rollNumber = student?.rollNumber || student?.rollNo || 'N/A';
-                        const currentStatus = attendanceState[studentId] || record.status || 'Present';
-                        const isAbsent = !isHoliday && currentStatus.toLowerCase() === 'absent';
+                        const isLeave = Boolean(record.isLeave || record.status === 'LEAVE' || record.status?.toUpperCase() === 'LEAVE');
+                        const currentStatus = isLeave ? null : (attendanceState[studentId] || (record.status ? (record.status.toUpperCase() === 'ABSENT' ? 'Absent' : 'Present') : 'Present'));
+                        const isAbsent = !isHoliday && !isLeave && currentStatus === 'Absent';
                         const initials = (studentName || 'S')
                           .split(' ')
                           .filter(Boolean)
@@ -606,6 +648,8 @@ export default function TeacherAttendance() {
                               "transition-colors duration-150",
                               isHoliday
                                 ? "bg-muted/10 opacity-80"
+                                : isLeave
+                                ? "bg-muted/30 opacity-60 cursor-not-allowed select-none"
                                 : isAbsent 
                                 ? "bg-red-500/[0.04] border-l-4 border-l-red-500 hover:bg-red-500/[0.07]" 
                                 : "hover:bg-muted/30 border-l-4 border-l-transparent"
@@ -628,8 +672,8 @@ export default function TeacherAttendance() {
                               <div className="flex items-center gap-2">
                                 <div className={cn(
                                   "w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold shrink-0",
-                                  isHoliday
-                                    ? "bg-primary/10 text-primary"
+                                  isHoliday || isLeave
+                                    ? "bg-muted text-muted-foreground"
                                     : isAbsent 
                                     ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" 
                                     : "bg-primary/10 text-primary"
@@ -640,6 +684,11 @@ export default function TeacherAttendance() {
                                   <span className="font-semibold text-xs sm:text-sm text-foreground leading-tight">
                                     {studentName}
                                   </span>
+                                  {isLeave && (
+                                    <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 block mt-0.5">
+                                      on leave
+                                    </span>
+                                  )}
                                   <div className="sm:hidden flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
                                     <span className="font-mono font-medium bg-muted px-1 rounded">{rollNumber}</span>
                                     {student?.fatherOrguardian && (
@@ -661,6 +710,30 @@ export default function TeacherAttendance() {
                                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-3 sm:py-1">
                                   <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" /> Holiday
                                 </Badge>
+                              ) : isLeave ? (
+                                <div className="inline-flex items-center p-0.5 rounded-lg border border-border/40 bg-muted/20 gap-0.5 sm:gap-1 opacity-50 cursor-not-allowed">
+                                  {/* Present Button */}
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="inline-flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-semibold text-muted-foreground cursor-not-allowed select-none"
+                                    title="Attendance disabled (on leave)"
+                                  >
+                                    <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                    <span>P<span className="hidden sm:inline">resent</span></span>
+                                  </button>
+
+                                  {/* Absent Button */}
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="inline-flex items-center justify-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-semibold text-muted-foreground cursor-not-allowed select-none"
+                                    title="Attendance disabled (on leave)"
+                                  >
+                                    <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                    <span>A<span className="hidden sm:inline">bsent</span></span>
+                                  </button>
+                                </div>
                               ) : (
                                 <div className="inline-flex items-center p-0.5 rounded-lg border border-border/70 bg-muted/40 shadow-2xs gap-0.5 sm:gap-1">
                                   {/* Present Button */}

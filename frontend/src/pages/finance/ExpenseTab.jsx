@@ -39,7 +39,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
-import { TrendingDown, Trash2, CheckCircle2, XCircle, Wallet, AlertTriangle, Loader2 } from "lucide-react";
+import { TrendingDown, Trash2, CheckCircle2, XCircle, Wallet, AlertTriangle, Loader2, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   getFinanceExpenses,
@@ -52,6 +52,7 @@ import {
   getFinanceCategories,
 } from "../../../config/apis";
 import usePermissions from "@/hooks/usePermissions";
+import { printExpenseReceipt } from "@/templates/expenseReceiptTemplate";
 
 const getMonthDateRange = (month) => {
   if (!month) return { dateFrom: "", dateTo: "" };
@@ -161,8 +162,16 @@ export default function ExpenseTab() {
     }
   }, [activeWallets, expenseFormData.walletId]);
 
-  const { canCreate, canDelete, canApprove } = usePermissions("Finance", "expense");
+  const { currentUser, canCreate, canDelete, canApprove } = usePermissions("Finance", "expense");
   const canApproveExpense = canApprove;
+
+  const handlePrintReceipt = async (item) => {
+    await printExpenseReceipt({
+      expense: item,
+      currentUser,
+      toast,
+    });
+  };
 
   const { data: expenseData = [], isLoading: expenseLoading } = useQuery({
     queryKey: [
@@ -592,6 +601,23 @@ export default function ExpenseTab() {
                                 </Tooltip>
                               </>
                             )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 w-7 p-0 inline-flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePrintReceipt(item);
+                                  }}
+                                  title="Print Receipt"
+                                >
+                                  <Printer className="h-3.5 w-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Print Receipt</TooltipContent>
+                            </Tooltip>
                             {canDelete && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -731,6 +757,15 @@ export default function ExpenseTab() {
                     </Button>
                   </>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center gap-1.5"
+                  onClick={() => handlePrintReceipt(selectedExpense)}
+                >
+                  <Printer className="h-4 w-4" />
+                  Print Receipt
+                </Button>
                 {canDelete && !selectedExpense.source && (
                   <Button
                     size="sm"

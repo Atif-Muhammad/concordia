@@ -328,7 +328,10 @@ export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
       const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
 
       const matchedSubKey = Object.keys(moduleActions).find(
-        (k) => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[-_]/g, "") === normalizedKey
+        (k) =>
+          k.toLowerCase() === key.toLowerCase() ||
+          k.toLowerCase().replace(/[-_]/g, "") === normalizedKey ||
+          k.toLowerCase().replace(/[-_]/g, "").replace(/s$/, "") === normalizedKey.replace(/s$/, "")
       );
       const subActions = matchedSubKey
         ? moduleActions[matchedSubKey]
@@ -363,7 +366,11 @@ export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
     );
     const configured = matchedKey ? subModulesConfig[matchedKey] : subModulesConfig[moduleLabel];
     if (Array.isArray(configured)) {
-      return configured.includes(subModuleId);
+      return configured.some(
+        (c) =>
+          c.toLowerCase() === subModuleId.toLowerCase() ||
+          c.toLowerCase().replace(/s$/, "") === subModuleId.toLowerCase().replace(/s$/, "")
+      );
     }
   }
 
@@ -422,7 +429,10 @@ export const hasPermission = (user, moduleLabel, subModuleId, action = "read") =
       const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
 
       const matchedSubKey = Object.keys(moduleActions).find(
-        (k) => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[-_]/g, "") === normalizedKey
+        (k) =>
+          k.toLowerCase() === key.toLowerCase() ||
+          k.toLowerCase().replace(/[-_]/g, "") === normalizedKey ||
+          k.toLowerCase().replace(/[-_]/g, "").replace(/s$/, "") === normalizedKey.replace(/s$/, "")
       );
       const subActions = matchedSubKey
         ? moduleActions[matchedSubKey]
@@ -450,8 +460,8 @@ export const hasPermission = (user, moduleLabel, subModuleId, action = "read") =
           return Boolean(subActions.approvals ?? subActions.approve);
         }
         // Aliases for Closing
-        if (["close", "closing"].includes(act) && (subActions.closing !== undefined || subActions.close !== undefined)) {
-          return Boolean(subActions.closing ?? subActions.close);
+        if (["close", "closing"].includes(act) && (subActions.closing !== undefined || subActions.close !== undefined || subActions.create !== undefined)) {
+          return Boolean(subActions.closing ?? subActions.close ?? subActions.create);
         }
         if (act === "read") {
           return Object.values(subActions).some(Boolean);

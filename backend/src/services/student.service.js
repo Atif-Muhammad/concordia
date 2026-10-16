@@ -12,7 +12,8 @@ const {
   Program,
   Section,
   AcademicSession,
-  InstituteSettings
+  InstituteSettings,
+  FrontOfficeInquiry
 } = require('../models');
 
 function getPrefix(pPrefix, cPrefix) {
@@ -101,6 +102,18 @@ class StudentService {
           { 'academicRecords.session': filters.session }
         ]
       });
+    } else if (filters.activeSessionOnly === 'true' || filters.activeSessionOnly === true) {
+      const activeSession = await AcademicSession.findOne({
+        $or: [{ isActive: true }, { isActive: 'true' }]
+      }).lean();
+      if (activeSession) {
+        andConditions.push({
+          $or: [
+            { sessionId: activeSession._id },
+            { 'academicRecords.sessionId': activeSession._id }
+          ]
+        });
+      }
     }
 
     if (filters.programId && filters.programId !== 'all') {
@@ -1157,6 +1170,323 @@ class StudentService {
     }
 
     return formattedResults.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  // Admission Conversion Report (Inquiries -> Admitted Students Audit)
+  async getAdmissionConversionReport(filters = {}) {
+    const inquiryQuery = {};
+
+    // 1. Session Filter (defaults to active session if not provided, or 'all')
+    const rawSession = filters.sessionId || filters.session;
+    let selectedSessionIds = [];
+
+    if (rawSession && rawSession !== 'all') {
+      if (Array.isArray(rawSession)) {
+        selectedSessionIds = rawSession;
+      } else if (typeof rawSession === 'string') {
+        selectedSessionIds = rawSession.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    } else if (!rawSession || rawSession === 'active') {
+      // Default to active session
+      const activeSession = await AcademicSession.findOne({ isActive: true }).lean();
+      if (activeSession) {
+        selectedSessionIds = [activeSession._id.toString()];
+      }
+    }
+
+    if (selectedSessionIds.length > 0 && !selectedSessionIds.includes('all')) {
+      const validSessionIds = selectedSessionIds
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+      if (validSessionIds.length > 0) {
+        inquiryQuery.sessionId = { $in: validSessionIds };
+      }
+    }
+
+    // 2. Date Range Filters (From - To dates on inquiry creation date)
+    const startDate = filters.from || filters.startDate;
+    const endDate = filters.to || filters.endDate;
+    if (startDate || endDate) {
+      inquiryQuery.createdAt = {};
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        inquiryQuery.createdAt.$gte = s;
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        inquiryQuery.createdAt.$lte = e;
+      }
+    }
+
+    // 3. Inquiry Type Filter (multiple selection support)
+    const rawType = filters.inquiryType || filters.type;
+    if (rawType && rawType !== 'all') {
+      const types = (Array.isArray(rawType) ? rawType : String(rawType).split(','))
+        .map(t => t.trim())
+        .filter(Boolean);
+      if (types.length > 0 && !types.includes('all')) {
+        inquiryQuery.inquiryType = {
+          $in: types.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
+        };
+      }
+    }
+
+    // 4. Gender Filter (multiple selection support)
+    const rawGender = filters.gender;
+    if (rawGender && rawGender !== 'all') {
+      const genders = (Array.isArray(rawGender) ? rawGender : String(rawGender).split(','))
+        .map(g => g.trim())
+        .filter(Boolean);
+      if (genders.length > 0 && !genders.includes('all')) {
+        inquiryQuery.gender = {
+          $in: genders.map(g => new RegExp(`^${g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
+        };
+      }
+    }
+
+    // 5. Prospectus Sold Filter (optional)
+    const rawProspectus = filters.prospectusSold;
+    if (rawProspectus !== undefined && rawProspectus !== null && rawProspectus !== '' && rawProspectus !== 'all') {
+      const pVals = (Array.isArray(rawProspectus) ? rawProspectus : String(rawProspectus).split(','))
+        .map(v => String(v).trim().toLowerCase())
+        .filter(Boolean);
+
+      const hasSold = pVals.includes('true') || pVals.includes('sold') || pVals.includes('yes');
+      const hasUnsold = pVals.includes('false') || pVals.includes('not_sold') || pVals.includes('unsold') || pVals.includes('no');
+
+      if (hasSold && !hasUnsold) {
+        inquiryQuery.prospectusSold = true;
+      } else if (hasUnsold && !hasSold) {
+        inquiryQuery.$or = [
+          { prospectusSold: false },
+          { prospectusSold: { $exists: false } },
+          { prospectusSold: null }
+        ];
+      }
+    }
+
+    // 6. Program Filter (optional)
+    const rawProgram = filters.programId || filters.programInterest || filters.program;
+    if (rawProgram && rawProgram !== 'all') {
+      const programIds = (Array.isArray(rawProgram) ? rawProgram : String(rawProgram).split(','))
+        .map(p => p.trim())
+        .filter(p => mongoose.Types.ObjectId.isValid(p))
+        .map(p => new mongoose.Types.ObjectId(p));
+      if (programIds.length > 0) {
+        inquiryQuery.programInterest = { $in: programIds };
+      }
+    }
+
+    // 7. Search Filter (studentName, fatherName, contact, CNIC, email)
+    const search = (filters.search || filters.searchQuery || '').trim();
+    if (search) {
+      const qRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      inquiryQuery.$or = [
+        { studentName: qRegex },
+        { fatherName: qRegex },
+        { contactNumber: qRegex },
+        { studentCnic: qRegex },
+        { fatherCnic: qRegex },
+        { email: qRegex },
+        { referenceBody: qRegex },
+      ];
+    }
+
+    // Query matching inquiries
+    const inquiries = await FrontOfficeInquiry.find(inquiryQuery)
+      .populate('programInterest', 'name')
+      .populate('sessionId', 'name isActive')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Query linked students by inquiryId
+    const inquiryIds = inquiries.map(i => i._id);
+    const linkedStudents = await Student.find({ inquiryId: { $in: inquiryIds } })
+      .populate('programId', 'name')
+      .populate('classId', 'name')
+      .populate('sectionId', 'name')
+      .populate('sessionId', 'name')
+      .lean();
+
+    const studentMap = new Map();
+    for (const s of linkedStudents) {
+      if (s.inquiryId) {
+        studentMap.set(s.inquiryId.toString(), s);
+      }
+    }
+
+    // Secondary match: for inquiries marked APPROVED or having phone/CNIC match where inquiryId was unlinked
+    const unlinkedApproved = inquiries.filter(i => !studentMap.has(i._id.toString()) && i.status === 'APPROVED');
+    if (unlinkedApproved.length > 0) {
+      const phones = unlinkedApproved.map(i => i.contactNumber).filter(Boolean);
+      const cnics = unlinkedApproved.map(i => i.studentCnic).filter(Boolean);
+      if (phones.length > 0 || cnics.length > 0) {
+        const fallbackStudents = await Student.find({
+          $or: [
+            { parentOrGuardianPhone: { $in: phones } },
+            { studentCnic: { $in: cnics } },
+          ],
+        })
+          .populate('programId', 'name')
+          .populate('classId', 'name')
+          .populate('sectionId', 'name')
+          .populate('sessionId', 'name')
+          .lean();
+
+        for (const fs of fallbackStudents) {
+          const match = unlinkedApproved.find(
+            i =>
+              (i.studentCnic && fs.studentCnic && i.studentCnic === fs.studentCnic) ||
+              (i.contactNumber && fs.parentOrGuardianPhone && i.contactNumber === fs.parentOrGuardianPhone)
+          );
+          if (match && !studentMap.has(match._id.toString())) {
+            studentMap.set(match._id.toString(), fs);
+          }
+        }
+      }
+    }
+
+    // Aggregate statistics and format records
+    let convertedCount = 0;
+    let pendingCount = 0;
+    let rejectedCount = 0;
+    let prospectusSoldCount = 0;
+    let totalProspectusRevenue = 0;
+
+    let allRecords = [];
+
+    for (const inq of inquiries) {
+      const inqIdStr = inq._id.toString();
+      const student = studentMap.get(inqIdStr);
+      const isConverted = Boolean(student);
+
+      let conversionStatus = 'PENDING';
+      if (isConverted) {
+        conversionStatus = 'CONVERTED';
+        convertedCount++;
+      } else if (inq.status === 'REJECTED') {
+        conversionStatus = 'REJECTED';
+        rejectedCount++;
+      } else {
+        conversionStatus = 'PENDING';
+        pendingCount++;
+      }
+
+      const isProspectusSold = Boolean(inq.prospectusSold);
+      const prospectusFee = Number(inq.prospectusFee || 0);
+
+      if (isProspectusSold) {
+        prospectusSoldCount++;
+        totalProspectusRevenue += prospectusFee;
+      }
+
+      // Compute turnaround duration in days between initial inquiry and student admission
+      let daysToConversion = null;
+      if (isConverted && (student.admissionDate || student.createdAt)) {
+        const inqDate = new Date(inq.createdAt);
+        const admDate = new Date(student.admissionDate || student.createdAt);
+        const diffMs = admDate.getTime() - inqDate.getTime();
+        daysToConversion = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      }
+
+      const rawInqType = (inq.inquiryType || 'General').trim();
+      const inqTypeFormatted = rawInqType.length > 1
+        ? rawInqType.charAt(0).toUpperCase() + rawInqType.slice(1).toLowerCase()
+        : rawInqType;
+
+      allRecords.push({
+        inquiryId: inqIdStr,
+        inquiryDate: inq.createdAt,
+        studentName: inq.studentName || '—',
+        fatherName: inq.fatherName || '—',
+        contactNumber: inq.contactNumber || '—',
+        studentCnic: inq.studentCnic || '—',
+        fatherCnic: inq.fatherCnic || '—',
+        email: inq.email || '—',
+        address: inq.address || '—',
+        gender: inq.gender || '—',
+        inquiryType: inqTypeFormatted,
+        programInterest: inq.programInterest?.name || '—',
+        programInterestId: inq.programInterest?._id?.toString() || null,
+        sessionName: inq.sessionId?.name || '—',
+        sessionId: inq.sessionId?._id?.toString() || null,
+        prospectusSold: isProspectusSold,
+        prospectusFee,
+        prospectusReceipt: inq.prospectusReceipt || '—',
+        inquiryStatus: inq.status || 'NEW',
+        isConverted,
+        conversionStatus,
+        daysToConversion,
+        studentDetails: student ? {
+          studentId: student._id.toString(),
+          rollNumber: student.rollNumber || '—',
+          fullName: `${student.fName || ''} ${student.lName || ''}`.trim() || student.rollNumber,
+          admissionDate: student.admissionDate || student.createdAt,
+          programName: student.programId?.name || '—',
+          className: student.classId?.name || '—',
+          sectionName: student.sectionId?.name || '—',
+          sessionName: student.sessionId?.name || student.session || '—',
+          tuitionFee: Number(student.tuitionFee || 0),
+        } : null,
+      });
+    }
+
+    // Optional status post-filtering (if user filtered by conversionStatus dropdown: CONVERTED, PENDING, REJECTED)
+    let filteredRecords = allRecords;
+    const rawConvStatus = filters.conversionStatus || filters.status;
+    if (rawConvStatus && rawConvStatus !== 'all') {
+      const targetStatuses = (Array.isArray(rawConvStatus) ? rawConvStatus : String(rawConvStatus).split(','))
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (targetStatuses.length > 0 && !targetStatuses.includes('ALL')) {
+        filteredRecords = allRecords.filter(r => targetStatuses.includes(r.conversionStatus));
+      }
+    }
+
+    // Distinct inquiry types in database for dynamic dropdown options (deduplicated case-insensitively)
+    const distinctTypes = await FrontOfficeInquiry.distinct('inquiryType');
+    const typeMap = new Map();
+    const defaultTypes = [
+      'Physical',
+      'Walk-in',
+      'Phone Call',
+      'Social Media',
+      'Online',
+      'Website',
+      'Referral',
+    ];
+    for (const t of [...defaultTypes, ...(distinctTypes || [])]) {
+      if (!t || typeof t !== 'string') continue;
+      const clean = t.trim();
+      if (!clean) continue;
+      const lower = clean.toLowerCase();
+      if (!typeMap.has(lower)) {
+        const formatted = clean.length > 1
+          ? clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase()
+          : clean;
+        typeMap.set(lower, formatted);
+      }
+    }
+    const availableInquiryTypes = Array.from(typeMap.values()).sort();
+
+    const totalInquiries = allRecords.length;
+    const conversionRate = totalInquiries > 0 ? Number(((convertedCount / totalInquiries) * 100).toFixed(1)) : 0;
+
+    const summary = {
+      totalInquiries,
+      convertedCount,
+      pendingCount,
+      rejectedCount,
+      conversionRate,
+      prospectusSoldCount,
+      totalProspectusRevenue,
+      availableInquiryTypes,
+      displayCount: filteredRecords.length,
+    };
+
+    return { records: filteredRecords, summary };
   }
 }
 

@@ -26,6 +26,8 @@ export {
   resolveStudentDocumentData,
 } from "./StudentDocumentReportTemplate";
 export { StudentDataExportDialog } from "./StudentDataExportDialog";
+export { AdmissionConversionReportDialog } from "./AdmissionConversionReportDialog";
 export { StudentReportsTab } from "./StudentReportsTab";
 export * from "./studentFinancialUtils";
+
 

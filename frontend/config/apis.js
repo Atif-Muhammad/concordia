@@ -1127,7 +1127,7 @@ export const createAcademicSession = async (data) => {
 export const updateAcademicSession = async (sessionID, data) => {
   try {
     const response = await axios.patch(
-      `${base_url}/academics/session/update?sessionID=${sessionID}`,
+      `${base_url}/academics/session/update?sessionID=${sessionID}&id=${sessionID}`,
       data,
       { withCredentials: true }
     );
@@ -1145,7 +1145,7 @@ export const updateAcademicSession = async (sessionID, data) => {
 export const deleteAcademicSession = async (sessionID) => {
   try {
     const response = await axios.delete(
-      `${base_url}/academics/session/remove?sessionID=${sessionID}`,
+      `${base_url}/academics/session/remove?sessionID=${sessionID}&id=${sessionID}`,
       { withCredentials: true }
     );
     return response.data;
@@ -1968,7 +1968,7 @@ export const searchStudents = async (query) => {
 };
 
 // will return attendance, if not available then return students of the class/section
-export const getClasseOrSectionAttendance = async (id, date, fetchFor, subjectId) => {
+export const getClasseOrSectionAttendance = async (id, date, fetchFor, subjectId, sessionId) => {
   try {
     const params = new URLSearchParams();
     if (id) params.append("id", id);
@@ -1976,6 +1976,9 @@ export const getClasseOrSectionAttendance = async (id, date, fetchFor, subjectId
     if (fetchFor) params.append("fetchFor", fetchFor);
     if (subjectId && subjectId !== "undefined" && subjectId !== "null" && subjectId !== "all") {
       params.append("subjectId", subjectId);
+    }
+    if (sessionId && sessionId !== "undefined" && sessionId !== "null" && sessionId !== "all") {
+      params.append("sessionId", sessionId);
     }
     const response = await axios.get(
       `${base_url}/teacher/get/class/students/attendance?${params.toString()}`,
@@ -2313,6 +2316,30 @@ export const getMissingAttendanceStudentsSummary = async ({ classId, sectionId, 
       error.response?.data?.error ||
       error.message ||
       "Failed to fetch missing attendance students summary";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getMissingAttendanceExportReport = async ({ programId, classId, sectionId, date, sessionId } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (programId && programId !== '*' && programId !== 'all') params.append('programId', programId);
+    if (classId && classId !== '*' && classId !== 'all') params.append('classId', classId);
+    if (sectionId && sectionId !== '*' && sectionId !== 'all') params.append('sectionId', sectionId);
+    if (date) params.append('date', date);
+    if (sessionId && sessionId !== 'all') params.append('sessionId', sessionId);
+
+    const response = await axios.get(
+      `${base_url}/attendance/missing/export-report?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to fetch missing attendance export report";
     throw { message, status: error.response?.status || 500 };
   }
 };
@@ -6626,8 +6653,47 @@ export const clearActivityLogs = async (days = 90) => {
   }
 };
 
+export const getAdmissionConversionReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.sessionId) params.append("sessionId", Array.isArray(filters.sessionId) ? filters.sessionId.join(",") : filters.sessionId);
+    if (filters.from || filters.startDate) params.append("from", filters.from || filters.startDate);
+    if (filters.to || filters.endDate) params.append("to", filters.to || filters.endDate);
+    if (filters.inquiryType) params.append("inquiryType", Array.isArray(filters.inquiryType) ? filters.inquiryType.join(",") : filters.inquiryType);
+    if (filters.gender) params.append("gender", Array.isArray(filters.gender) ? filters.gender.join(",") : filters.gender);
+    if (filters.prospectusSold !== undefined && filters.prospectusSold !== null && filters.prospectusSold !== "") {
+      params.append("prospectusSold", Array.isArray(filters.prospectusSold) ? filters.prospectusSold.join(",") : filters.prospectusSold);
+    }
+    if (filters.programId || filters.programInterest) {
+      params.append("programId", Array.isArray(filters.programId || filters.programInterest) ? (filters.programId || filters.programInterest).join(",") : (filters.programId || filters.programInterest));
+    }
+    if (filters.conversionStatus || filters.status) {
+      params.append("conversionStatus", Array.isArray(filters.conversionStatus || filters.status) ? (filters.conversionStatus || filters.status).join(",") : (filters.conversionStatus || filters.status));
+    }
+    if (filters.search || filters.searchQuery) {
+      params.append("search", filters.search || filters.searchQuery);
+    }
 
+    const { data } = await axios.get(
+      `${base_url}/student/admission-conversion-report?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to fetch admission conversion report";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
 
-
-
+export const recordCustomActivityAPI = async (payload) => {
+  try {
+    const response = await axios.post(`${base_url}/configuration/activity-logs/custom`, payload, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (err) {
+    // Non-blocking log attempt
+    console.warn("Could not record custom activity log:", err);
+  }
+};
 

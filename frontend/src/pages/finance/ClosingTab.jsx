@@ -47,6 +47,7 @@ import {
   History,
   Lock,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Printer,
   Receipt,
@@ -115,7 +116,8 @@ const formatReportMonth = (monthValue) => {
 export default function ClosingTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { canCreate: canClose } = usePermissions("Finance", "closings");
+  const { canClose, canCreate, canDelete } = usePermissions("Finance", "closing");
+  const canPerformClosing = canClose || canCreate;
 
   const todayDateStr = useMemo(() => new Date().toISOString().split("T")[0], []);
   const currentMonthStr = useMemo(() => todayDateStr.slice(0, 7), [todayDateStr]);
@@ -212,37 +214,20 @@ export default function ClosingTab() {
     return "2025-2026";
   }, [academicSessions]);
 
-  // Fetch historical closing records
-  const {
-    data: closingsHistory = [],
-    isLoading: isHistoryLoading,
-  } = useQuery({
-    queryKey: [
-      "financeClosings",
-      closingMode,
-      closingMode === "DAILY" ? closingDate : closingMonth,
-    ],
-    queryFn: () => {
-      if (closingMode === "MONTHLY") {
-        return getFinanceClosings({
-          dateFrom: monthlyRange.dateFrom,
-          dateTo: monthlyRange.dateTo,
-        });
-      }
-      return getFinanceClosings({
-        date: closingDate || undefined,
-      });
-    },
-  });
-
+  // Fetch all historical closing records (previous dates checkpoints)
   const {
     data: allClosings = [],
+    isLoading: isHistoryLoading,
   } = useQuery({
     queryKey: ["financeClosingsAll"],
     queryFn: () => getFinanceClosings(),
   });
 
-  const closedDatesSet = new Set((allClosings || []).map((c) => c.date));
+  const closingsHistory = allClosings;
+  const closedDatesSet = useMemo(
+    () => new Set((allClosings || []).map((c) => c.date)),
+    [allClosings]
+  );
   const isExactCheckpoint = Boolean(dashboardData?.isExactCheckpoint);
 
   // Extracted Detailed Data Arrays (only transactions with actual money ledger inflow/outflow)
@@ -975,7 +960,7 @@ export default function ClosingTab() {
                 <span>Print / Preview</span>
               </Button>
 
-              {canClose && (
+              {canPerformClosing && (
                 <Button
                   size="sm"
                   onClick={() => {
@@ -2040,43 +2025,63 @@ export default function ClosingTab() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    closingsHistory.map((c) => (
-                      <TableRow key={c._id || c.id} className="hover:bg-slate-200/40 dark:hover:bg-slate-800/50 border-b border-border/30 text-[10.5px] sm:text-xs">
-                        <TableCell className="py-1.5 px-2.5 font-mono whitespace-nowrap">
-                          {formatDateTime(c.closingDateTime || c.date)}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-right font-mono font-bold whitespace-nowrap">
-                          PKR {Number(c.totalHolding || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                          +PKR {Number(c.totalInflows || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-right font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">
-                          -PKR {Number(c.totalOutflows || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-right font-mono font-semibold whitespace-nowrap">
-                          {Number(c.netChange || 0) >= 0 ? "+" : ""}
-                          PKR {Number(c.netChange || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-muted-foreground whitespace-nowrap">
-                          {c.closedByName || "Admin"}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-muted-foreground italic truncate max-w-[150px]">
-                          {c.remarks || "—"}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-2.5 text-right whitespace-nowrap">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive hover:bg-destructive/10"
-                            onClick={() => setDeleteConfirm({ open: true, id: c._id || c.id })}
-                            title="Delete closing record"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    closingsHistory.map((c) => {
+                      const isSelected = c.date === closingDate && closingMode === "DAILY";
+                      return (
+                        <TableRow
+                          key={c._id || c.id}
+                          className={`hover:bg-slate-200/60 dark:hover:bg-slate-800/60 border-b border-border/30 text-[10.5px] sm:text-xs cursor-pointer transition-colors ${
+                            isSelected ? "bg-primary/10 font-semibold" : ""
+                          }`}
+                          onClick={() => {
+                            setClosingMode("DAILY");
+                            setClosingDate(c.date);
+                          }}
+                          title="Click to view this closing checkpoint in dashboard"
+                        >
+                          <TableCell className="py-1.5 px-2.5 font-mono whitespace-nowrap">
+                            {formatDateTime(c.closingDateTime || c.createdAt || c.date)}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-right font-mono font-bold whitespace-nowrap">
+                            PKR {Number(c.totalHolding || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            +PKR {Number(c.totalInflows || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-right font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                            -PKR {Number(c.totalOutflows || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-right font-mono font-semibold whitespace-nowrap">
+                            {Number(c.netChange || 0) >= 0 ? "+" : ""}
+                            PKR {Number(c.netChange || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-muted-foreground whitespace-nowrap">
+                            {c.closedByName || "Admin"}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-muted-foreground italic truncate max-w-[150px]">
+                            {c.remarks || "—"}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 text-right whitespace-nowrap">
+                            {canDelete ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirm({ open: true, id: c._id || c.id });
+                                }}
+                                title="Delete closing record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>

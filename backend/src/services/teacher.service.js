@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { Staff, TeacherMapping, Subject, Class, Section, Student, Attendance, Holiday, AttendanceSkip } = require('../models');
+const { Staff, TeacherMapping, Subject, Class, Section, Student, Attendance, Holiday, AttendanceSkip, Leave, AcademicSession } = require('../models');
 
 const isValidObjectId = (val) => {
   return val && val !== 'undefined' && val !== 'null' && val !== 'all' && mongoose.Types.ObjectId.isValid(val);
@@ -121,12 +121,37 @@ class TeacherService {
     return Array.from(groupedMap.values());
   }
 
-  async getClassStudentsAttendance({ classId, sectionId, subjectId, date }) {
-    const studentQuery = {};
+  async getClassStudentsAttendance({ classId, sectionId, subjectId, date, sessionId }) {
+    const studentQuery = { status: { $in: ['ACTIVE', 'Active'] } };
     if (isValidObjectId(classId)) studentQuery.classId = classId;
     if (isValidObjectId(sectionId)) studentQuery.sectionId = sectionId;
 
+    let effectiveSessionId = sessionId && sessionId !== 'all' && sessionId !== '*' ? sessionId : null;
+    if (!effectiveSessionId) {
+      const activeSession = await AcademicSession.findOne({
+        $or: [{ isActive: true }, { isActive: 'true' }]
+      }).lean();
+      if (activeSession) {
+        effectiveSessionId = activeSession._id;
+      }
+    }
+    if (effectiveSessionId) {
+      studentQuery.sessionId = effectiveSessionId;
+    }
+
     const students = await Student.find(studentQuery).sort({ rollNumber: 1 });
+    const studentIds = students.map(s => s._id);
+
+    // Check for approved leaves for students on this date
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: studentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: date },
+      toDate: { $gte: date }
+    });
+    const leaveMap = new Map();
+    approvedLeaves.forEach(l => leaveMap.set(String(l.studentId), l));
 
     // Check if the date is an official holiday or attendance skip
     const isHoliday = await Holiday.findOne({
@@ -154,10 +179,17 @@ class TeacherService {
       ? { isHoliday: true, title: isSkip.reason || 'Class Holiday', type: 'Class Attendance Skip' }
       : null;
 
-    const attendanceQuery = { date };
+    const attendanceQuery = { date, role: 'STUDENT' };
     if (isValidObjectId(classId)) attendanceQuery.classId = classId;
     if (isValidObjectId(sectionId)) attendanceQuery.sectionId = sectionId;
     if (isValidObjectId(subjectId)) attendanceQuery.subjectId = subjectId;
+    if (effectiveSessionId) {
+      attendanceQuery.$or = [
+        { sessionId: effectiveSessionId },
+        { sessionId: null },
+        { sessionId: { $exists: false } }
+      ];
+    }
 
     const attendanceRecords = await Attendance.find(attendanceQuery);
 
@@ -165,13 +197,29 @@ class TeacherService {
     attendanceRecords.forEach(r => recordMap.set(String(r.studentId), r));
 
     return students.map(s => {
-      const rec = recordMap.get(String(s.id || s._id));
-      const defaultStatus = holidayInfo ? 'HOLIDAY' : 'PRESENT';
+      const sId = String(s.id || s._id);
+      const rec = recordMap.get(sId);
+      const leave = leaveMap.get(sId);
+
+      const isLeave = Boolean(leave || (rec && String(rec.status).toUpperCase() === 'LEAVE'));
+      const leaveReason = leave ? leave.reason : (rec ? rec.notes : '');
+
+      let effectiveStatus = null;
+      if (holidayInfo) {
+        effectiveStatus = 'HOLIDAY';
+      } else if (isLeave) {
+        effectiveStatus = 'LEAVE';
+      } else if (rec) {
+        effectiveStatus = rec.status;
+      }
+
       return {
         student: s,
-        status: rec ? rec.status : defaultStatus,
+        status: effectiveStatus,
+        isLeave,
+        leaveReason,
         attendanceId: rec ? (rec.id || rec._id) : undefined,
-        notes: rec ? rec.notes : (holidayInfo ? holidayInfo.title : ''),
+        notes: rec ? rec.notes : (isLeave ? (leaveReason || 'On Leave') : (holidayInfo ? holidayInfo.title : '')),
         isHoliday: !!holidayInfo,
         holidayTitle: holidayInfo ? holidayInfo.title : undefined,
         holidayType: holidayInfo ? holidayInfo.type : undefined,
@@ -179,8 +227,9 @@ class TeacherService {
     });
   }
 
-  async updateClassStudentsAttendance(data) {
+  async updateClassStudentsAttendance(data, user) {
     const { classId, sectionId, subjectId, date } = data;
+    let sessionId = data.sessionId;
 
     // Reject marking attendance on holidays or attendance skips
     const isHoliday = await Holiday.findOne({
@@ -211,19 +260,53 @@ class TeacherService {
       }
     }
 
+    // Fallback to active academic session if sessionId not supplied
+    if (!sessionId || !isValidObjectId(sessionId)) {
+      const activeSession = await AcademicSession.findOne({ status: 'ACTIVE' });
+      if (activeSession) sessionId = activeSession._id;
+    }
+
     const rows = data.rows || data.attendanceRecords || [];
+    const studentIds = (rows || []).map(r => r.studentId).filter(Boolean);
+
+    // Find any approved leaves to prevent overwriting them with Present or Absent
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: studentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: date },
+      toDate: { $gte: date }
+    });
+    const leaveStudentSet = new Set(approvedLeaves.map(l => String(l.studentId)));
+
+    const effectiveSectionId = isValidObjectId(sectionId) ? sectionId : null;
+    const effectiveUserId = user?.id || user?._id || null;
+    const effectiveStaffId = user?.refId || user?.staffDbId || null;
+
     const operations = (rows || []).map(row => {
+      const isStudentOnLeave = leaveStudentSet.has(String(row.studentId)) || String(row.status).toUpperCase() === 'LEAVE';
+      const finalStatus = isStudentOnLeave ? 'LEAVE' : (row.status || 'PRESENT').toUpperCase();
+      const finalNotes = isStudentOnLeave ? (row.notes || 'Approved Leave') : (row.notes || '');
+
       const query = {
         studentId: row.studentId,
         date,
         role: 'STUDENT',
-        ...(isValidObjectId(classId) ? { classId } : {}),
-        ...(isValidObjectId(sectionId) ? { sectionId } : {}),
-        ...(isValidObjectId(subjectId) ? { subjectId } : {})
+        classId,
+        ...(effectiveSectionId ? { sectionId: effectiveSectionId } : { sectionId: null }),
+        ...(isValidObjectId(subjectId) ? { subjectId } : {}),
+        ...(sessionId ? { sessionId } : {})
       };
       return Attendance.findOneAndUpdate(
         query,
-        { ...query, status: (row.status || 'PRESENT').toUpperCase(), notes: row.notes, markedAt: new Date() },
+        {
+          ...query,
+          status: finalStatus,
+          notes: finalNotes,
+          markedBy: effectiveUserId,
+          markedByStaffId: effectiveStaffId,
+          markedAt: new Date()
+        },
         { upsert: true, returnDocument: 'after' }
       );
     });

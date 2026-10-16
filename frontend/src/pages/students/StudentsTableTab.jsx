@@ -70,6 +70,7 @@ export const StudentsTableTab = ({
   onPrintProfile,
   onOpenDocumentReport,
   onOpenStudentDataExport,
+  onOpenConversionReport,
   onPromote,
   onAddStudent,
 }) => {
@@ -276,6 +277,16 @@ export const StudentsTableTab = ({
             <SlidersHorizontal className="w-4 h-4" />
             {showFilters ? "Hide Filters" : "Filters"}
           </Button>
+          {onOpenConversionReport && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onOpenConversionReport}
+              className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300"
+            >
+              <TrendingUp className="w-4 h-4 text-indigo-600" /> Conversion Report
+            </Button>
+          )}
           {status === "ACTIVE" && canUpdate && onPromote && (
             <Button size="sm" onClick={onPromote} variant="outline" className="gap-2">
               <TrendingUp className="w-4 h-4" /> Promote

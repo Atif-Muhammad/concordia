@@ -54,6 +54,7 @@ import {
     getTeacherClassMappings,
     getTeacherSubjectMappings,
     getAcademicSessions,
+    recordCustomActivityAPI,
 } from "../../../config/apis";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2363,7 +2364,7 @@ export default function StaffDirectoryTab() {
                 .replace(/\{\{EmpOrTeacher\}\}/gi, isTeacher ? "TEACHER" : "EMPLOYEE")
                 .replace(/\{\{dob\}\}/gi, staff.dob ? new Date(staff.dob).toLocaleDateString() : "")
                 .replace(/\{\{bloodGroup\}\}/gi, staff.bloodGroup || "");
-            setIdCardPreview({ html, staffName: staff.name });
+            setIdCardPreview({ html, staffName: staff.name, staff });
         } catch (err) {
             toast({ title: "Failed to load ID card template", description: err.message, variant: "destructive" });
         }
@@ -2698,6 +2699,19 @@ export default function StaffDirectoryTab() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIdCardPreview(null)}>Close</Button>
                         <Button onClick={() => {
+                            const s = idCardPreview?.staff;
+                            const staffName = s?.name || idCardPreview?.staffName || 'Staff Member';
+                            const father = s?.fatherName || 'N/A';
+                            const desig = s?.designation || (s?.isTeaching ? (s?.specialization || 'Teacher') : 'Staff') || 'Staff';
+                            const staffId = s?.staffId ? ` (Staff ID: ${s.staffId})` : '';
+                            recordCustomActivityAPI({
+                                module: 'Staff',
+                                subModule: 'Staff Directory',
+                                action: 'Staff ID Card Printed',
+                                actionType: 'PRINT',
+                                details: `Action: Print Staff ID Card for '${staffName}', Father: '${father}', Designation: '${desig}'${staffId}`,
+                            });
+
                             const win = window.open("", "_blank");
                             win.document.write(`<html><head><title>ID Card</title></head><body style="margin:0;padding:20px;">${idCardPreview?.html}</body></html>`);
                             win.document.close();

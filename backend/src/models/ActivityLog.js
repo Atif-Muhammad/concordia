@@ -8,7 +8,9 @@ const ActivityLogSchema = new mongoose.Schema({
   userRole: { type: String, default: 'STAFF' },
   module: { type: String, required: true, index: true },
   subModule: { type: String, default: '', index: true },
-  action: { type: String, default: 'ACTION' }, // CREATE, UPDATE, DELETE, READ, LOGIN, LOGOUT, GENERATE, PAYMENT, etc.
+  action: { type: String, default: 'ACTION', index: true }, // e.g. "Expense Added", "Update Expense", "Student Enrolled"
+  actionType: { type: String, default: 'ACTION', index: true }, // CREATE, UPDATE, DELETE, PAYMENT, AUTH, STATUS
+  details: { type: String, default: '' },
   description: { type: String, required: true },
   method: { type: String, default: 'POST' },
   endpoint: { type: String, required: true },

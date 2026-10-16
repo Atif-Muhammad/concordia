@@ -22,8 +22,14 @@ class AcademicsController {
 
   async updateSession(req, res, next) {
     try {
-      const id = req.query.id || req.params.id;
+      const id = req.query.sessionID || req.query.sessionId || req.query.id || req.params.id || req.body?.id || req.body?.sessionId || req.body?.sessionID;
+      if (!id) {
+        return res.status(400).json({ message: 'Session ID is required' });
+      }
       const session = await academicsService.updateSession(id, req.body);
+      if (!session) {
+        return res.status(404).json({ message: 'Session not found' });
+      }
       res.json(session);
     } catch (err) {
       next(err);
@@ -32,8 +38,14 @@ class AcademicsController {
 
   async deleteSession(req, res, next) {
     try {
-      const id = req.query.id || req.params.id;
-      await academicsService.deleteSession(id);
+      const id = req.query.sessionID || req.query.sessionId || req.query.id || req.params.id || req.body?.id || req.body?.sessionId || req.body?.sessionID;
+      if (!id) {
+        return res.status(400).json({ message: 'Session ID is required' });
+      }
+      const session = await academicsService.deleteSession(id);
+      if (!session) {
+        return res.status(404).json({ message: 'Session not found' });
+      }
       res.json({ message: 'Session deleted' });
     } catch (err) {
       next(err);

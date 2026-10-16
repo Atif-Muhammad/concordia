@@ -37,8 +37,14 @@ export const usePermissions = (moduleLabel, subModuleId = "_root") => {
   const canUpdate = hasPermission(currentUser, moduleLabel, subModuleId, "update");
   const canDelete = hasPermission(currentUser, moduleLabel, subModuleId, "delete");
   const canPayFee = hasPermission(currentUser, moduleLabel, subModuleId, "payFee") || hasPermission(currentUser, moduleLabel, subModuleId, "pay");
-  const canApprove = hasPermission(currentUser, moduleLabel, subModuleId, "approvals") || hasPermission(currentUser, moduleLabel, subModuleId, "approve");
-  const canClose = hasPermission(currentUser, moduleLabel, subModuleId, "closing") || hasPermission(currentUser, moduleLabel, subModuleId, "close");
+  const canApprove =
+    hasPermission(currentUser, moduleLabel, subModuleId, "approve") ||
+    hasPermission(currentUser, moduleLabel, subModuleId, "approval") ||
+    hasPermission(currentUser, moduleLabel, subModuleId, "update");
+  const canClose =
+    hasPermission(currentUser, moduleLabel, subModuleId, "closing") ||
+    hasPermission(currentUser, moduleLabel, subModuleId, "close") ||
+    hasPermission(currentUser, moduleLabel, subModuleId, "create");
 
   return {
     currentUser,

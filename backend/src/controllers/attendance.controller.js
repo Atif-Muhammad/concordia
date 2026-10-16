@@ -223,6 +223,16 @@ class AttendanceController {
       next(err);
     }
   }
+
+  async getMissingAttendanceExportReport(req, res, next) {
+    try {
+      const { programId, classId, sectionId, date, sessionId } = req.query;
+      const result = await attendanceService.getMissingAttendanceExportReport({ programId, classId, sectionId, date, sessionId });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new AttendanceController();

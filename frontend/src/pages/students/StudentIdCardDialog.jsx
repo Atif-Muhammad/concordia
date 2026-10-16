@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { FileText } from "lucide-react";
-import { getDefaultStudentIDCardTemplate, getStudentById } from "../../../config/apis";
+import { getDefaultStudentIDCardTemplate, getStudentById, recordCustomActivityAPI } from "../../../config/apis";
 import { resolveFileUrl } from "@/lib/utils";
 import { StudentIdCardSkeleton } from "@/skeletons/StudentIdCardSkeleton";
 
@@ -145,6 +145,17 @@ export const StudentIdCardDialog = ({
             onClick={() => {
               const el = document.getElementById("id-card-print");
               if (el) {
+                const stName = `${activeStudent?.fName || ""} ${activeStudent?.lName || ""}`.trim() || activeStudent?.name || "Student";
+                const fatherName = activeStudent?.fatherOrguardian || activeStudent?.fatherName || "N/A";
+                const roll = activeStudent?.rollNumber ? ` (Roll: ${activeStudent.rollNumber})` : "";
+                recordCustomActivityAPI({
+                  module: "Students",
+                  subModule: "Student Profile",
+                  action: "Student ID Card Printed",
+                  actionType: "PRINT",
+                  details: `Action: Print Student ID Card for '${stName}', Father: '${fatherName}'${roll}`,
+                });
+
                 const win = window.open("", "", "width=800,height=600");
                 win?.document.write(`
                   <html>

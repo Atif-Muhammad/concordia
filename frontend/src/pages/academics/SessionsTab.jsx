@@ -65,11 +65,13 @@ export default function SessionsTab() {
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [sessionForm, setSessionForm] = useState(initialForm);
 
-  const { data: academicSessions = [] } = useQuery({
+  const { data: rawSessions = [] } = useQuery({
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
     retry: 1,
   });
+
+  const academicSessions = Array.isArray(rawSessions) ? rawSessions : (rawSessions?.data || []);
 
   const sessionMutation = useMutation({
     mutationFn: ({ id, data }) =>
@@ -144,7 +146,7 @@ export default function SessionsTab() {
       isActive: Boolean(sessionForm.isActive),
     };
 
-    sessionMutation.mutate({ id: editing?.id, data });
+    sessionMutation.mutate({ id: editing?.id || editing?._id, data });
   };
 
   const confirmDelete = () => {
@@ -247,7 +249,7 @@ export default function SessionsTab() {
             </TableHeader>
             <TableBody>
               {academicSessions.map((s) => (
-                <TableRow key={s.id}>
+                <TableRow key={s.id || s._id}>
                   <TableCell className="font-medium py-2 px-3 text-sm">{s.name}</TableCell>
                   <TableCell className="py-2 px-3 text-sm">
                     {s.startDate ? new Date(s.startDate).toLocaleDateString() : "N/A"}
@@ -284,7 +286,7 @@ export default function SessionsTab() {
                             variant="destructive"
                             size="sm"
                             onClick={() => {
-                              setDeleteTargetId(s.id);
+                              setDeleteTargetId(s.id || s._id);
                               setDeleteDialog(true);
                             }}
                           >

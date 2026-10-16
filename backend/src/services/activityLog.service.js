@@ -90,37 +90,59 @@ class ActivityLogService {
       filter.subModule = new RegExp(`^${subModule.trim()}$`, 'i');
     }
 
-    // 5. Status Filter (SUCCESS / FAILED)
+    // 5. Action Type Filter
+    if (query.actionType && query.actionType !== 'all') {
+      filter.actionType = query.actionType.toUpperCase();
+    }
+
+    // 6. Status Filter (SUCCESS / FAILED)
     if (status && status !== 'all') {
       filter.status = status.toUpperCase();
     }
 
-    // 6. Search Filter
+    // 7. Base Exclusions (Silent polling / user-who / refresh anonymous noise)
+    const baseExclusionConditions = [
+      { endpoint: { $not: /\/api\/auth\/(user-who|refresh|me)|health/i } },
+      {
+        $or: [
+          { userName: { $nin: ['Anonymous', '', null] } },
+          { endpoint: /\/api\/auth\/login/i }
+        ]
+      }
+    ];
+
+    // 8. Search Filter
+    let combinedConditions = [...baseExclusionConditions];
+    if (filter.$and) {
+      combinedConditions.push(...filter.$and);
+      delete filter.$and;
+    }
+    if (filter.$or) {
+      combinedConditions.push({ $or: filter.$or });
+      delete filter.$or;
+    }
+
     if (search && search.trim()) {
       const term = search.trim();
       const regex = new RegExp(term, 'i');
       const searchConditions = [
+        { details: regex },
         { description: regex },
+        { action: regex },
+        { module: regex },
         { userName: regex },
         { userEmail: regex },
         { staffId: regex },
         { failureReason: regex },
         { endpoint: regex },
-        { action: regex },
         { 'targetEntity.name': regex },
         { 'targetEntity.identifier': regex },
         { 'targetEntity.subTitle': regex }
       ];
-      if (filter.$or) {
-        filter.$and = [
-          { $or: filter.$or },
-          { $or: searchConditions }
-        ];
-        delete filter.$or;
-      } else {
-        filter.$or = searchConditions;
-      }
+      combinedConditions.push({ $or: searchConditions });
     }
+
+    filter.$and = combinedConditions;
 
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
@@ -217,23 +239,22 @@ class ActivityLogService {
     });
 
     const standardModules = [
-      { name: 'Executive Dashboard', subModules: [] },
-      { name: 'Dashboard', subModules: [] },
-      { name: 'Front Office', subModules: ['Inquiry', 'Visitor Book', 'Complaints', 'Contacts'] },
-      { name: 'Students', subModules: ['Admissions & Directory'] },
-      { name: 'Staff', subModules: ['Staff Directory', 'Settings'] },
-      { name: 'Attendance', subModules: ['Record Attendance', 'Leave', 'Reports', 'Individual Reports', 'Teacher Attendance'] },
+      { name: 'Expenses', subModules: [] },
+      { name: 'Income', subModules: [] },
+      { name: 'Closing', subModules: [] },
+      { name: 'Students', subModules: ['Admissions & Directory', 'Student Profile'] },
       { name: 'Fee Management', subModules: ['Challans', 'Extra Challans', 'Fee Heads', 'Fee Structures', 'Reports', 'Settings', 'Student History'] },
-      { name: 'Examination', subModules: ['Exams', 'Marks Entry', 'Results'] },
-      { name: 'Complaints', subModules: ['Complaints'] },
-      { name: 'Academics', subModules: ['Sessions', 'Programs', 'Classes', 'Sections', 'Subjects', 'Subject Classes', 'Teacher Classes', 'Timetable'] },
+      { name: 'Staff', subModules: ['Staff Directory', 'Settings'] },
       { name: 'HR & Payroll', subModules: ['Leaves', 'Payroll', 'Attendance', 'Advance Salary', 'Departments', 'Holidays', 'Reports'] },
+      { name: 'Attendance', subModules: ['Record Attendance', 'Leave', 'Reports', 'Individual Reports', 'Teacher Attendance'] },
+      { name: 'Front Office', subModules: ['Inquiry', 'Visitor Book', 'Complaints', 'Contacts'] },
+      { name: 'Academics', subModules: ['Sessions', 'Programs', 'Classes', 'Sections', 'Subjects', 'Subject Classes', 'Teacher Classes', 'Timetable'] },
+      { name: 'Examination', subModules: ['Exams', 'Marks Entry', 'Results'] },
       { name: 'Boarding', subModules: ['Registration', 'Rooms', 'Fees', 'Expenses', 'Inventory', 'Reports', 'Settings'] },
-      { name: 'Finance', subModules: ['Dashboard', 'Income', 'Expense', 'Reports', 'Closing'] },
       { name: 'Inventory', subModules: ['Inventory', 'Expenses'] },
       { name: 'Wallets / Accounts', subModules: ['Wallets'] },
       { name: 'Configuration', subModules: ['Institute', 'Admins', 'Templates', 'Wallets / Accounts', 'Activity Logs'] },
-      { name: 'Authentication', subModules: ['Login', 'Logout', 'Session'] }
+      { name: 'Authentication', subModules: ['Login', 'Logout'] }
     ];
 
     standardModules.forEach(item => {

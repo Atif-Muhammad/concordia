@@ -45,7 +45,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import usePermissions from "@/hooks/usePermissions";
-import { DollarSign, Edit, Trash2, Wallet } from "lucide-react";
+import { DollarSign, Edit, Trash2, Wallet, Printer } from "lucide-react";
 import {
   getHostelExpenses,
   createHostelExpense,
@@ -54,11 +54,31 @@ import {
   getWallets,
 } from "@/services/api";
 import { getFinanceCategories } from "../../../config/apis";
+import { printExpenseReceipt } from "@/templates/expenseReceiptTemplate";
 
 export const ExpensesTab = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { canCreate, canUpdate, canDelete } = usePermissions("Boarding", "expenses");
+  const { currentUser, canCreate, canUpdate, canDelete } = usePermissions("Boarding", "expenses");
+
+  const handlePrintReceipt = async (expense) => {
+    await printExpenseReceipt({
+      expense: {
+        ...expense,
+        category: expense.category || "Hostel",
+        subCategory: expense.subCategory || "Hostel Expense",
+        description: expense.expenseTitle
+          ? (expense.remarks ? `${expense.expenseTitle} - ${expense.remarks}` : expense.expenseTitle)
+          : (expense.remarks || "Hostel Expense"),
+        amount: expense.amount,
+        date: expense.date,
+        walletName: expense.walletName,
+        status: "APPROVED",
+      },
+      currentUser,
+      toast,
+    });
+  };
 
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [editMode, setEditMode] = useState({});
@@ -231,6 +251,19 @@ export const ExpensesTab = () => {
                     <TableCell className="py-2 px-3 text-sm">{expense.remarks}</TableCell>
                     <TableCell className="py-2 px-3 text-sm">
                       <div className="flex gap-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handlePrintReceipt(expense)}
+                              title="Print Receipt"
+                            >
+                              <Printer className="h-4 w-4 text-slate-700 hover:text-slate-900 dark:text-slate-200" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Print Receipt</TooltipContent>
+                        </Tooltip>
                         {canUpdate && (
                           <Tooltip>
                             <TooltipTrigger asChild>

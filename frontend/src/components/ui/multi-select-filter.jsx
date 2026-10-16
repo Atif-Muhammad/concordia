@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { ChevronsUpDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -44,10 +44,37 @@ const MultiSelectFilter = React.memo(function MultiSelectFilter({
     ? selected.length === 0 || (options.length > 0 && selected.length === options.length)
     : options.length > 0 && selected.length === options.length;
 
+  const scrollContainerRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e) => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight <= clientHeight) return;
+
+      const delta = e.deltaY;
+      const atTop = delta < 0 && scrollTop <= 0;
+      const atBottom = delta > 0 && scrollTop + clientHeight >= scrollHeight - 1;
+
+      if (!atTop && !atBottom) {
+        el.scrollTop += delta;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [open, filteredOptions.length]);
+
   const toggleValue = React.useCallback(
     (val) => {
-      if (selected.includes(val)) {
-        onChange(selected.filter((v) => v !== val));
+      const lower = String(val).toLowerCase();
+      const exists = selected.some((v) => String(v).toLowerCase() === lower);
+      if (exists) {
+        onChange(selected.filter((v) => String(v).toLowerCase() !== lower));
       } else {
         onChange([...selected, val]);
       }
@@ -105,7 +132,12 @@ const MultiSelectFilter = React.memo(function MultiSelectFilter({
           <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className={cn("p-0 w-[220px]", className)} align="start">
+      <PopoverContent
+        className={cn("p-0 w-[220px]", className)}
+        align="start"
+        data-scroll-lock-ignore="true"
+        onWheel={(e) => e.stopPropagation()}
+      >
         {/* Search */}
         {options.length > 5 && (
           <div className="px-2 pt-2 pb-1">
@@ -144,27 +176,36 @@ const MultiSelectFilter = React.memo(function MultiSelectFilter({
         </div>
 
         {/* Option list */}
-        <div className="max-h-48 overflow-y-auto py-1">
+        <div
+          ref={scrollContainerRef}
+          data-scroll-lock-ignore="true"
+          className="max-h-52 overflow-y-auto overscroll-contain py-1 px-1 pr-1.5 space-y-0.5 select-none"
+          style={{ maxHeight: "200px" }}
+          onWheel={(e) => e.stopPropagation()}
+        >
           {filteredOptions.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground text-center">No options</div>
           ) : (
             filteredOptions.map((option) => {
-              const isChecked = selected.includes(option.value);
+              const isChecked = selected.some(
+                (v) => String(v).toLowerCase() === String(option.value).toLowerCase()
+              );
               return (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => toggleValue(option.value)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                  className={cn(
+                    "w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-pointer text-left transition-colors",
+                    isChecked && "font-medium bg-accent/40"
+                  )}
                 >
                   <Checkbox
                     checked={isChecked}
-                    className="h-3.5 w-3.5 rounded-[3px]"
+                    className="h-3.5 w-3.5 rounded-[3px] pointer-events-none"
                     tabIndex={-1}
-                    onCheckedChange={() => {}}
                   />
-                  <span className="truncate">{option.label}</span>
-                  {isChecked && <Check className="ml-auto h-3 w-3 text-primary shrink-0" />}
+                  <span className="truncate flex-1">{option.label}</span>
                 </button>
               );
             })

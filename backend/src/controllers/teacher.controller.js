@@ -131,7 +131,7 @@ class TeacherController {
 
   async getClassStudentsAttendance(req, res, next) {
     try {
-      let { classId, sectionId, subjectId, date, id, fetchFor } = req.query;
+      let { classId, sectionId, subjectId, date, id, fetchFor, sessionId } = req.query;
       if (!classId && id) {
         if (fetchFor === 'section') {
           sectionId = id;
@@ -144,11 +144,13 @@ class TeacherController {
       }
       const cleanSubjectId = (subjectId && subjectId !== 'undefined' && subjectId !== 'null' && subjectId !== 'all') ? subjectId : undefined;
       const cleanSectionId = (sectionId && sectionId !== 'undefined' && sectionId !== 'null' && sectionId !== 'all') ? sectionId : undefined;
+      const cleanSessionId = (sessionId && sessionId !== 'undefined' && sessionId !== 'null' && sessionId !== 'all') ? sessionId : undefined;
       const records = await teacherService.getClassStudentsAttendance({
         classId,
         sectionId: cleanSectionId,
         subjectId: cleanSubjectId,
-        date
+        date,
+        sessionId: cleanSessionId,
       });
       res.json(records);
     } catch (err) {
@@ -158,7 +160,7 @@ class TeacherController {
 
   async updateClassStudentsAttendance(req, res, next) {
     try {
-      const result = await teacherService.updateClassStudentsAttendance(req.body);
+      const result = await teacherService.updateClassStudentsAttendance(req.body, req.user);
       res.json(result);
     } catch (err) {
       next(err);

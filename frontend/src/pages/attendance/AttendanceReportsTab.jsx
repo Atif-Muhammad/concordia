@@ -229,6 +229,18 @@ export default function AttendanceReportsTab({ onBack }) {
     queryFn: getAcademicSessions,
   });
 
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? extractId(activeSession) : "";
+
+  // Pre-select active session
+  useEffect(() => {
+    if ((!reportSessionId || reportSessionId === "all") && activeSessionId) {
+      setReportSessionId(activeSessionId);
+    }
+  }, [activeSessionId, reportSessionId]);
+
   // Programs, Classes, Sections
   const { data: allPrograms = [] } = useQuery({
     queryKey: ["programs"],
@@ -331,14 +343,14 @@ export default function AttendanceReportsTab({ onBack }) {
 
   // 2. Fetch accurate subjects for the selected class from backend
   const { data: classSubjects = [] } = useQuery({
-    queryKey: ["classSubjects", reportClassId, reportSessionId, reportSectionId],
+    queryKey: ["classSubjects", reportClassId, reportSessionId, reportSectionId, activeSessionId],
     queryFn: () => {
       const sectionParam =
         isSectionApplicable && reportSectionId && reportSectionId !== "*"
           ? reportSectionId
           : undefined;
       const sessionParam =
-        reportSessionId && reportSessionId !== "all" ? reportSessionId : undefined;
+        reportSessionId && reportSessionId !== "all" ? reportSessionId : (activeSessionId || undefined);
       return getSubjectsForClassWithAssignments(reportClassId, sessionParam, sectionParam);
     },
     enabled: Boolean(reportClassId && reportClassId !== "*"),
@@ -366,12 +378,15 @@ export default function AttendanceReportsTab({ onBack }) {
       reportClassId,
       reportSectionId,
       reportSessionId,
+      activeSessionId,
     ],
     queryFn: () => {
       const classParam = reportClassId === "*" ? "" : reportClassId;
       const sectionParam = reportSectionId === "*" ? "" : reportSectionId;
       const sessionParam =
-        reportSessionId === "all" || !reportSessionId ? undefined : reportSessionId;
+        reportSessionId && reportSessionId !== "all"
+          ? reportSessionId
+          : (activeSessionId || undefined);
       const programParam = reportProgramId === "*" ? "" : reportProgramId;
       return getAttendanceReport(
         reportStartDate,
@@ -1085,11 +1100,15 @@ export default function AttendanceReportsTab({ onBack }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Sessions</SelectItem>
-                {academicSessions.map((s) => (
-                  <SelectItem key={s.id || s._id} value={String(s.id || s._id)}>
-                    {s.name}
-                  </SelectItem>
-                ))}
+                {academicSessions.map((s) => {
+                  const sId = extractId(s);
+                  const isAct = s.isActive === true || s.isActive === "true";
+                  return (
+                    <SelectItem key={sId} value={sId}>
+                      {s.name || s.sessionName}{isAct ? " (Active)" : ""}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

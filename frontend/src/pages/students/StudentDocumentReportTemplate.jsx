@@ -973,6 +973,12 @@ export const StudentDocumentReportDialog = ({
   const [dialogSearch, setDialogSearch] = useState("");
   const [orientation, setOrientation] = useState("portrait"); // "portrait" | "landscape"
 
+  // Find active session
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? extractId(activeSession) : "";
+
   // Program -> Class -> Section filters state (multi-select arrays)
   const [selectedPrograms, setSelectedPrograms] = useState(() => {
     if (activeFilters.filterProgram && activeFilters.filterProgram !== "all") {
@@ -992,7 +998,13 @@ export const StudentDocumentReportDialog = ({
     }
     return [];
   });
-  const [selectedSession, setSelectedSession] = useState(() => activeFilters.filterSessionId || "all");
+  const [selectedSession, setSelectedSession] = useState(() => {
+    if (activeFilters.filterSessionId && activeFilters.filterSessionId !== "all") {
+      return activeFilters.filterSessionId;
+    }
+    const active = academicSessions.find((s) => s.isActive === true || s.isActive === "true");
+    return active ? extractId(active) : "all";
+  });
 
   const topBarRef = useRef(null);
   const [topBarHeight, setTopBarHeight] = useState(125);
@@ -1015,7 +1027,7 @@ export const StudentDocumentReportDialog = ({
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [open, selectedPrograms, selectedClasses, selectedSections]);
+  }, [open, selectedPrograms, selectedClasses, selectedSections, selectedSession]);
 
   // Only synchronize filters when dialog opens, not on every render
   useEffect(() => {
@@ -1035,11 +1047,16 @@ export const StudentDocumentReportDialog = ({
           ? [activeFilters.filterSection]
           : []
       );
-      setSelectedSession(activeFilters.filterSessionId || "all");
+      const initialSess = (activeFilters.filterSessionId && activeFilters.filterSessionId !== "all")
+        ? activeFilters.filterSessionId
+        : (activeSessionId || "all");
+      setSelectedSession(initialSess);
       setDialogSearch("");
+    } else if (open && prevOpenRef.current && (selectedSession === "all" || !selectedSession) && activeSessionId && (!activeFilters.filterSessionId || activeFilters.filterSessionId === "all")) {
+      setSelectedSession(activeSessionId);
     }
     prevOpenRef.current = open;
-  }, [open, activeFilters]);
+  }, [open, activeFilters, activeSessionId, selectedSession]);
 
   // Dependent cascading options
   const classesForProgram = useMemo(() => {
@@ -1135,9 +1152,13 @@ export const StudentDocumentReportDialog = ({
         const secId = extractId(s.sectionId || s.section);
         if (secId && !selectedSections.includes(secId)) return false;
       }
+      if (selectedSession && selectedSession !== "all") {
+        const sessId = extractId(s.sessionId || s.session);
+        if (sessId && sessId !== selectedSession) return false;
+      }
       return true;
     });
-  }, [rawStudentsResponse, selectedPrograms, selectedClasses, selectedSections]);
+  }, [rawStudentsResponse, selectedPrograms, selectedClasses, selectedSections, selectedSession]);
 
   // Resolve document data and ONLY KEEP STUDENTS WITH AT LEAST ONE PENDING DOCUMENT
   const pendingStudents = useMemo(() => {
@@ -1389,6 +1410,27 @@ export const StudentDocumentReportDialog = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Session:</Label>
+            <Select value={selectedSession} onValueChange={(val) => setSelectedSession(val)}>
+              <SelectTrigger className="h-8 w-36 text-xs bg-white font-medium">
+                <SelectValue placeholder="All Sessions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sessions</SelectItem>
+                {academicSessions.map((s) => {
+                  const sId = extractId(s);
+                  const isAct = s.isActive === true || s.isActive === "true";
+                  return (
+                    <SelectItem key={sId} value={sId}>
+                      {s.name || s.sessionName}{isAct ? " (Active)" : ""}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
             <Label className="text-xs font-semibold text-slate-600">Layout:</Label>
             <Select value={orientation} onValueChange={(val) => setOrientation(val)}>
               <SelectTrigger className="h-8 w-36 text-xs bg-white font-medium">
@@ -1401,7 +1443,7 @@ export const StudentDocumentReportDialog = ({
             </Select>
           </div>
 
-          {(selectedPrograms.length > 0 || selectedClasses.length > 0 || selectedSections.length > 0 || dialogSearch) && (
+          {(selectedPrograms.length > 0 || selectedClasses.length > 0 || selectedSections.length > 0 || (selectedSession && selectedSession !== (activeSessionId || "all")) || dialogSearch) && (
             <Button
               variant="ghost"
               size="sm"
@@ -1409,6 +1451,7 @@ export const StudentDocumentReportDialog = ({
                 setSelectedPrograms([]);
                 setSelectedClasses([]);
                 setSelectedSections([]);
+                setSelectedSession(activeSessionId || "all");
                 setDialogSearch("");
               }}
               className="h-8 px-2 text-xs text-slate-500 hover:text-slate-800 gap-1"

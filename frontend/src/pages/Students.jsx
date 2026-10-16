@@ -43,6 +43,7 @@ import {
   StudentIdCardDialog,
   StudentProfilePrintDialog,
   StudentReportsTab,
+  AdmissionConversionReportDialog,
   getStudentAcademicPath,
 } from "./students/index.js";
 
@@ -162,6 +163,8 @@ const Students = () => {
     initialRejoinDetails: null,
     initialSessionId: "all",
   });
+
+  const [conversionReportOpen, setConversionReportOpen] = useState(false);
 
   // Shared Queries
   const { data: programData = [] } = useQuery({
@@ -639,6 +642,7 @@ const Students = () => {
             setEditingLoading(false);
             setFormOpen(true);
           } : undefined}
+          onOpenConversionReport={() => setConversionReportOpen(true)}
         />
 
         {/* Student Form Dialog */}
@@ -761,6 +765,16 @@ const Students = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Admission Conversion Report Dialog */}
+        <AdmissionConversionReportDialog
+          open={conversionReportOpen}
+          onOpenChange={setConversionReportOpen}
+          academicSessions={academicSessions}
+          programData={programData}
+          classesData={classesData}
+          sectionsData={sectionsData}
+        />
       </div>
     </DashboardLayout>
   );

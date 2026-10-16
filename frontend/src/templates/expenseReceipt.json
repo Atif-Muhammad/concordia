@@ -1,0 +1,88 @@
+{
+  "name": "Concordia Expense Receipt Template",
+  "version": "1.1.0",
+  "institution": "Concordia College Peshawar",
+  "address": "60-C University Road, University Town, Peshawar",
+  "phone": "091-5619915",
+  "logo": "/logo.png",
+  "title": {
+    "text": "Expense Receipt",
+    "fontFamily": "'Alex Brush', 'Great Vibes', cursive",
+    "style": "calligraphic"
+  },
+  "fields": [
+    {
+      "key": "voucherNo",
+      "label": "Voucher / Receipt #",
+      "type": "string"
+    },
+    {
+      "key": "expenseDate",
+      "label": "Expense Date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "issueDateTime",
+      "label": "Issue Date & Time",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "key": "issuer",
+      "label": "Issuer (Staff Name)",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "category",
+      "label": "Category",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "subCategory",
+      "label": "Sub Category",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "description",
+      "label": "Description",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "amount",
+      "label": "Amount (PKR)",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "paymentAccount",
+      "label": "Paid From Account / Wallet",
+      "type": "string"
+    },
+    {
+      "key": "vendor",
+      "label": "Vendor / Payee",
+      "type": "string"
+    }
+  ],
+  "tableLayout": {
+    "columns": [
+      { "key": "sr", "title": "#", "align": "center", "width": "40px" },
+      { "key": "category", "title": "Category", "align": "left", "width": "130px" },
+      { "key": "subCategory", "title": "Sub Category", "align": "left", "width": "140px" },
+      { "key": "description", "title": "Description", "align": "left" },
+      { "key": "amount", "title": "Amount (PKR)", "align": "right", "width": "130px" }
+    ],
+    "showTotalRow": true,
+    "showAmountInWords": true
+  },
+  "signatures": [
+    { "role": "Issued / Prepared By", "showStaffName": true },
+    { "role": "Accounts Officer", "subtitle": "Verified & Entered" },
+    { "role": "Principal / Director", "subtitle": "Authorized Signature" }
+  ]
+}

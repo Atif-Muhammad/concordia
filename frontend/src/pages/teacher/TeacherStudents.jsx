@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Users, Search, GraduationCap, School, Layers, BookOpen } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { userWho, refreshTokens, getTeacherClasses, getStudents } from '../../../config/apis';
+import { userWho, refreshTokens, getTeacherClasses, getStudents, getAcademicSessions } from '../../../config/apis';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -180,6 +180,17 @@ export default function TeacherStudents() {
     return Array.from(map.values());
   }, [teacherClassMappings, selectedClassId, selectedSectionId]);
 
+  // Fetch academic sessions to resolve active session
+  const { data: academicSessions = [] } = useQuery({
+    queryKey: ['academicSessions'],
+    queryFn: getAcademicSessions,
+  });
+
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? (activeSession._id || activeSession.id || "").toString() : "";
+
   // Fetch students for the selected class & section
   const sectionParam =
     currentClassObj?.allowSections && selectedSectionId && selectedSectionId !== '*'
@@ -187,12 +198,14 @@ export default function TeacherStudents() {
       : '';
 
   const { data: studentsResponse, isLoading: isStudentsLoading } = useQuery({
-    queryKey: ['classStudents', selectedProgramId, selectedClassId, sectionParam],
+    queryKey: ['classStudents', selectedProgramId, selectedClassId, sectionParam, activeSessionId],
     queryFn: () =>
       getStudents({
         programId: selectedProgramId,
         classId: selectedClassId,
         sectionId: sectionParam || undefined,
+        sessionId: activeSessionId || undefined,
+        activeSessionOnly: true,
         status: 'ACTIVE',
         page: 1,
         limit: 1000,

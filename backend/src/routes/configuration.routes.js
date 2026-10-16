@@ -9,6 +9,7 @@ router.get('/activity-logs', authMiddleware, activityLogController.getActivityLo
 router.get('/activity-logs/filter-options', authMiddleware, activityLogController.getFilterOptions);
 router.get('/activity-logs/:id', authMiddleware, activityLogController.getActivityLogById);
 router.delete('/activity-logs/clear', authMiddleware, activityLogController.clearOldLogs);
+router.post('/activity-logs/custom', authMiddleware, activityLogController.recordCustomActivity);
 
 // Institute settings
 router.get('/institute-settings', configurationController.getInstituteSettings);

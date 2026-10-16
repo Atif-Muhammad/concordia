@@ -16,17 +16,41 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, Wallet } from "lucide-react";
+import { Plus, Pencil, Trash2, Wallet, Printer } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import usePermissions from "@/hooks/usePermissions";
+import { printExpenseReceipt } from "@/templates/expenseReceiptTemplate";
 
 const expenseTypes = ["Maintenance", "Repair", "Upgrade", "Replacement", "Other"];
 
 export default function InventoryExpensesTab() {
     const queryClient = useQueryClient();
-    const { canCreate, canUpdate, canDelete } = usePermissions("Inventory", "expenses");
+    const { currentUser, canCreate, canUpdate, canDelete } = usePermissions("Inventory", "expenses");
+
+    const handlePrintReceipt = async (expense) => {
+        const itemName = expense.inventoryItem?.itemName || expense.itemName || "";
+        const formattedDescription = itemName
+            ? (expense.description ? `[Item: ${itemName}] ${expense.description}` : `Inventory Item: ${itemName}`)
+            : (expense.description || "Inventory Maintenance & Operations");
+
+        await printExpenseReceipt({
+            expense: {
+                ...expense,
+                category: "Inventory",
+                subCategory: expense.expenseType || "Maintenance",
+                description: formattedDescription,
+                amount: expense.amount,
+                date: expense.date,
+                vendor: expense.vendor,
+                walletName: expense.walletName,
+                status: "APPROVED",
+            },
+            currentUser,
+            toast,
+        });
+    };
 
     const { data: inventoryExpenses = [], isLoading: isLoadingExpenses } = useQuery({
         queryKey: ["inventoryExpenses"],
@@ -371,6 +395,14 @@ export default function InventoryExpensesTab() {
                                                 <TableCell className="py-2 px-3 text-sm font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
                                                 <TableCell className="py-2 px-3 text-sm">
                                                     <div className="flex gap-1">
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Button size="sm" variant="ghost" onClick={() => handlePrintReceipt(expense)} title="Print Receipt">
+                                                                    <Printer className="h-4 w-4 text-slate-700 hover:text-slate-900 dark:text-slate-200" />
+                                                                </Button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>Print Receipt</TooltipContent>
+                                                        </Tooltip>
                                                         {canUpdate && (
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>

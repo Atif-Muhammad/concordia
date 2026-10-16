@@ -18,6 +18,9 @@ import {
   Clock,
   Layers,
   ChevronRight,
+  Printer,
+  FileDown,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
 import {
   Select,
   SelectContent,
@@ -46,12 +51,450 @@ import {
   getMissingAttendanceClassesSummary,
   getMissingAttendanceSubjectsSummary,
   getMissingAttendanceStudentsSummary,
+  getMissingAttendanceExportReport,
 } from "../../../config/apis";
 
 const extractId = (val) => {
   if (!val) return "";
   if (typeof val === "object") return String(val._id || val.id || "");
   return String(val);
+};
+
+// Generate branded official PDF / Print HTML for Missing Attendance Report
+const generateMissingAttendancePdfHtml = ({
+  reportData,
+  date,
+  programLabel,
+  sessionLabel,
+  scopeLabel = "All Classes & Sections",
+  logoDataUrl = "/logo.png",
+  beaconhouseLogoUrl = "/beaconhouse_logo.png",
+}) => {
+  const rows = reportData?.rows || [];
+  const totals = reportData?.totals || {
+    totalSubjects: rows.length,
+    totalStudents: rows.reduce((s, r) => s + (Number(r.totalStudents) || 0), 0),
+    unmarkedCount: rows.reduce((s, r) => s + (Number(r.unmarkedCount) || 0), 0),
+    presentCount: rows.reduce((s, r) => s + (Number(r.presentCount) || 0), 0),
+    leaveCount: rows.reduce((s, r) => s + (Number(r.leaveCount) || 0), 0),
+    absentCount: rows.reduce((s, r) => s + (Number(r.absentCount) || 0), 0),
+  };
+
+  const printedAt = new Date().toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Missing_Attendance_Report_${date}</title>
+      <style>
+        @page {
+          size: A4 landscape;
+          margin: 10mm 12mm;
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          color: #1e293b;
+          background: #ffffff;
+          font-size: 10.5px;
+          line-height: 1.35;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .header-container {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 2.5px solid #ea580c;
+          padding-bottom: 10px;
+          margin-bottom: 12px;
+        }
+        .brand-section {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .brand-logo {
+          height: 52px;
+          width: auto;
+          max-width: 110px;
+          object-fit: contain;
+        }
+        .beaconhouse-logo {
+          height: 38px;
+          width: auto;
+          max-width: 100px;
+          object-fit: contain;
+          opacity: 0.9;
+        }
+        .brand-text h1 {
+          font-size: 17px;
+          font-weight: 800;
+          color: #ea580c;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+        }
+        .brand-text p {
+          font-size: 10px;
+          color: #64748b;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .report-meta {
+          text-align: right;
+        }
+        .report-badge {
+          display: inline-block;
+          background: #fff1f2;
+          color: #be123c;
+          border: 1px solid #fecdd3;
+          font-size: 9.5px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 9999px;
+          text-transform: uppercase;
+          margin-bottom: 3px;
+        }
+        .report-meta h2 {
+          font-size: 14px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+        .report-meta p {
+          font-size: 9.5px;
+          color: #64748b;
+          margin-top: 2px;
+        }
+
+        /* Filter Meta Strip */
+        .meta-strip {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 8px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          padding: 6px 10px;
+          margin-bottom: 12px;
+        }
+        .meta-item {
+          display: flex;
+          flex-direction: column;
+        }
+        .meta-label {
+          font-size: 8.5px;
+          text-transform: uppercase;
+          font-weight: 700;
+          color: #64748b;
+          letter-spacing: 0.3px;
+        }
+        .meta-val {
+          font-size: 10.5px;
+          font-weight: 600;
+          color: #0f172a;
+          margin-top: 1px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        /* Stats Ribbon */
+        .stats-strip {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .stat-card {
+          border-radius: 6px;
+          padding: 6px 8px;
+          text-align: center;
+          border: 1px solid #e2e8f0;
+          background: #ffffff;
+        }
+        .stat-card.unmarked {
+          background: #fff1f2;
+          border-color: #fecdd3;
+        }
+        .stat-card.present {
+          background: #f0fdf4;
+          border-color: #bbf7d0;
+        }
+        .stat-card.leave {
+          background: #eff6ff;
+          border-color: #bfdbfe;
+        }
+        .stat-card.absent {
+          background: #fef2f2;
+          border-color: #fecaca;
+        }
+        .stat-label {
+          font-size: 8.5px;
+          text-transform: uppercase;
+          font-weight: 700;
+          color: #64748b;
+        }
+        .stat-val {
+          font-size: 15px;
+          font-weight: 800;
+          margin-top: 1px;
+        }
+
+        /* Table */
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 12px;
+        }
+        thead {
+          display: table-header-group;
+        }
+        thead th {
+          background: #0f172a;
+          color: #ffffff;
+          font-size: 9px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          padding: 6px 8px;
+          border: 1px solid #0f172a;
+          text-align: left;
+        }
+        thead th.center, tbody td.center, tfoot td.center {
+          text-align: center;
+        }
+        tbody tr {
+          page-break-inside: avoid;
+        }
+        tbody td {
+          padding: 5px 8px;
+          font-size: 9.5px;
+          border: 1px solid #e2e8f0;
+          color: #334155;
+        }
+        tbody tr:nth-child(even) {
+          background-color: #f8fafc;
+        }
+        tbody tr.has-missing {
+          background-color: #fff1f2 !important;
+        }
+        .unmarked-pill {
+          display: inline-block;
+          font-weight: 700;
+          color: #be123c;
+          background: #ffe4e6;
+          border: 1px solid #fecdd3;
+          border-radius: 4px;
+          padding: 1px 6px;
+          min-width: 24px;
+          text-align: center;
+        }
+        .unmarked-zero {
+          color: #15803d;
+          font-weight: 600;
+        }
+        .present-val {
+          color: #166534;
+          font-weight: 700;
+        }
+        .leave-val {
+          color: #1d4ed8;
+          font-weight: 700;
+        }
+        .absent-val {
+          color: #dc2626;
+          font-weight: 700;
+        }
+        tfoot td {
+          background: #f1f5f9;
+          font-weight: 800;
+          font-size: 10px;
+          color: #0f172a;
+          border: 1.5px solid #cbd5e1;
+          padding: 6px 8px;
+        }
+        .footer {
+          margin-top: 16px;
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          padding-top: 14px;
+          border-top: 1px dashed #cbd5e1;
+          font-size: 8.5px;
+          color: #64748b;
+          page-break-inside: avoid;
+        }
+        .sig-block {
+          text-align: center;
+          width: 140px;
+        }
+        .sig-line {
+          border-top: 1px solid #94a3b8;
+          margin-bottom: 4px;
+        }
+        .sig-label {
+          font-weight: 700;
+          text-transform: uppercase;
+          font-size: 8px;
+          color: #475569;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header-container">
+        <div class="brand-section">
+          <img src="${logoDataUrl}" alt="Concordia Logo" class="brand-logo" />
+          <img src="${beaconhouseLogoUrl}" alt="Beaconhouse Logo" class="beaconhouse-logo" />
+          <div class="brand-text">
+            <h1>CONCORDIA COLLEGE PESHAWAR</h1>
+            <p>A Project of Beaconhouse</p>
+          </div>
+        </div>
+        <div class="report-meta">
+          <div class="report-badge">Attendance Audit</div>
+          <h2>Missing Attendance Report</h2>
+          <p>Official Verification Document</p>
+        </div>
+      </div>
+
+      <div class="meta-strip">
+        <div class="meta-item">
+          <span class="meta-label">Audit Date</span>
+          <span class="meta-val">${date}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Academic Session</span>
+          <span class="meta-val">${sessionLabel}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Program</span>
+          <span class="meta-val">${programLabel}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Class Scope</span>
+          <span class="meta-val">${scopeLabel}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Printed On</span>
+          <span class="meta-val">${printedAt}</span>
+        </div>
+      </div>
+
+      <div class="stats-strip">
+        <div class="stat-card">
+          <div class="stat-label">Total Subjects</div>
+          <div class="stat-val" style="color: #0f172a;">${totals.totalSubjects}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Students</div>
+          <div class="stat-val" style="color: #0f172a;">${totals.totalStudents}</div>
+        </div>
+        <div class="stat-card unmarked">
+          <div class="stat-label" style="color: #be123c;">Unmarked Attendance</div>
+          <div class="stat-val" style="color: #be123c;">${totals.unmarkedCount}</div>
+        </div>
+        <div class="stat-card present">
+          <div class="stat-label" style="color: #166534;">Present Count</div>
+          <div class="stat-val" style="color: #166534;">${totals.presentCount}</div>
+        </div>
+        <div class="stat-card leave">
+          <div class="stat-label" style="color: #1d4ed8;">Leave Count</div>
+          <div class="stat-val" style="color: #1d4ed8;">${totals.leaveCount}</div>
+        </div>
+        <div class="stat-card absent">
+          <div class="stat-label" style="color: #dc2626;">Absent Count</div>
+          <div class="stat-val" style="color: #dc2626;">${totals.absentCount}</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 28px;" class="center">#</th>
+            <th style="width: 120px;">Program Name</th>
+            <th style="width: 95px;">Class Name</th>
+            <th style="width: 75px;">Section</th>
+            <th>Subject Name</th>
+            <th style="width: 145px;">Responsible Teacher</th>
+            <th style="width: 75px;" class="center">Unmarked</th>
+            <th style="width: 60px;" class="center">Present</th>
+            <th style="width: 60px;" class="center">Leave</th>
+            <th style="width: 60px;" class="center">Absent</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length === 0 ? `
+            <tr>
+              <td colspan="10" class="center" style="padding: 24px; color: #64748b;">
+                No subject records found matching the active filters for ${date}.
+              </td>
+            </tr>
+          ` : rows.map((r, idx) => {
+            const hasMissing = Number(r.unmarkedCount) > 0;
+            return `
+              <tr class="${hasMissing ? 'has-missing' : ''}">
+                <td class="center font-mono" style="color: #64748b;">${idx + 1}</td>
+                <td style="font-weight: 600; color: #0f172a;">${r.programName || '—'}</td>
+                <td style="font-weight: 600;">${r.className || '—'}</td>
+                <td>${r.sectionName ? r.sectionName : '—'}</td>
+                <td style="font-weight: 600;">${r.subjectName || 'Subject'}${r.subjectCode ? ` <span style="font-size: 8.5px; color: #64748b; font-family: monospace;">(${r.subjectCode})</span>` : ''}</td>
+                <td style="${r.responsibleTeacher === 'Not Assigned' ? 'color: #d97706; font-style: italic;' : 'color: #1e293b; font-weight: 500;'}">
+                  ${r.responsibleTeacher || 'Not Assigned'}
+                </td>
+                <td class="center">
+                  ${hasMissing ? `<span class="unmarked-pill">${r.unmarkedCount}</span>` : `<span class="unmarked-zero">0</span>`}
+                </td>
+                <td class="center present-val">${r.presentCount || 0}</td>
+                <td class="center leave-val">${r.leaveCount || 0}</td>
+                <td class="center absent-val">${r.absentCount || 0}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6" style="text-align: right; padding-right: 12px;">Total Summary (${rows.length} Subjects)</td>
+            <td class="center" style="color: #be123c;">${totals.unmarkedCount}</td>
+            <td class="center" style="color: #166534;">${totals.presentCount}</td>
+            <td class="center" style="color: #1d4ed8;">${totals.leaveCount}</td>
+            <td class="center" style="color: #dc2626;">${totals.absentCount}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="footer">
+        <div>
+          <div>Generated by <strong>Concordia College Management System</strong></div>
+          <div style="margin-top: 2px;">This is an electronically generated attendance audit report for official institutional administration.</div>
+        </div>
+        <div style="display: flex; gap: 40px;">
+          <div class="sig-block">
+            <div class="sig-line"></div>
+            <div class="sig-label">Attendance Officer</div>
+          </div>
+          <div class="sig-block">
+            <div class="sig-line"></div>
+            <div class="sig-label">Principal / Academic Head</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
 };
 
 export default function MissingAttendanceReportTab({ onBack }) {
@@ -185,8 +628,111 @@ export default function MissingAttendanceReportTab({ onBack }) {
     setSelectedSubject(null);
   };
 
+  const { toast } = useToast();
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
   const handleBackToSubjects = () => {
     setViewLevel("subjects");
+  };
+
+  // PDF Export / Print Handler
+  const handleExportPdf = async (targetUnit = null) => {
+    setIsExportingPdf(true);
+    // Open print window immediately inside user action to circumvent browser popup blockers
+    const printWindow = window.open("", "_blank");
+
+    try {
+      let logoDataUrl = "/logo.png";
+      try {
+        const res = await fetch("/logo.png");
+        if (res.ok) {
+          const blob = await res.blob();
+          logoDataUrl = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (err) {
+        logoDataUrl = window.location.origin + "/logo.png";
+      }
+
+      let beaconhouseLogoUrl = "/beaconhouse_logo.png";
+      try {
+        const res2 = await fetch("/beaconhouse_logo.png");
+        if (res2.ok) {
+          const blob2 = await res2.blob();
+          beaconhouseLogoUrl = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob2);
+          });
+        }
+      } catch (err) {
+        beaconhouseLogoUrl = window.location.origin + "/beaconhouse_logo.png";
+      }
+
+      const activeSession = academicSessions.find(
+        (s) => String(s._id || s.id) === String(selectedSessionId)
+      );
+      const sessionLabel = activeSession?.name || activeSession?.sessionName || "All Sessions";
+
+      const activeProgram = programs.find(
+        (p) => String(extractId(p)) === String(selectedProgramId)
+      );
+      const programLabel = activeProgram?.name || activeProgram?.programName || (selectedProgramId === "*" ? "All Programs" : "Program");
+
+      const classId = targetUnit?.classId || undefined;
+      const sectionId = targetUnit?.sectionId || undefined;
+      const scopeLabel = targetUnit
+        ? `${targetUnit.className}${targetUnit.sectionName ? ` — Section ${targetUnit.sectionName}` : ""}`
+        : (selectedProgramId !== "*" ? `${programLabel} (All Classes)` : "All Programs & Classes");
+
+      const reportData = await getMissingAttendanceExportReport({
+        programId: selectedProgramId !== "*" ? selectedProgramId : undefined,
+        classId,
+        sectionId,
+        date: selectedDate,
+        sessionId: selectedSessionId !== "all" ? selectedSessionId : undefined,
+      });
+
+      if (!reportData?.rows || reportData.rows.length === 0) {
+        toast({
+          title: "No Data Available",
+          description: `No attendance records or mapped subjects found for ${selectedDate}.`,
+          variant: "destructive",
+        });
+        printWindow?.close?.();
+        return;
+      }
+
+      const htmlContent = generateMissingAttendancePdfHtml({
+        reportData,
+        date: selectedDate,
+        programLabel,
+        sessionLabel,
+        scopeLabel,
+        logoDataUrl,
+        beaconhouseLogoUrl,
+      });
+
+      await openManagedPrintWindow({
+        html: htmlContent,
+        title: `Missing_Attendance_Report_${selectedDate}`,
+        toast,
+        printWindow,
+      });
+    } catch (error) {
+      console.error("Missing Attendance Export error:", error);
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to generate missing attendance PDF report.",
+        variant: "destructive",
+      });
+      printWindow?.close?.();
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // Filtered students for Level 3 table
@@ -356,13 +902,45 @@ export default function MissingAttendanceReportTab({ onBack }) {
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleExportPdf(null)}
+              disabled={isExportingPdf || isLoadingClasses}
+              className="h-8 gap-1.5 text-xs font-semibold shadow-2xs hover:bg-muted"
+              title="Print or Export Missing Attendance Audit Report to PDF"
+            >
+              {isExportingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+              ) : (
+                <Printer className="w-3.5 h-3.5 text-primary" />
+              )}
+              <span>Export PDF / Print</span>
+            </Button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
             <Badge variant="outline" className="font-mono text-xs gap-1.5 py-1">
               <Calendar className="w-3.5 h-3.5 text-primary" />
               Date: {selectedDate}
             </Badge>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleExportPdf(selectedClassSection)}
+              disabled={isExportingPdf}
+              className="h-8 gap-1.5 text-xs font-semibold shadow-2xs hover:bg-muted"
+              title="Print or Export Attendance Audit Report to PDF"
+            >
+              {isExportingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+              ) : (
+                <Printer className="w-3.5 h-3.5 text-primary" />
+              )}
+              <span>Export PDF / Print</span>
+            </Button>
           </div>
         )}
       </div>

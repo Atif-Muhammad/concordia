@@ -10,7 +10,9 @@ const {
   Section,
   Subject,
   SubjectClassMapping,
-  TeacherMapping
+  TeacherMapping,
+  Program,
+  AcademicSession
 } = require('../models');
 const academicsService = require('./academics.service');
 
@@ -48,7 +50,16 @@ class AttendanceService {
     if (allowSections && sectionId && sectionId !== '*' && sectionId !== 'all') {
       filter.sectionId = sectionId;
     }
-    if (sessionId) filter.sessionId = sessionId;
+    let effectiveSessionId = sessionId && sessionId !== '*' && sessionId !== 'all' ? sessionId : null;
+    if (!effectiveSessionId) {
+      const activeSession = await AcademicSession.findOne({
+        $or: [{ isActive: true }, { isActive: 'true' }]
+      }).lean();
+      if (activeSession) {
+        effectiveSessionId = activeSession._id;
+      }
+    }
+    if (effectiveSessionId) filter.sessionId = effectiveSessionId;
 
     const students = await Student.find(filter)
       .populate('classId')
@@ -61,7 +72,13 @@ class AttendanceService {
       role: 'STUDENT',
       ...(allowSections && sectionId && sectionId !== '*' && sectionId !== 'all' ? { sectionId } : {}),
       ...(subjectId ? { subjectId } : {}),
-      ...(sessionId ? { sessionId } : {})
+      ...(effectiveSessionId ? {
+        $or: [
+          { sessionId: effectiveSessionId },
+          { sessionId: null },
+          { sessionId: { $exists: false } }
+        ]
+      } : {})
     };
 
     const attendanceRecords = await Attendance.find(attendanceQuery);
@@ -799,6 +816,16 @@ class AttendanceService {
   async getAttendanceReport({ start, end, classId, sectionId, sessionId, programId, studentId }) {
     if (!start || !end) return [];
 
+    let effectiveSessionId = sessionId && sessionId !== '*' && sessionId !== 'all' ? sessionId : null;
+    if (!effectiveSessionId) {
+      const activeSession = await AcademicSession.findOne({
+        $or: [{ isActive: true }, { isActive: 'true' }]
+      }).lean();
+      if (activeSession) {
+        effectiveSessionId = activeSession._id;
+      }
+    }
+
     const studentFilter = {};
     if (studentId) {
       studentFilter._id = studentId;
@@ -813,8 +840,8 @@ class AttendanceService {
       if (programId && programId !== '*' && programId !== 'all') {
         studentFilter.programId = programId;
       }
-      if (sessionId && sessionId !== 'all') {
-        studentFilter.sessionId = sessionId;
+      if (effectiveSessionId) {
+        studentFilter.sessionId = effectiveSessionId;
       }
     }
 
@@ -835,7 +862,7 @@ class AttendanceService {
     for (const cId of classIds) {
       const subMap = new Map();
       try {
-        const sessionParam = studentId ? null : (sessionId && sessionId !== 'all' ? sessionId : null);
+        const sessionParam = studentId ? null : (effectiveSessionId || null);
         const secParam = sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : undefined;
         let subList = await academicsService.getSubjectsForClassWithAssignments(cId, sessionParam, secParam);
         if (!subList || subList.length === 0) {
@@ -897,9 +924,9 @@ class AttendanceService {
 
     // When querying an individual student, do NOT restrict by session (all attendance belongs to this student).
     // For class reports, allow matching sessionId OR records where sessionId was omitted (null / undefined).
-    if (!studentId && sessionId && sessionId !== 'all') {
+    if (!studentId && effectiveSessionId) {
       attFilter.$or = [
-        { sessionId },
+        { sessionId: effectiveSessionId },
         { sessionId: null },
         { sessionId: { $exists: false } }
       ];
@@ -1647,6 +1674,325 @@ class AttendanceService {
         leaveCount
       },
       students: studentRows
+    };
+  }
+
+  // Missing Attendance Summary: Export / Print Report
+  async getMissingAttendanceExportReport({ programId, classId, sectionId, date, sessionId }) {
+    const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+
+    // Determine session label
+    let sessionName = 'All Sessions';
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      try {
+        const sesDoc = await AcademicSession.findById(sessionId).select('name').lean();
+        if (sesDoc?.name) sessionName = sesDoc.name;
+      } catch (e) {}
+    }
+
+    // Determine program label
+    let programFilterLabel = 'All Programs';
+    if (programId && programId !== '*' && programId !== 'all') {
+      try {
+        const pDoc = await Program.findById(programId).select('name').lean();
+        if (pDoc?.name) programFilterLabel = pDoc.name;
+      } catch (e) {}
+    }
+
+    // Determine which classes to query
+    const classQuery = {};
+    if (classId && classId !== '*' && classId !== 'all') {
+      classQuery._id = classId;
+    } else if (programId && programId !== '*' && programId !== 'all') {
+      classQuery.programId = programId;
+    }
+
+    const classes = await Class.find(classQuery).populate('programId', 'name code').sort({ name: 1 });
+    const classIds = classes.map(c => c._id);
+
+    // Fetch all sections for these classes
+    const sectionQuery = { classId: { $in: classIds } };
+    if (sectionId && sectionId !== '*' && sectionId !== 'all') {
+      sectionQuery._id = sectionId;
+    }
+    const allSections = await Section.find(sectionQuery).sort({ name: 1 });
+    const sectionsByClass = new Map();
+    allSections.forEach(s => {
+      const cId = String(s.classId);
+      if (!sectionsByClass.has(cId)) sectionsByClass.set(cId, []);
+      sectionsByClass.get(cId).push(s);
+    });
+
+    // Query active students
+    const studentQuery = { classId: { $in: classIds }, status: { $in: ['ACTIVE', 'Active'] } };
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
+    }
+    const allStudents = await Student.find(studentQuery, '_id classId sectionId');
+    const allStudentIds = allStudents.map(s => s._id);
+
+    // Group students by class and section
+    const studentsByClassSec = new Map();
+    allStudents.forEach(s => {
+      const cId = String(s.classId);
+      const sId = s.sectionId ? String(s.sectionId) : 'none';
+      const key = `${cId}__${sId}`;
+      if (!studentsByClassSec.has(key)) studentsByClassSec.set(key, []);
+      studentsByClassSec.get(key).push(String(s._id));
+
+      const allKey = `${cId}__all`;
+      if (!studentsByClassSec.has(allKey)) studentsByClassSec.set(allKey, []);
+      studentsByClassSec.get(allKey).push(String(s._id));
+    });
+
+    // Query SubjectClassMappings for mapped subjects
+    const scmFilter = { classId: { $in: classIds } };
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
+    }
+    const scms = await SubjectClassMapping.find(scmFilter).populate('subjects.subjectId').populate('subjectIds');
+
+    // Extract subjects per class
+    const subjectsByClass = new Map();
+    const allSubjectIds = new Set();
+    scms.forEach(scm => {
+      const cId = String(scm.classId);
+      const list = [];
+      if (Array.isArray(scm.subjects) && scm.subjects.length > 0) {
+        scm.subjects.forEach(entry => {
+          const sub = entry.subjectId;
+          if (sub) {
+            const sId = String(sub._id || sub.id || sub);
+            allSubjectIds.add(sId);
+            list.push({
+              id: sId,
+              name: typeof sub === 'object' && sub.name ? sub.name : '',
+              code: typeof sub === 'object' && sub.code ? sub.code : '',
+            });
+          }
+        });
+      } else if (Array.isArray(scm.subjectIds) && scm.subjectIds.length > 0) {
+        scm.subjectIds.forEach(sub => {
+          if (sub) {
+            const sId = String(sub._id || sub.id || sub);
+            allSubjectIds.add(sId);
+            list.push({
+              id: sId,
+              name: typeof sub === 'object' && sub.name ? sub.name : '',
+              code: typeof sub === 'object' && sub.code ? sub.code : '',
+            });
+          }
+        });
+      }
+      if (!subjectsByClass.has(cId) || (sessionId && scm.sessionId && String(scm.sessionId) === String(sessionId))) {
+        subjectsByClass.set(cId, list);
+      }
+    });
+
+    // Resolve any missing subject names from Subject collection
+    if (allSubjectIds.size > 0) {
+      const dbSubjects = await Subject.find({ _id: { $in: Array.from(allSubjectIds) } }).lean();
+      const subMap = new Map(dbSubjects.map(s => [String(s._id), s]));
+      subjectsByClass.forEach(list => {
+        list.forEach(s => {
+          if (!s.name && subMap.has(s.id)) {
+            const found = subMap.get(s.id);
+            s.name = found.name || '';
+            s.code = found.code || s.code || '';
+          }
+        });
+      });
+    }
+
+    // Query TeacherMappings
+    const tmConditions = [{ classId: { $in: classIds }, mappingType: 'SUBJECT' }];
+    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
+      tmConditions.push({ $or: [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }] });
+    }
+    const teacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name staffId');
+
+    // Query attendance records for date
+    const dateRegex = new RegExp(`^${targetDate}`);
+    const attRecords = await Attendance.find({
+      classId: { $in: classIds },
+      date: { $regex: dateRegex },
+      role: 'STUDENT',
+      studentId: { $in: allStudentIds }
+    }, '_id studentId classId sectionId subjectId status');
+
+    // Query approved leaves for date
+    const approvedLeaves = await Leave.find({
+      studentId: { $in: allStudentIds },
+      applicantType: 'STUDENT',
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: targetDate },
+      toDate: { $gte: targetDate }
+    }, 'studentId');
+    const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
+
+    // Index attendance records by `${classId}__${sectionId || 'none'}__${subjectId}`
+    // and also `${classId}__all__${subjectId}`
+    const attMap = new Map();
+    attRecords.forEach(r => {
+      const cId = String(r.classId);
+      const secId = r.sectionId ? String(r.sectionId) : 'none';
+      const subId = String(r.subjectId);
+      const stId = String(r.studentId);
+      const status = String(r.status || '').toUpperCase();
+
+      const k1 = `${cId}__${secId}__${subId}`;
+      const k2 = `${cId}__all__${subId}`;
+
+      [k1, k2].forEach(k => {
+        if (!attMap.has(k)) attMap.set(k, []);
+        attMap.get(k).push({ studentId: stId, status });
+      });
+    });
+
+    const rows = [];
+
+    // Helper to resolve teacher name for class, section, subject
+    const getTeacherName = (cId, secId, subId) => {
+      // 1. Try exact section match
+      if (secId) {
+        const secMatch = teacherMappings.filter(tm =>
+          String(tm.classId) === cId &&
+          String(tm.sectionId?._id || tm.sectionId) === secId &&
+          String(tm.subjectId?._id || tm.subjectId) === subId &&
+          tm.teacherId?.name
+        );
+        if (secMatch.length > 0) return secMatch.map(t => t.teacherId.name).join(', ');
+      }
+
+      // 2. Class-wide match
+      const classMatch = teacherMappings.filter(tm =>
+        String(tm.classId) === cId &&
+        (!tm.sectionId || String(tm.sectionId) === 'null') &&
+        String(tm.subjectId?._id || tm.subjectId) === subId &&
+        tm.teacherId?.name
+      );
+      if (classMatch.length > 0) return classMatch.map(t => t.teacherId.name).join(', ');
+
+      return 'Not Assigned';
+    };
+
+    // Iterate through classes and their units (sections or whole class)
+    for (const c of classes) {
+      const cId = String(c._id);
+      const progName = c.programId?.name || programFilterLabel || 'General Program';
+      const className = c.name;
+      const classSections = sectionsByClass.get(cId) || [];
+      const hasSections = c.allowSections !== false && classSections.length > 0;
+      const subjects = subjectsByClass.get(cId) || [];
+
+      // Determine units for this class
+      const units = [];
+      if (hasSections) {
+        classSections.forEach(sec => {
+          units.push({
+            sectionId: String(sec._id),
+            sectionName: sec.name,
+            key: `${cId}__${String(sec._id)}`
+          });
+        });
+      } else {
+        units.push({
+          sectionId: null,
+          sectionName: '',
+          key: `${cId}__none`
+        });
+      }
+
+      for (const unit of units) {
+        const secId = unit.sectionId;
+        const secName = unit.sectionName;
+        const studentIdList = (hasSections ? studentsByClassSec.get(unit.key) : (studentsByClassSec.get(unit.key) || studentsByClassSec.get(`${cId}__all`))) || [];
+        const studentIdSet = new Set(studentIdList);
+        const totalStudents = studentIdList.length;
+
+        for (const sub of subjects) {
+          const subId = String(sub.id);
+          const teacherName = getTeacherName(cId, secId, subId);
+
+          if (totalStudents === 0) {
+            rows.push({
+              programName: progName,
+              className,
+              sectionName: secName,
+              subjectName: sub.name || 'Subject',
+              subjectCode: sub.code || '',
+              responsibleTeacher: teacherName,
+              unmarkedCount: 0,
+              presentCount: 0,
+              leaveCount: 0,
+              absentCount: 0,
+              totalStudents: 0
+            });
+            continue;
+          }
+
+          const k = secId ? `${cId}__${secId}__${subId}` : `${cId}__all__${subId}`;
+          const records = (attMap.get(k) || []).filter(r => studentIdSet.has(r.studentId));
+
+          const markedIds = new Set();
+          let presentCount = 0;
+          let absentCount = 0;
+          let leaveCount = 0;
+
+          records.forEach(r => {
+            markedIds.add(r.studentId);
+            if (['PRESENT', 'LATE', 'HALF_DAY', 'HD'].includes(r.status)) {
+              presentCount++;
+            } else if (r.status === 'ABSENT') {
+              absentCount++;
+            } else if (r.status === 'LEAVE') {
+              leaveCount++;
+            }
+          });
+
+          // Add approved leaves for students without attendance record
+          studentIdList.forEach(stId => {
+            if (!markedIds.has(stId) && leaveStudentIds.has(stId)) {
+              markedIds.add(stId);
+              leaveCount++;
+            }
+          });
+
+          const unmarkedCount = Math.max(0, totalStudents - markedIds.size);
+
+          rows.push({
+            programName: progName,
+            className,
+            sectionName: secName,
+            subjectName: sub.name || 'Subject',
+            subjectCode: sub.code || '',
+            responsibleTeacher: teacherName,
+            unmarkedCount,
+            presentCount,
+            leaveCount,
+            absentCount,
+            totalStudents
+          });
+        }
+      }
+    }
+
+    // Compute totals
+    const totals = {
+      totalSubjects: rows.length,
+      totalStudents: rows.reduce((sum, r) => sum + r.totalStudents, 0),
+      unmarkedCount: rows.reduce((sum, r) => sum + r.unmarkedCount, 0),
+      presentCount: rows.reduce((sum, r) => sum + r.presentCount, 0),
+      leaveCount: rows.reduce((sum, r) => sum + r.leaveCount, 0),
+      absentCount: rows.reduce((sum, r) => sum + r.absentCount, 0),
+    };
+
+    return {
+      date: targetDate,
+      programName: programFilterLabel,
+      sessionName,
+      rows,
+      totals
     };
   }
 }

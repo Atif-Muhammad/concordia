@@ -13,10 +13,18 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   FileText,
   FileSpreadsheet,
   FileCheck,
   UserCheck,
+  TrendingUp,
   Search,
   Loader2,
   Printer,
@@ -42,6 +50,7 @@ import {
 import { StudentProfilePrintDialog } from "./StudentProfilePrintTemplate";
 import { StudentDocumentReportDialog } from "./StudentDocumentReportTemplate";
 import { StudentDataExportDialog } from "./StudentDataExportDialog";
+import { AdmissionConversionReportDialog } from "./AdmissionConversionReportDialog";
 
 export const StudentReportsTab = ({
   programData: propPrograms,
@@ -74,6 +83,15 @@ export const StudentReportsTab = ({
     currentUser?.permissions?.all === true ||
     hasPermission(currentUser, "Students", "individual-student-report", "read") ||
     hasPermission(currentUser, "Students", "reports", "read")
+  );
+
+  const canViewConversionReport = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Students", "conversion-report", "read") ||
+    hasPermission(currentUser, "Students", "reports", "read") ||
+    hasPermission(currentUser, "Front Office", "inquiry", "read")
   );
 
   // Shared academic queries (use props if passed, otherwise fetch)
@@ -109,6 +127,21 @@ export const StudentReportsTab = ({
   const [docReportOpen, setDocReportOpen] = useState(false);
   const [dataExportOpen, setDataExportOpen] = useState(false);
   const [profilePrintOpen, setProfilePrintOpen] = useState(false);
+  const [conversionReportOpen, setConversionReportOpen] = useState(false);
+
+  // Active session detection and search session filter state
+  const activeSession = useMemo(() => {
+    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? (activeSession._id || activeSession.id || "").toString() : "";
+
+  const [searchSessionId, setSearchSessionId] = useState("all");
+
+  useEffect(() => {
+    if (activeSessionId && searchSessionId === "all") {
+      setSearchSessionId(activeSessionId);
+    }
+  }, [activeSessionId, searchSessionId]);
 
   // Student search for Individual Student Report
   const [searchQuery, setSearchQuery] = useState("");
@@ -149,10 +182,18 @@ export const StudentReportsTab = ({
           // Fallback to getStudents query with searchQuery param
           const res = await getStudents({
             searchQuery: trimmed,
+            sessionId: searchSessionId !== "all" ? searchSessionId : undefined,
             status: "all",
-            limit: 15,
+            limit: 20,
           });
           results = Array.isArray(res) ? res : res?.students || res?.data || [];
+        }
+
+        if (searchSessionId && searchSessionId !== "all") {
+          results = results.filter((s) => {
+            const sId = (s.sessionId?._id || s.sessionId?.id || s.sessionId || s.session?._id || s.session?.id || s.session || "").toString();
+            return !sId || sId === searchSessionId;
+          });
         }
 
         setSearchResults(results || []);
@@ -169,7 +210,7 @@ export const StudentReportsTab = ({
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchSessionId]);
 
   // Handle selecting a student from search results & opening individual report
   const handleSelectStudentForReport = async (student) => {
@@ -238,14 +279,14 @@ export const StudentReportsTab = ({
 
           <div className="flex items-center gap-2 shrink-0">
             <Badge variant="outline" className="font-mono text-xs bg-white dark:bg-card px-3 py-1 border-[#eae8df]">
-              3 Report Modules Available
+              {(canViewDocReport ? 1 : 0) + (canViewDataExport ? 1 : 0) + (canViewIndividualReport ? 1 : 0) + (canViewConversionReport ? 1 : 0)} Report Modules Available
             </Badge>
           </div>
         </div>
       </div>
 
       {/* Grid of Report Boxes (Matching Concordia ERP Navigation Boxes) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* BOX 1: Document Submission Checklist Report */}
         {canViewDocReport && (
           <div className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs  hover:border-amber-400/80 transition-all duration-200">
@@ -308,7 +349,38 @@ export const StudentReportsTab = ({
           </div>
         )}
 
-        {/* BOX 3: Individual Student Report Quick Launch */}
+        {/* BOX 3: Admission Conversion Report (KEY USER REQUIREMENT) */}
+        {canViewConversionReport && (
+          <div className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-indigo-500/80 transition-all duration-200">
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#4338ca] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <TrendingUp className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-indigo-700 transition-colors">
+                Admission Conversion Report
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Track candidate inquiries originating from Front Office and analyze conversions into enrolled students. Audit conversion rates, prospectus sales, and admission turnaround times.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                onClick={() => setConversionReportOpen(true)}
+                className="w-full justify-between bg-white hover:bg-indigo-50 text-slate-800 border border-slate-200 font-semibold text-xs shadow-xs"
+              >
+                <span className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-indigo-600" />
+                  Launch Conversion Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 4: Individual Student Report Quick Launch */}
         {canViewIndividualReport && (
           <div className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs  hover:border-amber-400/80 transition-all duration-200">
             <div>
@@ -334,7 +406,7 @@ export const StudentReportsTab = ({
         )}
       </div>
 
-      {!canViewDocReport && !canViewDataExport && !canViewIndividualReport && (
+      {!canViewDocReport && !canViewDataExport && !canViewIndividualReport && !canViewConversionReport && (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-card">
           <AlertCircle className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
           <h3 className="text-base font-bold text-foreground">Access Restricted</h3>
@@ -373,30 +445,52 @@ export const StudentReportsTab = ({
         </CardHeader>
 
         <CardContent className="p-5 space-y-4">
-          {/* Search Input Bar */}
-          <div className="relative max-w-2xl">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Search student by name or roll number..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10 h-10 text-sm bg-white dark:bg-background border-slate-200 dark:border-border rounded-xl shadow-xs"
-            />
-            {isSearching ? (
-              <Loader2 className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-amber-600" />
-            ) : searchQuery ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                  setSearchResults([]);
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            ) : null}
+          {/* Search Input Bar + Session Filter */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 max-w-3xl">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Search student by name or roll number..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-10 h-10 text-sm bg-white dark:bg-background border-slate-200 dark:border-border rounded-xl shadow-xs"
+              />
+              {isSearching ? (
+                <Loader2 className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-amber-600" />
+              ) : searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="w-full sm:w-56 shrink-0">
+              <Select value={searchSessionId} onValueChange={setSearchSessionId}>
+                <SelectTrigger className="h-10 text-xs bg-white dark:bg-background border-slate-200 dark:border-border rounded-xl font-medium shadow-xs">
+                  <SelectValue placeholder="All Sessions" />
+                </SelectTrigger>
+                <SelectContent className="max-h-56">
+                  <SelectItem value="all">All Sessions</SelectItem>
+                  {academicSessions.map((s) => {
+                    const sId = (s._id || s.id || "").toString();
+                    const isAct = s.isActive === true || s.isActive === "true";
+                    return (
+                      <SelectItem key={sId} value={sId} className="text-xs">
+                        {s.name || s.sessionName}{isAct ? " (Active)" : ""}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Search Status & Results Display */}
@@ -558,6 +652,18 @@ export const StudentReportsTab = ({
         sectionsData={sectionsData}
         academicSessions={academicSessions}
         isNewlyCreated={false}
+      />
+
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* DIALOG 4: ADMISSION CONVERSION REPORT DIALOG */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      <AdmissionConversionReportDialog
+        open={conversionReportOpen}
+        onOpenChange={setConversionReportOpen}
+        academicSessions={academicSessions}
+        programData={programData}
+        classesData={classesData}
+        sectionsData={sectionsData}
       />
     </div>
   );

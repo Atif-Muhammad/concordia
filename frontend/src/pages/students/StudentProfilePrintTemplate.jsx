@@ -39,7 +39,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { resolveFileUrl } from "@/lib/utils";
-import { getStudentFeeHistory, getStudentById } from "../../../config/apis";
+import { getStudentFeeHistory, getStudentById, recordCustomActivityAPI } from "../../../config/apis";
 import { StudentProfilePrintSkeleton } from "@/skeletons/StudentProfilePrintSkeleton";
 import {
   REPORT_SECTIONS,
@@ -1423,6 +1423,17 @@ export const StudentProfilePrintDialog = ({
     if (!activeStudent || !resolvedData) return;
     setIsPrinting(true);
     try {
+      const stName = `${activeStudent?.fName || ""} ${activeStudent?.lName || ""}`.trim() || activeStudent?.name || "Student";
+      const fatherName = activeStudent?.fatherOrguardian || activeStudent?.fatherName || "N/A";
+      const roll = activeStudent?.rollNumber ? ` (Roll: ${activeStudent.rollNumber})` : "";
+      recordCustomActivityAPI({
+        module: "Students",
+        subModule: "Student Profile",
+        action: "Student Details Printed",
+        actionType: "PRINT",
+        details: `Action: Print Student Details for '${stName}', Father: '${fatherName}'${roll}`,
+      });
+
       const html = generateStudentProfilePrintHtml({
         student: activeStudent,
         programData,

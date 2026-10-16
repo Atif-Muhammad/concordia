@@ -285,6 +285,15 @@ class StudentController {
       next(err);
     }
   }
+
+  async getAdmissionConversionReport(req, res, next) {
+    try {
+      const report = await studentService.getAdmissionConversionReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new StudentController();

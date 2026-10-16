@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Expense Receipt - VCH-{{voucherNo}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600&family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 15mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 16px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, Arial, sans-serif; color: #0f172a; background: #ffffff;">
+  <div style="max-width: 780px; margin: 0 auto; border: 2px solid #0f172a; border-top: 6px solid #1e3a8a; padding: 24px; background: #ffffff; box-sizing: border-box;">
+    
+    <!-- HEADER -->
+    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 14px; margin-bottom: 12px; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <img src="{{logoUrl}}" alt="Concordia College Peshawar" style="width: 70px; height: 70px; max-width: 70px; max-height: 70px; object-fit: contain; flex-shrink: 0;" />
+        <div>
+          <h1 style="margin: 0; font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; font-family: 'Playfair Display', Georgia, serif; line-height: 1.2;">Concordia College Peshawar</h1>
+          <div style="font-size: 11px; color: #475569; margin-top: 4px;">60-C University Road, University Town, Peshawar &bull; Tel: 091-5619915</div>
+        </div>
+      </div>
+      <div style="text-align: right; flex-shrink: 0;">
+        <div style="font-family: monospace; font-size: 13px; font-weight: 700; color: #1e3a8a; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 5px 10px; border-radius: 4px;">
+          VCH-{{voucherNo}}
+        </div>
+      </div>
+    </div>
+
+    <!-- CALLIGRAPHIC TITLE -->
+    <div style="text-align: center; margin: 10px 0 14px 0;">
+      <div style="font-family: 'Alex Brush', 'Great Vibes', 'Dancing Script', 'Brush Script MT', cursive; font-size: 38px; color: #1e3a8a; line-height: 1.1; font-weight: 500;">
+        Expense Receipt
+      </div>
+      <div style="width: 140px; height: 2px; background: #b45309; margin: 6px auto 0 auto;"></div>
+    </div>
+
+    <!-- METADATA BOX -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; font-size: 12px;">
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 120px; flex-shrink: 0;">Expense Date:</span>
+        <span style="font-weight: 700; color: #1e3a8a;">{{expenseDate}}</span>
+      </div>
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 130px; flex-shrink: 0;">Issue Date &amp; Time:</span>
+        <span style="color: #0f172a;">{{issueDateTime}}</span>
+      </div>
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 120px; flex-shrink: 0;">Issued By (Staff):</span>
+        <span style="font-weight: 600; color: #0f172a;">{{issuer}}</span>
+      </div>
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 130px; flex-shrink: 0;">Paid From Account:</span>
+        <span style="color: #0f172a;">{{paymentAccount}}</span>
+      </div>
+      {{#if vendor}}
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 120px; flex-shrink: 0;">Vendor / Payee:</span>
+        <span style="color: #0f172a;">{{vendor}}</span>
+      </div>
+      {{/if}}
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-weight: 700; color: #475569; width: 120px; flex-shrink: 0;">Voucher Ref:</span>
+        <span style="font-family: monospace; font-weight: 600; color: #0f172a;">{{voucherNo}}</span>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; border: 1px solid #0f172a;">
+      <thead>
+        <tr style="background: #1e293b; color: #ffffff;">
+          <th style="padding: 10px 8px; border: 1px solid #0f172a; text-align: center; width: 40px; font-size: 11px; text-transform: uppercase;">#</th>
+          <th style="padding: 10px 10px; border: 1px solid #0f172a; text-align: left; width: 130px; font-size: 11px; text-transform: uppercase;">Category</th>
+          <th style="padding: 10px 10px; border: 1px solid #0f172a; text-align: left; width: 140px; font-size: 11px; text-transform: uppercase;">Sub Category</th>
+          <th style="padding: 10px 10px; border: 1px solid #0f172a; text-align: left; font-size: 11px; text-transform: uppercase;">Description</th>
+          <th style="padding: 10px 10px; border: 1px solid #0f172a; text-align: right; width: 130px; font-size: 11px; text-transform: uppercase;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background: #ffffff;">
+          <td style="padding: 12px 8px; border: 1px solid #cbd5e1; text-align: center; font-family: monospace;">1</td>
+          <td style="padding: 12px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #0f172a;">{{category}}</td>
+          <td style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #334155;">{{subCategory}}</td>
+          <td style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #0f172a; line-height: 1.4;">{{description}}</td>
+          <td style="padding: 12px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: 700; font-size: 13px; color: #0f172a;">PKR {{amount}}</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="background: #f1f5f9; font-weight: 700;">
+          <td colspan="4" style="padding: 10px 12px; border: 1px solid #0f172a; text-align: right; text-transform: uppercase; font-size: 11px; color: #475569;">Total Expense Amount:</td>
+          <td style="padding: 10px 10px; border: 1px solid #0f172a; text-align: right; font-family: monospace; font-size: 14px; font-weight: 800; color: #0f172a;">PKR {{amount}}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <!-- AMOUNT IN WORDS -->
+    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 10px 14px; margin-bottom: 30px; font-size: 12px; color: #92400e;">
+      <strong style="color: #78350f;">Amount in Words:</strong> <span style="font-style: italic;">{{amountInWords}}</span>
+    </div>
+
+    <!-- SIGNATURES -->
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 50px; text-align: center;">
+      <div>
+        <div style="border-top: 1.5px solid #475569; width: 85%; margin: 0 auto 6px auto;"></div>
+        <div style="font-size: 11px; font-weight: 700; color: #0f172a;">Issued / Prepared By</div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{{issuer}}</div>
+      </div>
+      <div>
+        <div style="border-top: 1.5px solid #475569; width: 85%; margin: 0 auto 6px auto;"></div>
+        <div style="font-size: 11px; font-weight: 700; color: #0f172a;">Accounts Officer</div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Verified &amp; Entered</div>
+      </div>
+      <div>
+        <div style="border-top: 1.5px solid #475569; width: 85%; margin: 0 auto 6px auto;"></div>
+        <div style="font-size: 11px; font-weight: 700; color: #0f172a;">Principal / Director</div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Authorized Signature</div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="border-top: 1px dashed #cbd5e1; margin-top: 30px; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #64748b;">
+      <div>Official Computer-Generated Expense Receipt &bull; Concordia College Peshawar</div>
+      <div>Printed: {{printTimestamp}}</div>
+    </div>
+
+  </div>
+</body>
+</html>

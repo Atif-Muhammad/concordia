@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,17 @@ export const StudentAttendanceTab = ({
     setSessionId,
     academicSessions = [],
 }) => {
+    // Active session detection and pre-selection
+    const activeSession = useMemo(() => {
+        return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+    }, [academicSessions]);
+    const activeSessionId = activeSession ? String(activeSession.id || activeSession._id || "") : "";
+
+    useEffect(() => {
+        if (setSessionId && (!sessionId || sessionId === "all") && activeSessionId) {
+            setSessionId(activeSessionId);
+        }
+    }, [activeSessionId, sessionId, setSessionId]);
     // Calculate stats for the selected student
     const studentStats = useMemo(() => {
         if (!reportData || reportData.length === 0 || !startDate || !endDate) {
@@ -379,11 +390,15 @@ export const StudentAttendanceTab = ({
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="all">All Sessions</SelectItem>
-                                            {academicSessions.map((s) => (
-                                                <SelectItem key={s.id} value={String(s.id)}>
-                                                    {s.name}
-                                                </SelectItem>
-                                            ))}
+                                            {academicSessions.map((s) => {
+                                                const sId = String(s.id || s._id || "");
+                                                const isAct = s.isActive === true || s.isActive === "true";
+                                                return (
+                                                    <SelectItem key={sId} value={sId}>
+                                                        {s.name || s.sessionName}{isAct ? " (Active)" : ""}
+                                                    </SelectItem>
+                                                );
+                                            })}
                                         </SelectContent>
                                     </Select>
                                 </div>

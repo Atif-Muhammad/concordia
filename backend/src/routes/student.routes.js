@@ -10,6 +10,7 @@ router.get('/get/all/passout', studentController.getStudents);
 router.get('/search', studentController.search);
 router.get('/roll-number/latest', studentController.getLatestRollNumber);
 router.get('/roll-number/latest/batch', studentController.getLatestRollNumbersBatch);
+router.get('/admission-conversion-report', studentController.getAdmissionConversionReport);
 
 router.get('/attendance/:studentId', studentController.getAttendance);
 router.get('/attendance-report/:studentId', studentController.getAttendance);

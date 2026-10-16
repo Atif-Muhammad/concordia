@@ -23,5 +23,6 @@ router.patch('/leaves/update', authMiddleware, checkPermission('Attendance', 'le
 router.get('/missing/classes-summary', attendanceController.getMissingAttendanceClassesSummary);
 router.get('/missing/subjects-summary', attendanceController.getMissingAttendanceSubjectsSummary);
 router.get('/missing/students-summary', attendanceController.getMissingAttendanceStudentsSummary);
+router.get('/missing/export-report', attendanceController.getMissingAttendanceExportReport);
 
 module.exports = router;

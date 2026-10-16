@@ -27,7 +27,7 @@ class AcademicsService {
     if (data.isActive) {
       await AcademicSession.updateMany({ _id: { $ne: id } }, { isActive: false });
     }
-    return AcademicSession.findByIdAndUpdate(id, data, { new: true });
+    return AcademicSession.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteSession(id) {
@@ -53,7 +53,7 @@ class AcademicsService {
   }
 
   async updateProgram(id, data) {
-    return Program.findByIdAndUpdate(id, data, { new: true });
+    return Program.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteProgram(id) {
@@ -74,7 +74,7 @@ class AcademicsService {
   }
 
   async updateClass(id, data) {
-    return Class.findByIdAndUpdate(id, data, { new: true });
+    return Class.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteClass(id) {
@@ -95,7 +95,7 @@ class AcademicsService {
   }
 
   async updateSection(id, data) {
-    return Section.findByIdAndUpdate(id, data, { new: true });
+    return Section.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteSection(id) {
@@ -112,7 +112,7 @@ class AcademicsService {
   }
 
   async updateSubject(id, data) {
-    return Subject.findByIdAndUpdate(id, data, { new: true });
+    return Subject.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteSubject(id) {
@@ -200,7 +200,7 @@ class AcademicsService {
     if (!data.sessionId || data.sessionId === 'none' || data.sessionId === 'all' || data.sessionId === 'null') {
       data.sessionId = null;
     }
-    return SubjectClassMapping.findByIdAndUpdate(id, data, { new: true })
+    return SubjectClassMapping.findByIdAndUpdate(id, data, { returnDocument: 'after' })
       .populate({ path: 'classId', populate: { path: 'programId' } })
       .populate('subjectIds')
       .populate('subjects.subjectId')
@@ -388,7 +388,7 @@ class AcademicsService {
   }
 
   async updateTeacherMapping(id, data) {
-    return TeacherMapping.findByIdAndUpdate(id, data, { new: true });
+    return TeacherMapping.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async deleteTeacherMapping(id) {
@@ -512,7 +512,7 @@ class AcademicsService {
     if (data.subjectIds && Array.isArray(data.subjectIds)) {
       return this.bulkAssignTeacherToClassSubjects({ id, ...data });
     }
-    return TeacherMapping.findByIdAndUpdate(id, data, { new: true })
+    return TeacherMapping.findByIdAndUpdate(id, data, { returnDocument: 'after' })
       .populate('teacherId')
       .populate({ path: 'classId', populate: { path: 'programId' } })
       .populate('sectionId')
@@ -566,7 +566,7 @@ class AcademicsService {
       return Timetable.findByIdAndUpdate(
         id,
         { classId, sectionId, sessionId, slots: cleanSlots },
-        { new: true }
+        { returnDocument: 'after' }
       )
         .populate({ path: 'classId', populate: { path: 'programId' } })
         .populate('sectionId')
@@ -583,7 +583,7 @@ class AcademicsService {
     return Timetable.findOneAndUpdate(
       query,
       { ...query, slots: cleanSlots },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     )
       .populate({ path: 'classId', populate: { path: 'programId' } })
       .populate('sectionId')

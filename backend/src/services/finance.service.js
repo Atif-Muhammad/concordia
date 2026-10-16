@@ -1396,8 +1396,45 @@ class FinanceService {
       .sort({ date: -1, createdAt: -1 })
       .populate('closedBy', 'name role email');
 
-    // Backwards compatibility: ensure walletsSnapshot has populated inflows and outflows
+    // Auto-heal checkpoints with 0 inflows/outflows and ensure populated transactions
     for (const closing of closings) {
+      if (
+        closing.date &&
+        ((!closing.totalInflows && !closing.totalOutflows && !closing.totalIncome && !closing.totalExpense) ||
+          (Number(closing.totalInflows || 0) === 0 && Number(closing.totalOutflows || 0) === 0 && Number(closing.netChange || 0) === 0))
+      ) {
+        try {
+          const dash = await this.getClosingDashboard({ date: closing.date, dateFrom: closing.date, dateTo: closing.date });
+          const healedInflows = Number(dash.totalIncome ?? dash.summary?.totalIncome ?? 0);
+          const healedOutflows = Number(dash.totalExpense ?? dash.summary?.totalExpense ?? 0);
+          const healedNet = Number(dash.netBalance ?? dash.summary?.netBalance ?? (healedInflows - healedOutflows));
+
+          if (healedInflows > 0 || healedOutflows > 0) {
+            closing.totalInflows = healedInflows;
+            closing.totalOutflows = healedOutflows;
+            closing.netChange = healedNet;
+            closing.totalIncome = healedInflows;
+            closing.totalExpense = healedOutflows;
+
+            FinanceClosing.updateOne(
+              { _id: closing._id },
+              {
+                $set: {
+                  totalInflows: healedInflows,
+                  totalOutflows: healedOutflows,
+                  netChange: healedNet,
+                  totalIncome: healedInflows,
+                  totalExpense: healedOutflows,
+                },
+              }
+            ).exec().catch(() => {});
+          }
+        } catch {
+          // ignore heal failure
+        }
+      }
+
+      // Backwards compatibility: ensure walletsSnapshot has populated inflows and outflows
       if (Array.isArray(closing.walletsSnapshot)) {
         const needsPop = closing.walletsSnapshot.some(
           w => (!w.inflows || w.inflows.length === 0) && (w.inflowsSinceLastClosing > 0 || w.outflowsSinceLastClosing > 0)
@@ -1449,8 +1486,37 @@ class FinanceService {
       throw err;
     }
 
-    const dashboard = await this.getClosingDashboard();
+    const dashboard = await this.getClosingDashboard({
+      date: closingDate,
+      dateFrom: closingDate,
+      dateTo: closingDate,
+    });
     const user = userId ? await User.findById(userId).select('name role') : null;
+
+    const totalInflows = Number(dashboard.totalIncome ?? dashboard.summary?.totalIncome ?? 0);
+    const totalOutflows = Number(dashboard.totalExpense ?? dashboard.summary?.totalExpense ?? 0);
+    const netChange = Number(dashboard.netBalance ?? dashboard.summary?.netBalance ?? (totalInflows - totalOutflows));
+    const totalHolding = dashboard.wallets && dashboard.wallets.length > 0
+      ? dashboard.wallets.reduce((s, w) => s + Number(w.currentBalance || 0), 0)
+      : Number(dashboard.summary?.totalCurrentHolding || 0);
+
+    const walletsSnapshot = (dashboard.walletsDateBreakdown || []).map(w => {
+      const fullWallet = (dashboard.wallets || []).find(fw => String(fw.walletId) === String(w.walletId));
+      return {
+        walletId: w.walletId,
+        walletName: w.walletName,
+        walletType: w.walletType,
+        bankName: w.bankName || '',
+        accountNumber: w.accountNumber || '',
+        balanceBefore: fullWallet ? fullWallet.balanceAtLastClosing : (Number(w.currentBalance || 0) - Number(w.dateNetBalance || 0)),
+        inflowsSinceLastClosing: Number(w.dateInflow || 0),
+        outflowsSinceLastClosing: Number(w.dateOutflow || 0),
+        netChange: Number(w.dateNetBalance || 0),
+        balanceAtClosing: Number(w.currentBalance || 0),
+        inflows: fullWallet?.inflows || [],
+        outflows: fullWallet?.outflows || [],
+      };
+    });
 
     const closingData = {
       date: closingDate,
@@ -1458,29 +1524,16 @@ class FinanceService {
       type: 'HOLDINGS_CHECKPOINT',
       previousClosingDate: dashboard.lastClosing ? dashboard.lastClosing.closingDateTime : null,
       previousClosingId: dashboard.lastClosing ? dashboard.lastClosing.id : null,
-      totalHolding: dashboard.summary.totalCurrentHolding,
-      totalInflows: dashboard.summary.totalInflows,
-      totalOutflows: dashboard.summary.totalOutflows,
-      netChange: dashboard.summary.totalNetChange,
-      walletsSnapshot: dashboard.wallets.map(w => ({
-        walletId: w.walletId,
-        walletName: w.walletName,
-        walletType: w.walletType,
-        bankName: w.bankName,
-        accountNumber: w.accountNumber,
-        balanceBefore: w.balanceAtLastClosing,
-        inflowsSinceLastClosing: w.inflowsSinceLastClosing,
-        outflowsSinceLastClosing: w.outflowsSinceLastClosing,
-        netChange: w.netChange,
-        balanceAtClosing: w.currentBalance,
-        inflows: w.inflows || [],
-        outflows: w.outflows || [],
-      })),
+      totalHolding,
+      totalInflows,
+      totalOutflows,
+      netChange,
+      walletsSnapshot,
       closedBy: userId || null,
       closedByName: user ? `${user.name} (${user.role})` : 'System Admin',
       remarks: data.remarks || '',
-      totalIncome: dashboard.summary.totalInflows,
-      totalExpense: dashboard.summary.totalOutflows,
+      totalIncome: totalInflows,
+      totalExpense: totalOutflows,
     };
 
     return FinanceClosing.create(closingData);

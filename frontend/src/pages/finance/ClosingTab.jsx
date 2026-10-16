@@ -83,9 +83,25 @@ const formatDateTime = (dateValue) => {
   });
 };
 
+const formatLocalDate = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const formatReportDate = (dateValue) => {
   if (!dateValue) return "Today";
   try {
+    if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim())) {
+      const [year, month, day] = dateValue.trim().split("-").map(Number);
+      const d = new Date(year, month - 1, day);
+      return d.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    }
     const d = new Date(dateValue);
     if (isNaN(d.getTime())) return String(dateValue);
     return d.toLocaleDateString("en-GB", {
@@ -119,7 +135,7 @@ export default function ClosingTab() {
   const { canClose, canCreate, canDelete } = usePermissions("Finance", "closing");
   const canPerformClosing = canClose || canCreate;
 
-  const todayDateStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const todayDateStr = useMemo(() => formatLocalDate(new Date()), []);
   const currentMonthStr = useMemo(() => todayDateStr.slice(0, 7), [todayDateStr]);
   const [closingMode, setClosingMode] = useState("DAILY"); // "DAILY" | "MONTHLY"
   const [closingDate, setClosingDate] = useState(() => todayDateStr);
@@ -1036,7 +1052,7 @@ export default function ClosingTab() {
                   onClick={() => {
                     const d = new Date();
                     d.setDate(d.getDate() - 1);
-                    setClosingDate(d.toISOString().split("T")[0]);
+                    setClosingDate(formatLocalDate(d));
                   }}
                 >
                   Yesterday
@@ -1992,7 +2008,8 @@ export default function ClosingTab() {
               <Table className="w-full min-w-[700px] text-[10.5px] sm:text-xs">
                 <TableHeader>
                   <TableRow className="bg-slate-100/90 dark:bg-slate-800/80 hover:bg-slate-100/90 border-b text-[10px] sm:text-[10.5px]">
-                    <TableHead className="py-2 px-2.5 whitespace-nowrap">Date &amp; Time</TableHead>
+                    <TableHead className="py-2 px-2.5 whitespace-nowrap">Closing Date</TableHead>
+                    <TableHead className="py-2 px-2.5 whitespace-nowrap">Executed At</TableHead>
                     <TableHead className="py-2 px-2.5 text-right whitespace-nowrap">Total Holding</TableHead>
                     <TableHead className="py-2 px-2.5 text-emerald-600 dark:text-emerald-400 text-right whitespace-nowrap">Inflows</TableHead>
                     <TableHead className="py-2 px-2.5 text-rose-600 dark:text-rose-400 text-right whitespace-nowrap">Outflows</TableHead>
@@ -2007,6 +2024,7 @@ export default function ClosingTab() {
                     <>
                       {[1, 2, 3].map((i) => (
                         <TableRow key={i} className="hover:bg-transparent border-b border-border/30">
+                          <TableCell className="py-2.5 px-2.5"><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell className="py-2.5 px-2.5"><Skeleton className="h-4 w-32" /></TableCell>
                           <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
                           <TableCell className="py-2.5 px-2.5 text-right"><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
@@ -2020,7 +2038,7 @@ export default function ClosingTab() {
                     </>
                   ) : closingsHistory.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-6 text-xs text-muted-foreground italic">
+                      <TableCell colSpan={9} className="text-center py-6 text-xs text-muted-foreground italic">
                         No closing checkpoints found.
                       </TableCell>
                     </TableRow>
@@ -2039,21 +2057,41 @@ export default function ClosingTab() {
                           }}
                           title="Click to view this closing checkpoint in dashboard"
                         >
-                          <TableCell className="py-1.5 px-2.5 font-mono whitespace-nowrap">
-                            {formatDateTime(c.closingDateTime || c.createdAt || c.date)}
+                          <TableCell className="py-1.5 px-2.5 whitespace-nowrap">
+                            <div className="font-bold text-foreground flex items-center gap-1.5">
+                              <span>{formatReportDate(c.date)}</span>
+                              {isSelected && (
+                                <Badge variant="secondary" className="text-[9px] py-0 px-1 font-semibold text-primary">Active</Badge>
+                              )}
+                            </div>
+                            <div className="font-mono text-[10px] text-muted-foreground">{c.date}</div>
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap text-[11px]">
+                            {formatDateTime(c.closingDateTime || c.createdAt)}
                           </TableCell>
                           <TableCell className="py-1.5 px-2.5 text-right font-mono font-bold whitespace-nowrap">
                             PKR {Number(c.totalHolding || 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="py-1.5 px-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                            +PKR {Number(c.totalInflows || 0).toLocaleString()}
+                            +PKR {Number(c.totalInflows || c.totalIncome || 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="py-1.5 px-2.5 text-right font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">
-                            -PKR {Number(c.totalOutflows || 0).toLocaleString()}
+                            -PKR {Number(c.totalOutflows || c.totalExpense || 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="py-1.5 px-2.5 text-right font-mono font-semibold whitespace-nowrap">
-                            {Number(c.netChange || 0) >= 0 ? "+" : ""}
-                            PKR {Number(c.netChange || 0).toLocaleString()}
+                            {Number(
+                              c.netChange !== undefined && c.netChange !== null && (c.totalInflows || c.totalOutflows)
+                                ? c.netChange
+                                : ((c.totalInflows || c.totalIncome || 0) - (c.totalOutflows || c.totalExpense || 0))
+                            ) >= 0
+                              ? "+"
+                              : ""}
+                            PKR{" "}
+                            {Number(
+                              c.netChange !== undefined && c.netChange !== null && (c.totalInflows || c.totalOutflows)
+                                ? c.netChange
+                                : ((c.totalInflows || c.totalIncome || 0) - (c.totalOutflows || c.totalExpense || 0))
+                            ).toLocaleString()}
                           </TableCell>
                           <TableCell className="py-1.5 px-2.5 text-muted-foreground whitespace-nowrap">
                             {c.closedByName || "Admin"}

@@ -832,13 +832,31 @@ class AttendanceService {
     } else {
       studentFilter.status = { $in: ['ACTIVE', 'Active'] };
       if (classId && classId !== '*' && classId !== 'all') {
-        studentFilter.classId = classId;
+        if (typeof classId === 'string' && classId.includes(',')) {
+          studentFilter.classId = { $in: classId.split(',').map(s => s.trim()).filter(Boolean) };
+        } else if (Array.isArray(classId)) {
+          studentFilter.classId = { $in: classId };
+        } else {
+          studentFilter.classId = classId;
+        }
       }
       if (sectionId && sectionId !== '*' && sectionId !== 'all') {
-        studentFilter.sectionId = sectionId;
+        if (typeof sectionId === 'string' && sectionId.includes(',')) {
+          studentFilter.sectionId = { $in: sectionId.split(',').map(s => s.trim()).filter(Boolean) };
+        } else if (Array.isArray(sectionId)) {
+          studentFilter.sectionId = { $in: sectionId };
+        } else {
+          studentFilter.sectionId = sectionId;
+        }
       }
       if (programId && programId !== '*' && programId !== 'all') {
-        studentFilter.programId = programId;
+        if (typeof programId === 'string' && programId.includes(',')) {
+          studentFilter.programId = { $in: programId.split(',').map(s => s.trim()).filter(Boolean) };
+        } else if (Array.isArray(programId)) {
+          studentFilter.programId = { $in: programId };
+        } else {
+          studentFilter.programId = programId;
+        }
       }
       if (effectiveSessionId) {
         studentFilter.sessionId = effectiveSessionId;

@@ -6,6 +6,8 @@ import {
   AlertCircle,
   ArrowRight,
   ClipboardList,
+  UserX,
+  Award,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +15,8 @@ import { hasPermission } from "@/lib/navigation.jsx";
 import AttendanceReportsTab from "./AttendanceReportsTab";
 import IndividualReportsTab from "./IndividualReportsTab";
 import MissingAttendanceReportTab from "./MissingAttendanceReportTab";
+import MostAbsentReportTab from "./MostAbsentReportTab";
+import RegularStudentsReportTab from "./RegularStudentsReportTab";
 
 export default function AttendanceReportsHub({ initialReport = null }) {
   const queryClient = useQueryClient();
@@ -42,11 +46,29 @@ export default function AttendanceReportsHub({ initialReport = null }) {
     hasPermission(currentUser, "Attendance", "reports", "read")
   );
 
-  // selectedReport: null (cards hub) | "class" | "individual" | "missing"
+  const canViewMostAbsent = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Attendance", "most-absent", "read") ||
+    hasPermission(currentUser, "Attendance", "reports", "read")
+  );
+
+  const canViewRegularStudents = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Attendance", "regular-students", "read") ||
+    hasPermission(currentUser, "Attendance", "reports", "read")
+  );
+
+  // selectedReport: null (cards hub) | "class" | "individual" | "missing" | "most-absent" | "regular-students"
   const [selectedReport, setSelectedReport] = useState(
     initialReport === "class" && canViewClassReports ? "class" :
     initialReport === "individual" && canViewIndividualReports ? "individual" :
-    initialReport === "missing" && canViewMissingAttendance ? "missing" : null
+    initialReport === "missing" && canViewMissingAttendance ? "missing" :
+    initialReport === "most-absent" && canViewMostAbsent ? "most-absent" :
+    initialReport === "regular-students" && canViewRegularStudents ? "regular-students" : null
   );
 
   // Render individual component replacing the hub view
@@ -60,6 +82,14 @@ export default function AttendanceReportsHub({ initialReport = null }) {
 
   if (selectedReport === "missing" && canViewMissingAttendance) {
     return <MissingAttendanceReportTab onBack={() => setSelectedReport(null)} />;
+  }
+
+  if (selectedReport === "most-absent" && canViewMostAbsent) {
+    return <MostAbsentReportTab onBack={() => setSelectedReport(null)} />;
+  }
+
+  if (selectedReport === "regular-students" && canViewRegularStudents) {
+    return <RegularStudentsReportTab onBack={() => setSelectedReport(null)} />;
   }
 
   // Default View: 3 Report Navigation Cards
@@ -83,7 +113,7 @@ export default function AttendanceReportsHub({ initialReport = null }) {
 
           <div className="flex items-center gap-2 shrink-0">
             <Badge variant="outline" className="font-mono text-xs bg-white dark:bg-card px-3 py-1 border-[#eae8df]">
-              3 Report Modules Available
+              5 Report Modules Available
             </Badge>
           </div>
         </div>
@@ -204,17 +234,96 @@ export default function AttendanceReportsHub({ initialReport = null }) {
             </div>
           </div>
         )}
+        {/* CARD 4: Most Absent Students Report */}
+        {canViewMostAbsent && (
+          <div
+            onClick={() => setSelectedReport("most-absent")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-rose-600/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#dc2626] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <UserX className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-rose-700 transition-colors">
+                Most Absent Students
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Rank and identify students with the highest absence counts across the session, review absence percentages, and print chronic absenteeism rosters.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("most-absent");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-rose-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <UserX className="w-4 h-4 text-rose-600" />
+                  Open Most Absent Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* CARD 5: 100% Regular Students Report */}
+        {canViewRegularStudents && (
+          <div
+            onClick={() => setSelectedReport("regular-students")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-emerald-600/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#059669] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <Award className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-emerald-700 transition-colors">
+                100% Regular Students
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Honor roll of students who maintained 100% attendance with zero absences and zero leaves throughout the active academic session.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("regular-students");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-emerald-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Award className="w-4 h-4 text-emerald-600" />
+                  Open 100% Regular Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {!canViewClassReports && !canViewIndividualReports && !canViewMissingAttendance && (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-card">
-          <AlertCircle className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-foreground">Access Restricted</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-            You do not have permission to view any attendance reports. Please contact your system administrator.
-          </p>
-        </div>
-      )}
+      {!canViewClassReports &&
+        !canViewIndividualReports &&
+        !canViewMissingAttendance &&
+        !canViewMostAbsent &&
+        !canViewRegularStudents && (
+          <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-card">
+            <AlertCircle className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-foreground">Access Restricted</h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+              You do not have permission to view any attendance reports. Please contact your system administrator.
+            </p>
+          </div>
+        )}
     </div>
   );
 }

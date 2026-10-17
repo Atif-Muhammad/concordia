@@ -520,20 +520,33 @@ export default function MissingAttendanceReportTab({ onBack }) {
   });
 
   // Query academic sessions
-  const { data: academicSessions = [] } = useQuery({
+  const { data: academicSessions = [], isLoading: isLoadingSessions } = useQuery({
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
   });
 
+  const activeSession = React.useMemo(() => {
+    return (
+      academicSessions.find(
+        (s) => s.isActive === true || s.isActive === "true" || s.isCurrent || s.status === "ACTIVE"
+      ) ||
+      academicSessions[0] ||
+      null
+    );
+  }, [academicSessions]);
+  const activeSessionId = activeSession ? String(activeSession.id || activeSession._id || "") : "";
+
   // Pre-select active academic session
   useEffect(() => {
-    if (academicSessions?.length > 0 && (selectedSessionId === "all" || !selectedSessionId)) {
-      const active = academicSessions.find((s) => s.isActive || s.status === "ACTIVE");
-      if (active) {
-        setSelectedSessionId(String(active.id || active._id));
-      }
+    if (activeSessionId && (selectedSessionId === "all" || !selectedSessionId)) {
+      setSelectedSessionId(activeSessionId);
     }
-  }, [academicSessions]);
+  }, [activeSessionId, selectedSessionId]);
+
+  const effectiveSessionId =
+    selectedSessionId && selectedSessionId !== "all"
+      ? selectedSessionId
+      : (activeSessionId || undefined);
 
   // Level 1: Classes & Sections Summary Query
   const {
@@ -546,15 +559,15 @@ export default function MissingAttendanceReportTab({ onBack }) {
       "missingAttendanceClassesSummary",
       selectedProgramId,
       selectedDate,
-      selectedSessionId,
+      effectiveSessionId,
     ],
     queryFn: () =>
       getMissingAttendanceClassesSummary({
         programId: selectedProgramId !== "*" ? selectedProgramId : undefined,
         date: selectedDate,
-        sessionId: selectedSessionId !== "all" ? selectedSessionId : undefined,
+        sessionId: effectiveSessionId,
       }),
-    enabled: viewLevel === "classes",
+    enabled: viewLevel === "classes" && (!isLoadingSessions || !!effectiveSessionId),
   });
 
   // Level 2: Subjects Summary Query
@@ -569,14 +582,14 @@ export default function MissingAttendanceReportTab({ onBack }) {
       selectedClassSection?.classId,
       selectedClassSection?.sectionId,
       selectedDate,
-      selectedSessionId,
+      effectiveSessionId,
     ],
     queryFn: () =>
       getMissingAttendanceSubjectsSummary({
         classId: selectedClassSection?.classId,
         sectionId: selectedClassSection?.sectionId || undefined,
         date: selectedDate,
-        sessionId: selectedSessionId !== "all" ? selectedSessionId : undefined,
+        sessionId: effectiveSessionId,
       }),
     enabled: viewLevel === "subjects" && !!selectedClassSection?.classId,
   });
@@ -594,7 +607,7 @@ export default function MissingAttendanceReportTab({ onBack }) {
       selectedClassSection?.sectionId,
       selectedSubject?.subjectId,
       selectedDate,
-      selectedSessionId,
+      effectiveSessionId,
     ],
     queryFn: () =>
       getMissingAttendanceStudentsSummary({
@@ -602,7 +615,7 @@ export default function MissingAttendanceReportTab({ onBack }) {
         sectionId: selectedClassSection?.sectionId || undefined,
         subjectId: selectedSubject?.subjectId,
         date: selectedDate,
-        sessionId: selectedSessionId !== "all" ? selectedSessionId : undefined,
+        sessionId: effectiveSessionId,
       }),
     enabled:
       viewLevel === "students" &&

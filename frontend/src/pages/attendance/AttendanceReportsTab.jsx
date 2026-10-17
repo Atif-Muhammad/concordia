@@ -37,9 +37,21 @@ import {
   Download,
   Printer,
   ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   ArrowLeft,
   RotateCcw,
   FileSpreadsheet,
+  Users,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  MinusCircle,
+  User,
+  Star,
+  Check,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import {
   getAcademicSessions,
@@ -51,6 +63,8 @@ import {
   getSubjectsForClassWithAssignments,
 } from "../../../config/apis";
 import { hasPermission } from "@/lib/navigation.jsx";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
+import IndividualReportsTab from "./IndividualReportsTab.jsx";
 
 const extractId = (val) => {
   if (!val) return "";
@@ -63,6 +77,16 @@ const toLocalDateKey = (d) => {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const cleanSubjectName = (name) => {
+  if (!name) return "";
+  let clean = String(name).trim();
+  if (/^[A-Z0-9_-]+\s*-\s*(.+)$/i.test(clean)) {
+    clean = clean.replace(/^[A-Z0-9_-]+\s*-\s*/i, "");
+  }
+  clean = clean.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return clean || name;
 };
 
 const formatDateRangeDisplay = (startStr, endStr) => {
@@ -85,107 +109,71 @@ const formatDateRangeDisplay = (startStr, endStr) => {
   }
 };
 
-const getInitials = (name) => {
-  if (!name) return "ST";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return name.slice(0, 2).toUpperCase();
+const CircularProgressRing = ({ percentage = 0, size = 64, strokeWidth = 6 }) => {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const validPct = Math.min(100, Math.max(0, Number(percentage) || 0));
+  const strokeDashoffset = circumference - (validPct / 100) * circumference;
+
+  return (
+    <div className="relative flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+          className="text-slate-100 dark:text-slate-800"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          className="text-emerald-500 transition-all duration-500"
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center text-center">
+        <span className="text-xs font-bold text-foreground">{validPct}%</span>
+      </div>
+    </div>
+  );
 };
 
-const getWeeklyGroups = (startDateStr, endDateStr, attendanceList) => {
-  if (!startDateStr || !endDateStr) return [];
-  const start = new Date(`${startDateStr}T00:00:00`);
-  const end = new Date(`${endDateStr}T00:00:00`);
-  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
-
-  const attMap = new Map();
-  (attendanceList || []).forEach((item) => {
-    let dStr = "";
-    if (typeof item.date === "string") {
-      dStr = item.date.slice(0, 10);
-    } else if (item.date instanceof Date) {
-      dStr = toLocalDateKey(item.date);
-    }
-    if (dStr) {
-      attMap.set(dStr, {
-        status: String(item.status || "").toLowerCase(),
-        notes: item.notes || "",
-      });
-    }
-  });
-
-  const weeks = [];
-  let current = new Date(start);
-  let weekIndex = 1;
-
-  while (current <= end) {
-    const weekStart = new Date(current);
-    const dayOfWeek = current.getDay(); // 0 = Sun, 1 = Mon ...
-    const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-    const sundayDate = new Date(current);
-    sundayDate.setDate(current.getDate() + daysToSunday);
-    const weekEnd = sundayDate > end ? new Date(end) : sundayDate;
-
-    const days = [];
-    let d = new Date(weekStart);
-    while (d <= weekEnd) {
-      const dKey = toLocalDateKey(d);
-      const record = attMap.get(dKey);
-
-      days.push({
-        dateKey: dKey,
-        dayName: d.toLocaleDateString("en-US", { weekday: "short" }),
-        formattedDate: d.toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
-        status: record ? record.status : "not_marked",
-        notes: record?.notes || "",
-      });
-      d.setDate(d.getDate() + 1);
-    }
-
-    const markedDays = days.filter(
-      (x) =>
-        x.status &&
-        x.status !== "not_marked" &&
-        x.status !== "holiday"
+const renderAttendanceStatusBadge = (pct) => {
+  if (pct >= 95) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/80">
+        <span className="text-[11px] leading-none">★</span> Excellent
+      </span>
     );
-    const attendedDays = days.filter(
-      (x) => x.status === "present" || x.status === "short_leave"
-    );
-    const totalMarked = markedDays.length;
-    const attendedCount = attendedDays.length;
-    const weekPercent =
-      totalMarked > 0 ? Math.round((attendedCount / totalMarked) * 100) : 0;
-
-    if (days.length > 0) {
-      weeks.push({
-        weekIndex,
-        weekStart: weekStart.toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
-        weekEnd: weekEnd.toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
-        days,
-        totalMarked,
-        attendedCount,
-        weekPercent,
-      });
-    }
-
-    weekIndex++;
-    current = new Date(weekEnd);
-    current.setDate(current.getDate() + 1);
   }
-
-  return weeks;
+  if (pct >= 80) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/80">
+        <span className="text-[11px] leading-none">✓</span> Good
+      </span>
+    );
+  }
+  if (pct >= 75) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200/80">
+        <span className="text-[11px] leading-none">⚠</span> Needs Attention
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/80">
+      <span className="text-[11px] leading-none">✕</span> At Risk
+    </span>
+  );
 };
 
 export default function AttendanceReportsTab({ onBack }) {
@@ -199,9 +187,16 @@ export default function AttendanceReportsTab({ onBack }) {
   );
   const isTeacherScoped = isTeacher && !canViewAllReports;
 
-  // 1. By default, do NOT select any filter!
-  const [reportStartDate, setReportStartDate] = useState("");
-  const [reportEndDate, setReportEndDate] = useState("");
+  // Selected Student Drilldown View
+  const [selectedStudentForDetail, setSelectedStudentForDetail] = useState(null);
+
+  // Filters State
+  const now = new Date();
+  const defaultStart = toLocalDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
+  const defaultEnd = toLocalDateKey(now);
+
+  const [reportStartDate, setReportStartDate] = useState(defaultStart);
+  const [reportEndDate, setReportEndDate] = useState(defaultEnd);
   const [reportProgramId, setReportProgramId] = useState("");
   const [reportClassId, setReportClassId] = useState("");
   const [reportSectionId, setReportSectionId] = useState("");
@@ -211,17 +206,13 @@ export default function AttendanceReportsTab({ onBack }) {
 
   // Date Range Popover Local State
   const [isDateRangeOpen, setIsDateRangeOpen] = useState(false);
-  const [tempStartDate, setTempStartDate] = useState("");
-  const [tempEndDate, setTempEndDate] = useState("");
+  const [tempStartDate, setTempStartDate] = useState(defaultStart);
+  const [tempEndDate, setTempEndDate] = useState(defaultEnd);
 
-  // 6. Pagination on scroll
+  // Scroll Sentinel State (Fetch on scroll)
   const scrollSentinelRef = useRef(null);
   const BATCH_SIZE = 15;
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
-
-  // 3. Selection for Subject Details Panel (Student + clicked Subject cell)
-  const [selectedStudentId, setSelectedStudentId] = useState(null);
-  const [selectedDetailSubjectId, setSelectedDetailSubjectId] = useState(null);
 
   // Academic Sessions
   const { data: academicSessions = [] } = useQuery({
@@ -230,7 +221,13 @@ export default function AttendanceReportsTab({ onBack }) {
   });
 
   const activeSession = useMemo(() => {
-    return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
+    return (
+      academicSessions.find(
+        (s) => s.isActive === true || s.isActive === "true" || s.isCurrent || s.status === "ACTIVE"
+      ) ||
+      academicSessions[0] ||
+      null
+    );
   }, [academicSessions]);
   const activeSessionId = activeSession ? extractId(activeSession) : "";
 
@@ -311,7 +308,7 @@ export default function AttendanceReportsTab({ onBack }) {
     );
   }, [isTeacherScoped, teacherClassMappings]);
 
-  // 1. Program selection filters linked classes
+  // Program selection filters linked classes
   const reportFilteredClasses = useMemo(() => {
     const baseList = isTeacherScoped ? teacherClasses : allClasses;
     if (!reportProgramId || reportProgramId === "*") return baseList;
@@ -341,7 +338,20 @@ export default function AttendanceReportsTab({ onBack }) {
     return allSections.filter((s) => extractId(s.classId || s.class) === reportClassId);
   }, [reportClassId, isSectionApplicable, isTeacherScoped, teacherClassMappings, allSections]);
 
-  // 2. Fetch accurate subjects for the selected class from backend
+  const selectedSection = useMemo(() => {
+    return availableSections.find((s) => extractId(s) === reportSectionId) || null;
+  }, [availableSections, reportSectionId]);
+
+  const classSectionLabel = useMemo(() => {
+    if (!selectedClass) return "All Classes";
+    const cName = selectedClass.name || selectedClass.className || "Class";
+    if (selectedSection) {
+      return `In ${cName} - ${selectedSection.name || selectedSection.sectionName}`;
+    }
+    return `In ${cName}`;
+  }, [selectedClass, selectedSection]);
+
+  // Fetch accurate subjects for the selected class from backend
   const { data: classSubjects = [] } = useQuery({
     queryKey: ["classSubjects", reportClassId, reportSessionId, reportSectionId, activeSessionId],
     queryFn: () => {
@@ -400,11 +410,10 @@ export default function AttendanceReportsTab({ onBack }) {
     enabled: isFilterReady,
   });
 
-  // 2. Extract Distinct Subjects: accurately from classSubjects + reportData (STRICTLY NO "General"!)
+  // Extract Distinct Subjects: accurately from classSubjects + reportData (STRICTLY NO "General"!)
   const distinctSubjects = useMemo(() => {
     const map = new Map();
 
-    // First add from classSubjects (the definitive assigned subjects for this class)
     (classSubjects || []).forEach((sub) => {
       const id = String(sub.id || sub._id || sub.subjectId || "");
       const name = sub.name || sub.code || "";
@@ -413,7 +422,6 @@ export default function AttendanceReportsTab({ onBack }) {
       }
     });
 
-    // Then add any additional subjects from reportData
     (reportData || []).forEach((student) => {
       student.subjects?.forEach((subj) => {
         const id = String(subj.subjectId || subj.id || "");
@@ -427,14 +435,7 @@ export default function AttendanceReportsTab({ onBack }) {
     return Array.from(map.values());
   }, [classSubjects, reportData]);
 
-  // Displayed Subjects in Main Table
-  const displayedSubjects = useMemo(() => {
-    if (selectedSubjectFilter === "all" || !selectedSubjectFilter) return distinctSubjects;
-    const found = distinctSubjects.filter((s) => s.id === selectedSubjectFilter);
-    return found.length > 0 ? found : distinctSubjects;
-  }, [distinctSubjects, selectedSubjectFilter]);
-
-  // Filtered Students (Search Filter)
+  // Filtered Students (Search Query Filter)
   const filteredStudents = useMemo(() => {
     if (!studentSearchQuery.trim()) return reportData;
     const q = studentSearchQuery.toLowerCase().trim();
@@ -446,19 +447,78 @@ export default function AttendanceReportsTab({ onBack }) {
     });
   }, [reportData, studentSearchQuery]);
 
-  // Reset infinite scroll on search or filter change
+  // Distinct marked class dates in the selected period (Excluding 'no marked' and holiday dates)
+  const dateList = useMemo(() => {
+    if (!reportStartDate || !reportEndDate || !filteredStudents.length) return [];
+    const markedDates = new Set();
+
+    filteredStudents.forEach((student) => {
+      (student.subjects || []).forEach((sub) => {
+        if (selectedSubjectFilter && selectedSubjectFilter !== "all") {
+          if (String(sub.subjectId || sub.id) !== String(selectedSubjectFilter)) return;
+        }
+        (sub.attendance || []).forEach((att) => {
+          const st = String(att.status || "").toLowerCase();
+          // Exclude holidays and unmarked entries
+          if (
+            st === "present" ||
+            st === "absent" ||
+            st === "leave" ||
+            st === "short_leave" ||
+            st === "half_day" ||
+            st === "hd"
+          ) {
+            const k = typeof att.date === "string" ? att.date.slice(0, 10) : toLocalDateKey(new Date(att.date));
+            if (k >= reportStartDate && k <= reportEndDate) {
+              markedDates.add(k);
+            }
+          }
+        });
+      });
+    });
+
+    return Array.from(markedDates).sort();
+  }, [reportStartDate, reportEndDate, filteredStudents, selectedSubjectFilter]);
+
+  // Accordion Expanded Students State (Matching Image representation)
+  const [expandedStudentIds, setExpandedStudentIds] = useState(() => new Set());
+
+  const toggleExpandStudent = (sId) => {
+    setExpandedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sId)) {
+        next.delete(sId);
+      } else {
+        next.add(sId);
+      }
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => {
+    const allIds = new Set(filteredStudents.map((s) => s.id || s._id));
+    setExpandedStudentIds(allIds);
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedStudentIds(new Set());
+  };
+
+  // Reset visibleCount and collapse all rows on filter or search changes
   useEffect(() => {
     setVisibleCount(BATCH_SIZE);
+    setExpandedStudentIds(new Set());
   }, [
     studentSearchQuery,
     reportClassId,
     reportSectionId,
+    reportProgramId,
     selectedSubjectFilter,
     reportStartDate,
     reportEndDate,
   ]);
 
-  // Scroll sentinel observer for infinite scroll
+  // Observer for fetch on scroll
   useEffect(() => {
     const el = scrollSentinelRef.current;
     if (!el) return;
@@ -474,234 +534,159 @@ export default function AttendanceReportsTab({ onBack }) {
     return () => observer.disconnect();
   }, [visibleCount, filteredStudents.length]);
 
+  // Metric Calculation for Each Student (matches Image 2 exact logic)
+  const studentMetricsMap = useMemo(() => {
+    const map = new Map();
+
+    filteredStudents.forEach((student) => {
+      let present = 0;
+      let absent = 0;
+      let leave = 0;
+      let holiday = 0;
+
+      const subjectsToConsider =
+        selectedSubjectFilter === "all" || !selectedSubjectFilter
+          ? (student.subjects || []).filter(
+              (s) => s.subjectName && s.subjectName.toLowerCase() !== "general"
+            )
+          : (student.subjects || []).filter(
+              (s) => String(s.subjectId || s.id) === String(selectedSubjectFilter)
+            );
+
+      subjectsToConsider.forEach((sub) => {
+        (sub.attendance || []).forEach((att) => {
+          const st = String(att.status || "").toLowerCase();
+          if (st === "present" || st === "short_leave" || st === "half_day" || st === "hd") {
+            present++;
+          } else if (st === "absent") {
+            absent++;
+          } else if (st === "leave") {
+            leave++;
+          } else if (st === "holiday") {
+            holiday++;
+          }
+        });
+      });
+
+      const totalClasses = present + absent + leave + holiday;
+      const effectiveTotal = totalClasses - holiday > 0 ? totalClasses - holiday : totalClasses;
+      const pct =
+        effectiveTotal > 0
+          ? Math.round((present / effectiveTotal) * 1000) / 10
+          : 0;
+
+      const sId = student.id || student._id;
+      map.set(sId, {
+        totalClasses,
+        present,
+        absent,
+        leave,
+        holiday,
+        pct,
+      });
+    });
+
+    return map;
+  }, [filteredStudents, selectedSubjectFilter]);
+
+  // Top Summary Cards (6 Cards matching Image 2)
+  const summaryStats = useMemo(() => {
+    const totalStudents = filteredStudents.length;
+    if (totalStudents === 0) {
+      return {
+        totalStudents: 0,
+        presentCount: 0,
+        presentPct: "0.0%",
+        absentCount: 0,
+        absentPct: "0.0%",
+        leaveCount: 0,
+        leavePct: "0.0%",
+        holidayCount: 0,
+        holidayPct: "0.0%",
+        overallPct: 0,
+      };
+    }
+
+    let sumPresent = 0;
+    let sumAbsent = 0;
+    let sumLeave = 0;
+    let sumHoliday = 0;
+
+    filteredStudents.forEach((s) => {
+      const sId = s.id || s._id;
+      const m = studentMetricsMap.get(sId);
+      if (m) {
+        sumPresent += m.present;
+        sumAbsent += m.absent;
+        sumLeave += m.leave;
+        sumHoliday += m.holiday;
+      }
+    });
+
+    const totalAllMarks = sumPresent + sumAbsent + sumLeave + sumHoliday;
+    const presentRatio = totalAllMarks > 0 ? sumPresent / totalAllMarks : 0;
+    const absentRatio = totalAllMarks > 0 ? sumAbsent / totalAllMarks : 0;
+    const leaveRatio = totalAllMarks > 0 ? sumLeave / totalAllMarks : 0;
+    const holidayRatio = totalAllMarks > 0 ? sumHoliday / totalAllMarks : 0;
+
+    const presentPct = (presentRatio * 100).toFixed(1) + "%";
+    const absentPct = (absentRatio * 100).toFixed(1) + "%";
+    const leavePct = (leaveRatio * 100).toFixed(1) + "%";
+    const holidayPct = (holidayRatio * 100).toFixed(1) + "%";
+
+    // Normalized counts relative to totalStudents (e.g. 28 + 3 + 1 = 32)
+    const presentCount = Math.round(presentRatio * totalStudents);
+    const absentCount = Math.round(absentRatio * totalStudents);
+    const leaveCount = Math.round(leaveRatio * totalStudents);
+    const holidayCount = Math.max(
+      0,
+      totalStudents - (presentCount + absentCount + leaveCount)
+    );
+
+    const effectiveTotalMarks =
+      totalAllMarks - sumHoliday > 0 ? totalAllMarks - sumHoliday : totalAllMarks;
+    const overallPct =
+      effectiveTotalMarks > 0
+        ? Math.round((sumPresent / effectiveTotalMarks) * 1000) / 10
+        : 0;
+
+    return {
+      totalStudents,
+      presentCount,
+      presentPct,
+      absentCount,
+      absentPct,
+      leaveCount,
+      leavePct,
+      holidayCount,
+      holidayPct,
+      overallPct,
+    };
+  }, [filteredStudents, studentMetricsMap]);
+
+  // Paged Students (Slice for fetch on scroll)
   const pagedStudents = useMemo(() => {
     return filteredStudents.slice(0, visibleCount);
   }, [filteredStudents, visibleCount]);
 
-  // Manage Selected Student
-  useEffect(() => {
-    if (filteredStudents.length > 0) {
-      if (
-        !selectedStudentId ||
-        !filteredStudents.some((s) => (s.id || s._id) === selectedStudentId)
-      ) {
-        setSelectedStudentId(filteredStudents[0].id || filteredStudents[0]._id);
-      }
-    } else {
-      setSelectedStudentId(null);
-    }
-  }, [filteredStudents, selectedStudentId]);
-
-  const selectedStudent = useMemo(() => {
-    return (
-      filteredStudents.find((s) => (s.id || s._id) === selectedStudentId) || null
-    );
-  }, [filteredStudents, selectedStudentId]);
-
-  // Available subjects for the selected student in detail panel (Excluding "General")
-  const studentSubjects = useMemo(() => {
-    if (!selectedStudent || !selectedStudent.subjects?.length) {
-      return classSubjects
-        .filter((s) => s.name && s.name.toLowerCase() !== "general")
-        .map((s) => ({
-          subjectId: String(s.id || s._id || s.subjectId),
-          subjectName: s.name,
-          attendance: [],
-        }));
-    }
-    const filtered = selectedStudent.subjects.filter(
-      (s) => s.subjectName && s.subjectName.toLowerCase() !== "general"
-    );
-    if (filtered.length === 0 && classSubjects.length > 0) {
-      return classSubjects
-        .filter((s) => s.name && s.name.toLowerCase() !== "general")
-        .map((s) => ({
-          subjectId: String(s.id || s._id || s.subjectId),
-          subjectName: s.name,
-          attendance: [],
-        }));
-    }
-    return filtered;
-  }, [selectedStudent, classSubjects]);
-
-  // Sync Detail Subject (defaults to active subject filter or first student subject)
-  useEffect(() => {
-    if (!selectedStudent || studentSubjects.length === 0) return;
-
-    if (
-      selectedDetailSubjectId &&
-      studentSubjects.some((s) => String(s.subjectId) === String(selectedDetailSubjectId))
-    ) {
-      return;
-    }
-
-    if (
-      selectedSubjectFilter !== "all" &&
-      studentSubjects.some((s) => String(s.subjectId) === String(selectedSubjectFilter))
-    ) {
-      setSelectedDetailSubjectId(selectedSubjectFilter);
-    } else {
-      setSelectedDetailSubjectId(studentSubjects[0]?.subjectId || "");
-    }
-  }, [selectedStudent, selectedSubjectFilter, studentSubjects, selectedDetailSubjectId]);
-
-  const currentDetailSubject = useMemo(() => {
-    if (!studentSubjects.length) return null;
-    return (
-      studentSubjects.find(
-        (s) => String(s.subjectId) === String(selectedDetailSubjectId)
-      ) || studentSubjects[0]
-    );
-  }, [studentSubjects, selectedDetailSubjectId]);
-
-  // Selected Student Overall Attendance %
-  const selectedStudentOverallPct = useMemo(() => {
-    if (!selectedStudent) return 0;
-    let presentCount = 0;
-    let totalClasses = 0;
-    (selectedStudent.subjects || []).forEach((sub) => {
-      (sub.attendance || []).forEach((att) => {
-        const st = String(att.status || "").toLowerCase();
-        if (st === "present" || st === "short_leave") presentCount++;
-        if (
-          st === "present" ||
-          st === "short_leave" ||
-          st === "absent" ||
-          st === "leave"
-        ) {
-          totalClasses++;
-        }
-      });
-    });
-    return totalClasses > 0 ? Math.round((presentCount / totalClasses) * 100) : 0;
-  }, [selectedStudent]);
-
-  // Weekly groups for the selected student & active subject
-  const weeklyGroups = useMemo(() => {
-    if (!reportStartDate || !reportEndDate || !currentDetailSubject) return [];
-    return getWeeklyGroups(
-      reportStartDate,
-      reportEndDate,
-      currentDetailSubject.attendance || []
-    );
-  }, [reportStartDate, reportEndDate, currentDetailSubject]);
-
-  // Class-wide summary statistics for table headers
-  const classStats = useMemo(() => {
-    const subjStatsMap = {};
-    let classOverallAttended = 0;
-    let classOverallRecorded = 0;
-
-    distinctSubjects.forEach((sub) => {
-      subjStatsMap[sub.id] = { attended: 0, recorded: 0, percentage: 0 };
-    });
-
-    filteredStudents.forEach((student) => {
-      distinctSubjects.forEach((sub) => {
-        const sSubj = student.subjects?.find(
-          (s) => String(s.subjectId || s.id || s.name) === String(sub.id)
-        );
-        (sSubj?.attendance || []).forEach((att) => {
-          const st = String(att.status || "").toLowerCase();
-          if (st === "present" || st === "short_leave") {
-            subjStatsMap[sub.id].attended++;
-            classOverallAttended++;
-          }
-          if (
-            st === "present" ||
-            st === "short_leave" ||
-            st === "absent" ||
-            st === "leave"
-          ) {
-            subjStatsMap[sub.id].recorded++;
-            classOverallRecorded++;
-          }
-        });
-      });
-    });
-
-    distinctSubjects.forEach((sub) => {
-      const rec = subjStatsMap[sub.id].recorded;
-      const att = subjStatsMap[sub.id].attended;
-      subjStatsMap[sub.id].percentage =
-        rec > 0 ? Math.round((att / rec) * 100) : 0;
-    });
-
-    const overallPercentage =
-      classOverallRecorded > 0
-        ? Math.round((classOverallAttended / classOverallRecorded) * 100)
-        : 0;
-
-    return {
-      subjects: subjStatsMap,
-      overallPercentage,
-    };
-  }, [distinctSubjects, filteredStudents]);
-
-  // Compute student stats for each row
-  const getStudentMetrics = (student) => {
-    let studentOverallAttended = 0;
-    let studentOverallRecorded = 0;
-    const subjMap = {};
-
-    distinctSubjects.forEach((sub) => {
-      const sSubj = student.subjects?.find(
-        (s) => String(s.subjectId || s.id || s.name) === String(sub.id)
-      );
-      let att = 0;
-      let rec = 0;
-      (sSubj?.attendance || []).forEach((a) => {
-        const st = String(a.status || "").toLowerCase();
-        if (st === "present" || st === "short_leave") att++;
-        if (
-          st === "present" ||
-          st === "short_leave" ||
-          st === "absent" ||
-          st === "leave"
-        ) {
-          rec++;
-        }
-      });
-      studentOverallAttended += att;
-      studentOverallRecorded += rec;
-      const pct = rec > 0 ? Math.round((att / rec) * 100) : 0;
-      subjMap[sub.id] = {
-        attended: att,
-        recorded: rec,
-        percentage: pct,
-        isLow: rec > 0 && pct <= 75,
-      };
-    });
-
-    const overallPct =
-      studentOverallRecorded > 0
-        ? Math.round((studentOverallAttended / studentOverallRecorded) * 100)
-        : 0;
-
-    return {
-      subjMap,
-      overallPct,
-    };
-  };
-
   // Date Range Popover Handlers
   const handlePresetRange = (preset) => {
-    const now = new Date();
+    const curNow = new Date();
     let start = new Date();
     let end = new Date();
 
     if (preset === "this_month") {
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      start = new Date(curNow.getFullYear(), curNow.getMonth(), 1);
+      end = new Date(curNow.getFullYear(), curNow.getMonth() + 1, 0);
     } else if (preset === "last_month") {
-      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      end = new Date(now.getFullYear(), now.getMonth(), 0);
+      start = new Date(curNow.getFullYear(), curNow.getMonth() - 1, 1);
+      end = new Date(curNow.getFullYear(), curNow.getMonth(), 0);
     } else if (preset === "last_30_days") {
-      start = new Date(now);
-      start.setDate(now.getDate() - 30);
+      start = new Date(curNow);
+      start.setDate(curNow.getDate() - 30);
     } else if (preset === "last_7_days") {
-      start = new Date(now);
-      start.setDate(now.getDate() - 7);
+      start = new Date(curNow);
+      start.setDate(curNow.getDate() - 7);
     }
 
     const sStr = toLocalDateKey(start);
@@ -721,57 +706,7 @@ export default function AttendanceReportsTab({ onBack }) {
     }
   };
 
-  // Export to CSV
-  const handleExportCSV = () => {
-    if (!filteredStudents.length) return;
-
-    const headers = [
-      "Roll No",
-      "Student Name",
-      "Father Name",
-      "Class",
-      "Section",
-    ];
-    displayedSubjects.forEach((sub) => {
-      headers.push(`${sub.name} Attended`, `${sub.name} Total`, `${sub.name} %`);
-    });
-    headers.push("Overall %");
-
-    const rows = filteredStudents.map((student) => {
-      const row = [
-        `"${student.rollNumber || ""}"`,
-        `"${student.name || ""}"`,
-        `"${student.fatherName || ""}"`,
-        `"${student.class?.name || ""}"`,
-        `"${student.section?.name || ""}"`,
-      ];
-
-      const metrics = getStudentMetrics(student);
-
-      displayedSubjects.forEach((sub) => {
-        const sm = metrics.subjMap[sub.id] || { attended: 0, recorded: 0, percentage: 0 };
-        row.push(sm.attended, sm.recorded, `${sm.percentage}%`);
-      });
-
-      row.push(`${metrics.overallPct}%`);
-      return row.join(",");
-    });
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `Subject_Attendance_Report_${reportStartDate}_to_${reportEndDate}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Print Functionality
+  // Print Functionality using openManagedPrintWindow (Matching Image representation)
   const printAttendanceReport = async () => {
     let logoDataUrl = "/logo.png";
     try {
@@ -829,222 +764,240 @@ export default function AttendanceReportsTab({ onBack }) {
       day: "numeric",
     });
 
-    const tableRowsHtml = filteredStudents
+    const numDates = dateList.length || 1;
+    // Dynamic styles based on column count so columns contract cleanly without overflow
+    const dynamicThFont = numDates > 24 ? "7px" : numDates > 16 ? "8px" : numDates > 10 ? "8.5px" : "9.5px";
+    const dynamicSubThFont = numDates > 24 ? "6px" : numDates > 16 ? "7px" : "8px";
+    const pillSize = numDates > 24 ? "14px" : numDates > 16 ? "17px" : "20px";
+    const pillFontSize = numDates > 24 ? "6.5px" : numDates > 16 ? "8px" : "9px";
+    const subjectColWidth = numDates > 24 ? "95px" : numDates > 16 ? "115px" : "135px";
+
+    const dayHeadersHtml = dateList
+      .map((d) => {
+        const dt = new Date(`${d}T00:00:00`);
+        const dayNum = dt.getDate();
+        const monthShort = dt.toLocaleDateString("en-US", { month: "short" });
+        const weekDay = dt.toLocaleDateString("en-US", { weekday: "short" });
+        const topText = numDates > 18 ? `${dayNum}` : `${dayNum} ${monthShort}`;
+        const subText = numDates > 22 ? weekDay.slice(0, 2) : weekDay;
+        return `
+          <th style="padding: 2px 1px; text-align: center; border: 1px solid #cbd5e1; background: #f8fafc; font-size: ${dynamicThFont}; font-weight: 700;">
+            <div style="line-height: 1.1; color: #0f172a;">${topText}</div>
+            <div style="font-size: ${dynamicSubThFont}; color: #64748b; text-transform: uppercase;">${subText}</div>
+          </th>
+        `;
+      })
+      .join("");
+
+    const studentCardsHtml = filteredStudents
       .map((student) => {
-        const metrics = getStudentMetrics(student);
-        const subjCells = displayedSubjects
-          .map((sub) => {
-            const sm = metrics.subjMap[sub.id] || {
-              attended: 0,
-              recorded: 0,
-              percentage: 0,
-              isLow: false,
-            };
-            return `
-            <td style="padding: 5px 6px; text-align: center; border: 1px solid #cbd5e1; ${
-              sm.isLow ? "background-color: #fee2e2; color: #991b1b; font-weight: bold;" : ""
-            }">
-              ${sm.recorded > 0 ? `${sm.attended} / ${sm.recorded} (${sm.percentage}%)` : "—"}
-            </td>
-          `;
-          })
-          .join("");
-
-        return `
-        <tr>
-          <td style="padding: 5px 6px; border: 1px solid #cbd5e1; font-family: monospace;">${student.rollNumber || "—"}</td>
-          <td style="padding: 5px 6px; border: 1px solid #cbd5e1; font-weight: 600; text-transform: uppercase;">${student.name || "—"}</td>
-          ${subjCells}
-          <td style="padding: 5px 6px; text-align: center; border: 1px solid #cbd5e1; font-weight: bold; color: #ea580c;">${metrics.overallPct}%</td>
-        </tr>
-      `;
-      })
-      .join("");
-
-    const subjHeadersHtml = displayedSubjects
-      .map((sub) => {
-        const cs = classStats.subjects[sub.id] || {
-          attended: 0,
-          recorded: 0,
-          percentage: 0,
+        const sId = student.id || student._id;
+        const m = studentMetricsMap.get(sId) || {
+          totalClasses: 0,
+          present: 0,
+          absent: 0,
+          leave: 0,
+          holiday: 0,
+          pct: 0,
         };
+
+        const studentSubjects = (student.subjects || []).filter((s) => {
+          if (!s.subjectName || s.subjectName.toLowerCase() === "general") return false;
+          if (selectedSubjectFilter && selectedSubjectFilter !== "all") {
+            return String(s.subjectId || s.id) === String(selectedSubjectFilter);
+          }
+          return true;
+        });
+
+        const subjectRowsHtml =
+          studentSubjects.length === 0
+            ? `<tr><td colspan="${numDates + 2}" style="padding: 6px; text-align: center; color: #94a3b8; font-size: 9px;">No subjects recorded</td></tr>`
+            : studentSubjects
+                .map((sub) => {
+                  const cleanName = cleanSubjectName(sub.subjectName);
+                  const attMap = {};
+                  (sub.attendance || []).forEach((a) => {
+                    const k = typeof a.date === "string" ? a.date.slice(0, 10) : toLocalDateKey(new Date(a.date));
+                    attMap[k] = String(a.status || "").toLowerCase();
+                  });
+
+                  const pCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "present").length;
+                  const aCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "absent").length;
+                  const lCount = (sub.attendance || []).filter((a) => {
+                    const s = String(a.status || "").toLowerCase();
+                    return s === "leave" || s === "short_leave";
+                  }).length;
+                  const eff = pCount + aCount + lCount;
+                  const subjPct = eff > 0 ? Math.round((pCount / eff) * 100) : 0;
+
+                  const cellsHtml = dateList
+                    .map((d) => {
+                      const st = attMap[d];
+                      if (st === "present") return `<td style="padding: 1px 0; text-align: center; border: 1px solid #cbd5e1;"><span class="pill pill-p">P</span></td>`;
+                      if (st === "absent") return `<td style="padding: 1px 0; text-align: center; border: 1px solid #cbd5e1;"><span class="pill pill-a">A</span></td>`;
+                      if (st === "leave" || st === "short_leave") return `<td style="padding: 1px 0; text-align: center; border: 1px solid #cbd5e1;"><span class="pill pill-l">L</span></td>`;
+                      if (st === "holiday") return `<td style="padding: 1px 0; text-align: center; border: 1px solid #cbd5e1;"><span class="pill pill-h">H</span></td>`;
+                      return `<td style="padding: 1px 0; text-align: center; border: 1px solid #cbd5e1; color: #cbd5e1; font-size: 8px;">-</td>`;
+                    })
+                    .join("");
+
+                  return `
+                    <tr>
+                      <td style="padding: 2px 5px; border: 1px solid #cbd5e1; font-weight: 700; font-size: ${numDates > 20 ? '8px' : '9px'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #0f172a;">
+                        ${cleanName}
+                      </td>
+                      ${cellsHtml}
+                      <td style="padding: 2px 2px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700; font-family: monospace; font-size: ${numDates > 20 ? '8px' : '9px'}; color: #0f172a;">
+                        ${subjPct}%
+                      </td>
+                    </tr>
+                  `;
+                })
+                .join("");
+
         return `
-        <th style="padding: 6px 8px; border: 1px solid #cbd5e1; background: #f8fafc; text-align: center;">
-          <div style="font-size: 11px; font-weight: 700;">${sub.name}</div>
-          <div style="font-size: 9px; font-weight: normal; color: #64748b; margin-top: 2px;">
-            ${cs.recorded > 0 ? `${cs.attended}/${cs.recorded} (${cs.percentage}%)` : "—"}
+          <div class="student-card">
+            <div class="student-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-family: monospace; font-weight: 700; font-size: 11px; color: #0f172a;">${student.rollNumber || "—"}</span>
+                <span style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: #0f172a;">${student.name || `${student.fName || ""} ${student.lName || ""}`.trim() || "—"}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="badge badge-p">P: ${m.present}</span>
+                <span class="badge badge-a">A: ${m.absent}</span>
+                <span class="badge badge-l">L: ${m.leave}</span>
+                <span style="font-weight: 800; font-size: 11px; color: #0f172a; margin-left: 4px; font-family: monospace;">${m.pct.toFixed(1)}%</span>
+              </div>
+            </div>
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th style="width: ${subjectColWidth}; text-align: left; padding: 3px 6px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">Subject</th>
+                  ${dayHeadersHtml}
+                  <th style="width: 38px; text-align: center; padding: 3px 2px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${subjectRowsHtml}
+              </tbody>
+            </table>
           </div>
-        </th>
-      `;
+        `;
       })
       .join("");
 
-    const printWindow = window.open("", "", "height=750,width=1100");
-    printWindow.document.write(`
+    const fullHtml = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Subject-wise Attendance Report</title>
+        <title>Students Attendance Report - ${classLabel}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600&family=Great+Vibes&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600;700&family=Great+Vibes&display=swap" rel="stylesheet">
         <style>
-          @page { size: A4 landscape; margin: 8mm 10mm; }
+          @page { size: A4 landscape; margin: 6mm 8mm; }
           * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 0; padding: 10px; color: #0f172a; background: #fff; font-size: 11px; line-height: 1.3;
-          }
-          .form-header {
-            display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 8px;
-          }
-          .header-logo-area {
-            display: flex; align-items: center; gap: 14px;
-          }
-          .brand-logo {
-            height: 52px; width: auto; max-width: 120px; object-fit: contain; display: block;
-          }
-          .header-title-block h1 {
-            font-size: 18px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #0f172a; margin: 0; line-height: 1.2;
-          }
-          .header-title-block .tagline {
-            font-size: 9.5px; font-weight: 600; text-transform: uppercase; color: #475569; letter-spacing: 0.5px; margin-top: 2px;
-          }
-          .meta-box {
-            font-size: 10px; color: #64748b; line-height: 1.4; text-align: right;
-          }
-          .meta-box strong { color: #0f172a; }
-          .center-calligraphy-title {
-            text-align: center;
-            font-family: 'Alex Brush', 'Great Vibes', 'Dancing Script', 'Brush Script MT', 'Lucida Calligraphy', 'Segoe Script', cursive, serif;
-            font-size: 28px;
-            font-weight: 500;
-            color: #0f172a;
-            margin: 4px 0 10px 0;
-            padding: 2px 0 6px 0;
-            border-bottom: 1px dashed #cbd5e1;
-            letter-spacing: 0.5px;
-          }
-          .meta-strip {
-            display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 10px; margin-bottom: 12px; font-size: 10px;
-          }
-          .meta-label { font-size: 8px; font-weight: 600; color: #64748b; text-transform: uppercase; display: block; }
-          .meta-val { font-size: 10px; font-weight: 600; color: #0f172a; }
-          table { width: 100%; border-collapse: collapse; font-size: 10px; }
-          th { background-color: #f1f5f9; color: #0f172a; font-weight: 700; }
-          .footer { margin-top: 14px; font-size: 8px; color: #94a3b8; text-align: right; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 6px 10px; color: #0f172a; background: #fff; width: 100%; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px solid #ea580c; padding-bottom: 8px; margin-bottom: 8px; }
+          .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; font-size: 10.5px; }
+          .stats-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 10px; text-align: center; }
+          .stat-box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; background: #f8fafc; }
+          .stat-val { font-size: 13px; font-weight: bold; color: #0f172a; }
+          .stat-lbl { font-size: 9px; color: #64748b; margin-top: 1px; }
+          .student-card { page-break-inside: avoid; margin-bottom: 8px; border: 1.5px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fff; width: 100%; }
+          .student-header { background: #f1f5f9; padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; }
+          .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 9.5px; }
+          .badge-p { background: #dcfce7 !important; color: #166534 !important; border: 1px solid #86efac; }
+          .badge-a { background: #fee2e2 !important; color: #991b1b !important; border: 1px solid #fca5a5; }
+          .badge-l { background: #fef3c7 !important; color: #92400e !important; border: 1px solid #fde68a; }
+          table.report-table { width: 100% !important; border-collapse: collapse; table-layout: fixed !important; }
+          .pill { display: inline-block; text-align: center; width: 100%; max-width: ${pillSize}; height: ${pillSize}; line-height: ${pillSize}; border-radius: 3px; font-weight: 700; font-size: ${pillFontSize}; }
+          .pill-p { background: #16a34a !important; color: #ffffff !important; }
+          .pill-a { background: #dc2626 !important; color: #ffffff !important; }
+          .pill-l { background: #f59e0b !important; color: #ffffff !important; }
+          .pill-h { background: #64748b !important; color: #ffffff !important; }
         </style>
       </head>
       <body>
-        <div class="form-header">
-          <div class="header-logo-area">
-            <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
-            <div class="header-title-block">
-              <h1>Concordia College Peshawar</h1>
-              <div class="tagline">A Project of Beaconhouse</div>
+        <div class="header">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <img src="${logoDataUrl}" alt="Logo" style="height: 48px; width: auto; object-fit: contain;" />
+            <div>
+              <div style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a;">
+                Concordia College Peshawar
+              </div>
+              <div style="font-family: 'Great Vibes', 'Dancing Script', cursive; font-size: 28px; color: #ea580c; line-height: 1.1; margin-top: 1px;">
+                Students Attendance Report
+              </div>
             </div>
           </div>
-          <div class="meta-box">
-            <div><strong>Generated:</strong> ${printDate}</div>
-            <div><strong>Total Students:</strong> ${filteredStudents.length}</div>
+          <div style="text-align: right; font-size: 9.5px; color: #64748b;">
+            <div>Printed: ${printDate}</div>
+            <div>Total Students: ${filteredStudents.length}</div>
           </div>
         </div>
 
-        <div class="center-calligraphy-title">
-          Subject-wise Attendance Report
+        <div class="meta">
+          <div><strong>Class:</strong> ${classLabel}</div>
+          <div><strong>Section:</strong> ${sectionLabel}</div>
+          <div><strong>Session:</strong> ${sessionLabel}</div>
+          <div><strong>Period:</strong> ${formattedStartDate} to ${formattedEndDate}</div>
         </div>
 
-        <div class="meta-strip">
-          <div><span class="meta-label">Session</span><span class="meta-val">${sessionLabel}</span></div>
-          <div><span class="meta-label">Program</span><span class="meta-val">${programLabel}</span></div>
-          <div><span class="meta-label">Class</span><span class="meta-val">${classLabel}</span></div>
-          <div><span class="meta-label">Section</span><span class="meta-val">${sectionLabel}</span></div>
-          <div><span class="meta-label">Period</span><span class="meta-val">${formattedStartDate} – ${formattedEndDate}</span></div>
-          <div><span class="meta-label">Printed On</span><span class="meta-val">${printDate}</span></div>
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="stat-val">${summaryStats.totalStudents}</div>
+            <div class="stat-lbl">Total Students</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color: #15803d;">${summaryStats.presentCount} (${summaryStats.presentPct})</div>
+            <div class="stat-lbl">Present</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color: #dc2626;">${summaryStats.absentCount} (${summaryStats.absentPct})</div>
+            <div class="stat-lbl">Absent</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color: #b45309;">${summaryStats.leaveCount} (${summaryStats.leavePct})</div>
+            <div class="stat-lbl">Leave</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color: #64748b;">${summaryStats.holidayCount} (${summaryStats.holidayPct})</div>
+            <div class="stat-lbl">Holiday</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color: #15803d;">${summaryStats.overallPct}%</div>
+            <div class="stat-lbl">Overall Attendance</div>
+          </div>
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; width: 130px;">Roll No</th>
-              <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Student</th>
-              ${subjHeadersHtml}
-              <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; width: 90px;">
-                <div style="font-size: 11px; font-weight: 700;">Overall</div>
-                <div style="font-size: 9px; font-weight: normal; color: #64748b; margin-top: 2px;">${classStats.overallPercentage}%</div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml}
-          </tbody>
-        </table>
-
-        <div class="footer">Generated via Concordia College Management System</div>
+        ${studentCardsHtml}
       </body>
       </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
+    `;
+
+    await openManagedPrintWindow({
+      html: fullHtml,
+      title: `Students_Attendance_${classLabel}_${sectionLabel}`,
+    });
   };
 
-  // Helper for Status Badge Pill in Detail Panel
-  const renderStatusBadge = (status) => {
-    const s = String(status || "").toLowerCase();
-    if (s === "present") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/70">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Present
-        </span>
-      );
-    }
-    if (s === "absent") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-destructive/10 text-destructive border border-destructive/20">
-          <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
-          Absent
-        </span>
-      );
-    }
-    if (s === "leave") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200/70">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-          Leave
-        </span>
-      );
-    }
-    if (s === "short_leave" || s === "half_day" || s === "hd") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200/70">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-          Short Leave
-        </span>
-      );
-    }
-    if (s === "holiday") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-200/70">
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-          Holiday
-        </span>
-      );
-    }
+  // If a student is clicked for drilldown, render IndividualReportsTab directly with their data
+  if (selectedStudentForDetail) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60" />
-        Not marked
-      </span>
+      <IndividualReportsTab
+        initialStudent={selectedStudentForDetail}
+        initialStartDate={reportStartDate}
+        initialEndDate={reportEndDate}
+        initialSessionId={reportSessionId || activeSessionId}
+        onBack={() => setSelectedStudentForDetail(null)}
+      />
     );
-  };
+  }
 
   return (
     <div className="space-y-5 w-full">
-      {/* Back Button if opened from navigation / hub */}
+      {/* Back Button if opened from navigation / parent hub */}
       {onBack && (
         <div className="flex items-center gap-2">
           <Button
@@ -1063,10 +1016,10 @@ export default function AttendanceReportsTab({ onBack }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Subject-wise Attendance Report
+            Class Attendance Report
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Review attendance by student, subject, and date range
+            Overview of class attendance, metrics, and individual student breakdown
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1083,7 +1036,7 @@ export default function AttendanceReportsTab({ onBack }) {
         </div>
       </div>
 
-      {/* 1. Single Unified Filter Bar (Session, Program, Class, Section, Date Range, Subject, Search, Export) */}
+      {/* Filter Bar (Session, Program, Class, Section, Date Range, Subject, Search, Export) */}
       <div className="bg-card border border-border rounded-xl p-3.5 sm:p-4 shadow-xs">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           {/* Academic Session */}
@@ -1334,34 +1287,20 @@ export default function AttendanceReportsTab({ onBack }) {
             </div>
           </div>
 
-          {/* Export / Print Button */}
+          {/* Print Button (XLSX Export Removed) */}
           <div className="space-y-1.5 flex items-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  className="h-9 w-full gap-1.5 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs"
-                  disabled={!filteredStudents.length}
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={handleExportCSV} className="gap-2 text-xs">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Export to CSV</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={printAttendanceReport} className="gap-2 text-xs">
-                  <Printer className="w-3.5 h-3.5 text-primary" />
-                  <span>Print Report</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              onClick={printAttendanceReport}
+              disabled={!filteredStudents.length}
+              className="h-9 w-full gap-1.5 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Report</span>
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Main Two-Pane Layout */}
       {!isFilterReady ? (
         <Card className="border border-border/80 shadow-xs rounded-xl p-12 text-center bg-card">
           <FileSpreadsheet className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
@@ -1369,351 +1308,376 @@ export default function AttendanceReportsTab({ onBack }) {
             Select Filters to Generate Report
           </h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-            Please select a Program, Class, and Date Range from the filters above to load student attendance.
+            Please select a Class and Date Range from the filters above to load the student attendance list.
           </p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* LEFT PANE: Main Student Roster Table */}
-          <div className="lg:col-span-7 xl:col-span-8 space-y-4">
-            <Card className="border border-border/80 shadow-xs overflow-hidden rounded-xl bg-card">
-              <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
-                <Table>
-                  <TableHeader className="bg-muted/40 sticky top-0 z-10 border-b border-border">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="w-[140px] py-3 text-left font-semibold text-xs text-foreground bg-muted/40">
-                        Roll No
-                      </TableHead>
-                      <TableHead className="min-w-[150px] py-3 text-left font-semibold text-xs text-foreground bg-muted/40">
-                        Student
-                      </TableHead>
-                      {displayedSubjects.map((sub) => {
-                        const cs = classStats.subjects[sub.id] || {
-                          attended: 0,
-                          recorded: 0,
-                          percentage: 0,
-                        };
-                        return (
-                          <TableHead key={sub.id} className="min-w-[130px] py-3 text-left bg-muted/40">
-                            <div className="font-semibold text-xs text-foreground">
-                              {sub.name}
-                            </div>
-                            <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
-                              {cs.recorded > 0
-                                ? `${cs.attended} / ${cs.recorded} (${cs.percentage}%)`
-                                : "—"}
-                            </div>
-                          </TableHead>
-                        );
-                      })}
-                      <TableHead className="w-[100px] py-3 text-left bg-muted/40">
-                        <div className="font-semibold text-xs text-foreground">
-                          Overall
-                        </div>
-                        <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
-                          {classStats.overallPercentage > 0
-                            ? `${classStats.overallPercentage}%`
-                            : "—"}
-                        </div>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-
-                  <TableBody>
-                    {isFetchingReport ? (
-                      Array.from({ length: 6 }).map((_, i) => (
-                        <TableRow key={`skel-${i}`}>
-                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                          {displayedSubjects.map((s) => (
-                            <TableCell key={s.id}><Skeleton className="h-6 w-20" /></TableCell>
-                          ))}
-                          <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                        </TableRow>
-                      ))
-                    ) : pagedStudents.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={3 + displayedSubjects.length}
-                          className="h-48 text-center text-muted-foreground text-xs"
-                        >
-                          {reportData.length === 0
-                            ? "No attendance records found for this class and date range."
-                            : "No students matching your search query."}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      pagedStudents.map((student) => {
-                        const studentId = student.id || student._id;
-                        const isStudentSelected = selectedStudentId === studentId;
-                        const metrics = getStudentMetrics(student);
-
-                        return (
-                          <TableRow
-                            key={studentId}
-                            onClick={() => setSelectedStudentId(studentId)}
-                            className={`cursor-pointer transition-colors group ${
-                              isStudentSelected
-                                ? "bg-primary/5 dark:bg-primary/10 border-l-4 border-l-primary font-medium"
-                                : "hover:bg-muted/30"
-                            }`}
-                          >
-                            {/* Roll No */}
-                            <TableCell className="py-3 text-xs font-mono font-medium text-muted-foreground">
-                              {student.rollNumber || "—"}
-                            </TableCell>
-
-                            {/* Student Name */}
-                            <TableCell className="py-3 text-xs font-bold text-foreground uppercase tracking-tight">
-                              {student.name || "—"}
-                            </TableCell>
-
-                            {/* 3. Subject Cells: Clicking a subject cell selects that subject for the sidebar! */}
-                            {displayedSubjects.map((sub) => {
-                              const sm = metrics.subjMap[sub.id] || {
-                                attended: 0,
-                                recorded: 0,
-                                percentage: 0,
-                                isLow: false,
-                              };
-                              const isCellSubjectActive =
-                                isStudentSelected &&
-                                String(selectedDetailSubjectId) === String(sub.id);
-
-                              return (
-                                <TableCell
-                                  key={sub.id}
-                                  className={`py-2 px-2 transition-all ${
-                                    isCellSubjectActive
-                                      ? "bg-primary/10 ring-2 ring-primary ring-inset rounded-md"
-                                      : ""
-                                  }`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedStudentId(studentId);
-                                    setSelectedDetailSubjectId(sub.id);
-                                  }}
-                                  title={`Click to view ${student.name}'s ${sub.name} attendance in detail`}
-                                >
-                                  <div
-                                    className={`p-1.5 rounded-md transition-colors ${
-                                      sm.isLow
-                                        ? "bg-destructive/10 text-destructive font-semibold"
-                                        : "text-foreground"
-                                    }`}
-                                  >
-                                    <div className="text-xs">
-                                      {sm.recorded > 0
-                                        ? `${sm.attended} / ${sm.recorded} (${sm.percentage}%)`
-                                        : "—"}
-                                    </div>
-                                    {sm.recorded > 0 && (
-                                      <div className="w-full bg-muted h-1 rounded-full overflow-hidden mt-1.5">
-                                        <div
-                                          className={`h-full rounded-full transition-all duration-300 ${
-                                            sm.isLow
-                                              ? "bg-destructive"
-                                              : "bg-primary"
-                                          }`}
-                                          style={{
-                                            width: `${Math.min(100, sm.percentage)}%`,
-                                          }}
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              );
-                            })}
-
-                            {/* Overall Percentage + Chevron */}
-                            <TableCell className="py-3 text-xs">
-                              <div className="flex items-center justify-between gap-1 pr-1">
-                                <span className="font-bold text-foreground">
-                                  {metrics.overallPct}%
-                                </span>
-                                <ChevronRight
-                                  className={`w-4 h-4 transition-transform ${
-                                    isStudentSelected
-                                      ? "text-primary translate-x-0.5"
-                                      : "text-muted-foreground group-hover:translate-x-0.5"
-                                  }`}
-                                />
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-
-                {/* 6. Scroll Sentinel element for infinite scroll */}
-                <div ref={scrollSentinelRef} className="h-6 w-full" />
+        <div className="space-y-5">
+          {/* Top 6 Summary Cards (Exact Layout & Visual Style from Image 2) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            {/* Card 1: Total Students */}
+            <Card className="p-4 rounded-xl border border-border/80 shadow-xs bg-card flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5" />
               </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  Total Students
+                </p>
+                <p className="text-2xl font-bold text-foreground leading-tight mt-0.5">
+                  {summaryStats.totalStudents}
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={classSectionLabel}>
+                  {classSectionLabel}
+                </p>
+              </div>
+            </Card>
 
-              {/* 6. Scroll Pagination Footer (Shows count, no button pagination) */}
-              {filteredStudents.length > 0 && (
-                <div className="px-4 py-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground bg-muted/20">
-                  <span>
-                    Showing {pagedStudents.length} of {filteredStudents.length} students
-                  </span>
-                  {visibleCount < filteredStudents.length ? (
-                    <span className="text-[11px] text-muted-foreground animate-pulse">
-                      Scroll down to load more students...
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground font-medium">
-                      All students loaded
-                    </span>
-                  )}
-                </div>
-              )}
+            {/* Card 2: Present */}
+            <Card className="p-4 rounded-xl border border-border/80 shadow-xs bg-card flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  Present
+                </p>
+                <p className="text-2xl font-bold text-foreground leading-tight mt-0.5">
+                  {summaryStats.presentCount}
+                </p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate mt-0.5">
+                  {summaryStats.presentPct}
+                </p>
+              </div>
+            </Card>
+
+            {/* Card 3: Absent */}
+            <Card className="p-4 rounded-xl border border-border/80 shadow-xs bg-card flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <XCircle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  Absent
+                </p>
+                <p className="text-2xl font-bold text-foreground leading-tight mt-0.5">
+                  {summaryStats.absentCount}
+                </p>
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium truncate mt-0.5">
+                  {summaryStats.absentPct}
+                </p>
+              </div>
+            </Card>
+
+            {/* Card 4: Leave */}
+            <Card className="p-4 rounded-xl border border-border/80 shadow-xs bg-card flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <User className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  Leave
+                </p>
+                <p className="text-2xl font-bold text-foreground leading-tight mt-0.5">
+                  {summaryStats.leaveCount}
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate mt-0.5">
+                  {summaryStats.leavePct}
+                </p>
+              </div>
+            </Card>
+
+            {/* Card 5: Holiday */}
+            <Card className="p-4 rounded-xl border border-border/80 shadow-xs bg-card flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0">
+                <MinusCircle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  Holiday
+                </p>
+                <p className="text-2xl font-bold text-foreground leading-tight mt-0.5">
+                  {summaryStats.holidayCount}
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                  {summaryStats.holidayPct}
+                </p>
+              </div>
+            </Card>
+
+            {/* Card 6: Overall Attendance Ring */}
+            <Card className="p-3 rounded-xl border border-border/80 shadow-xs bg-card flex flex-col items-center justify-center text-center">
+              <CircularProgressRing percentage={summaryStats.overallPct} size={64} strokeWidth={6} />
+              <span className="text-[11px] text-muted-foreground font-medium mt-1.5">
+                Overall Attendance
+              </span>
             </Card>
           </div>
 
-          {/* RIGHT PANE: Subject Details Panel */}
-          <div className="lg:col-span-5 xl:col-span-4 sticky top-4">
-            <Card className="border border-border/80 shadow-xs rounded-xl overflow-hidden p-4 sm:p-5 bg-card">
-              {selectedStudent ? (
-                <div className="space-y-4">
-                  {/* Student Header Card */}
-                  <div className="flex items-center justify-between pb-3.5 border-b border-border gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-11 h-11 rounded-full bg-primary/15 text-primary font-bold text-sm flex items-center justify-center shrink-0">
-                        {getInitials(selectedStudent.name)}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-extrabold text-sm text-foreground uppercase truncate">
-                          {selectedStudent.name}
-                        </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          Roll No: {selectedStudent.rollNumber || "N/A"}
-                        </p>
-                      </div>
-                    </div>
+          {/* Students Attendance List (Accordion Representation Matching Image) */}
+          <Card className="rounded-xl border border-border/80 shadow-xs bg-card overflow-hidden">
+            <div className="p-4 sm:p-5 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60">
+              <div>
+                <h2 className="text-base font-bold text-foreground">
+                  Students Attendance List
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Click any student row to expand their subject attendance records
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExpandAll}
+                  className="h-7 text-[11px] px-2.5 font-medium"
+                >
+                  Expand All
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCollapseAll}
+                  className="h-7 text-[11px] px-2.5 font-medium"
+                >
+                  Collapse All
+                </Button>
+              </div>
+            </div>
 
-                    <div className="text-right shrink-0">
-                      <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
-                        Overall Attendance
-                      </p>
-                      <p className="text-2xl font-black text-primary leading-none mt-1">
-                        {selectedStudentOverallPct}%
-                      </p>
-                    </div>
+            {/* List of Students (Accordion Representation matching Image) */}
+            <div className="p-3 sm:p-4 space-y-3 max-h-[680px] overflow-y-auto">
+              {isFetchingReport ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <div key={`skel-${i}`} className="p-4 rounded-xl border border-border/70 space-y-2">
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-4 w-72" />
                   </div>
-
-                  {/* Subject Selector Tabs / Pills */}
-                  {studentSubjects.length > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {studentSubjects.map((sub) => {
-                        const isActive =
-                          String(selectedDetailSubjectId) === String(sub.subjectId);
-                        return (
-                          <button
-                            type="button"
-                            key={sub.subjectId}
-                            onClick={() => setSelectedDetailSubjectId(sub.subjectId)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                              isActive
-                                ? "bg-primary text-primary-foreground shadow-xs"
-                                : "bg-card border border-border text-foreground hover:bg-muted"
-                            }`}
-                          >
-                            {sub.subjectName}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Subtitle */}
-                  <h4 className="text-sm font-bold text-foreground pt-1">
-                    Attendance Details – {currentDetailSubject?.subjectName || "Subject Details"}
-                  </h4>
-
-                  {/* Weekly Grouped Attendance Cards */}
-                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-                    {weeklyGroups.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-muted-foreground border border-dashed rounded-lg">
-                        No attendance logged for this subject in the selected date range.
-                      </div>
-                    ) : (
-                      weeklyGroups.map((week) => (
-                        <div
-                          key={week.weekIndex}
-                          className="rounded-xl border border-border/80 bg-card overflow-hidden shadow-2xs"
-                        >
-                          {/* Week Header */}
-                          <div className="flex items-center justify-between px-3.5 py-2.5 bg-muted/30 border-b border-border">
-                            <span className="text-xs font-bold text-foreground">
-                              Week {week.weekIndex}{" "}
-                              <span className="text-xs font-normal text-muted-foreground">
-                                ({week.weekStart} – {week.weekEnd})
-                              </span>
-                            </span>
-                            <span className="text-xs font-bold text-foreground">
-                              {week.attendedCount} / {week.totalMarked || week.days.length} (
-                              {week.weekPercent}%)
-                            </span>
-                          </div>
-
-                          {/* 4. Week Table of Days: Shows all days in week without restriction, relying solely on records */}
-                          <table className="w-full text-xs">
-                            <thead className="text-[11px] font-semibold text-muted-foreground bg-muted/20 border-b border-border">
-                              <tr>
-                                <th className="text-left py-2 px-3.5 font-medium">Date</th>
-                                <th className="text-left py-2 px-3.5 font-medium">Day</th>
-                                <th className="text-left py-2 px-3.5 font-medium">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              {week.days.map((day) => (
-                                <tr key={day.dateKey} className="hover:bg-muted/20">
-                                  <td className="py-2 px-3.5 text-foreground font-medium">
-                                    {day.formattedDate}
-                                  </td>
-                                  <td className="py-2 px-3.5 text-muted-foreground">
-                                    {day.dayName}
-                                  </td>
-                                  <td className="py-2 px-3.5">
-                                    {renderStatusBadge(day.status)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* 4. Bottom Legend: Present, Absent, Leave, Holiday, Not marked */}
-                  <div className="flex items-center justify-start gap-3.5 pt-3 border-t border-border text-[11px] text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" /> Present
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-destructive" /> Absent
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500" /> Leave
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-purple-500" /> Holiday
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-muted-foreground/60" /> Not marked
-                    </span>
-                  </div>
+                ))
+              ) : pagedStudents.length === 0 ? (
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  {reportData.length === 0
+                    ? "No attendance records found for this class and date range."
+                    : "No students matching your search query."}
                 </div>
               ) : (
-                <div className="py-16 text-center text-xs text-muted-foreground">
-                  Select a student from the table to view their weekly subject details.
-                </div>
+                pagedStudents.map((student) => {
+                  const sId = student.id || student._id;
+                  const isExpanded = expandedStudentIds.has(sId);
+                  const m = studentMetricsMap.get(sId) || {
+                    totalClasses: 0,
+                    present: 0,
+                    absent: 0,
+                    leave: 0,
+                    holiday: 0,
+                    pct: 0,
+                  };
+
+                  const studentSubjects = (student.subjects || []).filter((s) => {
+                    if (!s.subjectName || s.subjectName.toLowerCase() === "general") return false;
+                    if (selectedSubjectFilter && selectedSubjectFilter !== "all") {
+                      return String(s.subjectId || s.id) === String(selectedSubjectFilter);
+                    }
+                    return true;
+                  });
+
+                  return (
+                    <div
+                      key={sId}
+                      className="border border-border/80 rounded-xl overflow-hidden bg-card transition-all shadow-2xs hover:border-border"
+                    >
+                      {/* Student Row Header */}
+                      <div
+                        onClick={() => toggleExpandStudent(sId)}
+                        className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 cursor-pointer hover:bg-muted/40 transition-colors select-none"
+                      >
+                        {/* Left: Expand Chevron, Roll No, Student Name */}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <button
+                            type="button"
+                            className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0 transition-transform"
+                            aria-label={isExpanded ? "Collapse" : "Expand"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-foreground" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </button>
+
+                          <span className="font-mono text-xs sm:text-sm font-bold text-foreground shrink-0">
+                            {student.rollNumber || "—"}
+                          </span>
+
+                          <span className="text-xs sm:text-sm font-bold text-foreground truncate">
+                            {student.name || `${student.fName || ""} ${student.lName || ""}`.trim() || "—"}
+                          </span>
+                        </div>
+
+                        {/* Right: Badges P, A, L & Overall % */}
+                        <div className="flex items-center gap-2 sm:gap-3 shrink-0 self-end sm:self-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-200/80">
+                            P: {m.present}
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200/80">
+                            A: {m.absent}
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200/80">
+                            L: {m.leave}
+                          </span>
+                          <span className="text-xs sm:text-sm font-bold text-foreground min-w-[48px] text-right font-mono">
+                            {m.pct.toFixed(1)}%
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedStudentForDetail(student);
+                            }}
+                            className="h-7 px-2 text-[11px] text-muted-foreground hover:text-primary gap-1"
+                            title="Open Detailed Report"
+                          >
+                            <span className="hidden lg:inline">Detail</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Expanded Sub-Table */}
+                      {isExpanded && (
+                        <div className="border-t border-border/70 bg-muted/15 p-2 sm:p-3">
+                          <div className="overflow-x-auto w-full">
+                            <table className="w-full text-[11px] border-collapse border border-border">
+                              <thead>
+                                <tr className="bg-muted/50 text-muted-foreground text-[10px]">
+                                  <th className="py-1 px-2.5 text-left font-bold text-foreground border border-border sticky left-0 bg-muted/95 backdrop-blur-xs z-10 w-32 sm:w-40 whitespace-nowrap text-[11px]">
+                                    Subject
+                                  </th>
+                                  {dateList.map((d) => {
+                                    const dt = new Date(`${d}T00:00:00`);
+                                    const dayNum = dt.getDate();
+                                    const monthShort = dt.toLocaleDateString("en-US", { month: "short" });
+                                    const weekDay = dt.toLocaleDateString("en-US", { weekday: "short" });
+                                    return (
+                                      <th
+                                        key={d}
+                                        className="py-1 px-0.5 text-center font-semibold border border-border min-w-[24px] sm:min-w-[28px]"
+                                      >
+                                        <div className="text-[10px] text-foreground font-bold leading-tight">
+                                          {dateList.length > 20 ? dayNum : `${dayNum} ${monthShort}`}
+                                        </div>
+                                        <div className="text-[8.5px] text-muted-foreground uppercase font-medium leading-none">
+                                          {dateList.length > 22 ? weekDay.slice(0, 2) : weekDay}
+                                        </div>
+                                      </th>
+                                    );
+                                  })}
+                                  <th className="py-1 px-2 text-center font-bold text-foreground border border-border w-14 text-[11px]">
+                                    %
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {studentSubjects.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={dateList.length + 2} className="py-3 text-center text-xs text-muted-foreground border border-border">
+                                      No subjects recorded for this student.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  studentSubjects.map((sub, sIdx) => {
+                                    const cleanName = cleanSubjectName(sub.subjectName);
+                                    const attMap = {};
+                                    (sub.attendance || []).forEach((a) => {
+                                      const k = typeof a.date === "string" ? a.date.slice(0, 10) : toLocalDateKey(new Date(a.date));
+                                      attMap[k] = String(a.status || "").toLowerCase();
+                                    });
+
+                                    const pCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "present").length;
+                                    const aCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "absent").length;
+                                    const lCount = (sub.attendance || []).filter((a) => {
+                                      const s = String(a.status || "").toLowerCase();
+                                      return s === "leave" || s === "short_leave";
+                                    }).length;
+                                    const eff = pCount + aCount + lCount;
+                                    const subjPct = eff > 0 ? Math.round((pCount / eff) * 100) : 0;
+
+                                    return (
+                                      <tr key={sub.subjectId || sIdx} className="hover:bg-muted/30 transition-colors">
+                                        <td className="py-1 px-2.5 font-medium text-foreground text-[11px] border border-border sticky left-0 bg-card z-10 whitespace-nowrap">
+                                          {cleanName}
+                                        </td>
+
+                                        {dateList.map((d) => {
+                                          const st = attMap[d];
+                                          return (
+                                            <td key={d} className="py-0.5 px-0.5 text-center border border-border">
+                                              {st === "present" && (
+                                                <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-emerald-600 text-white font-bold text-[9px] shadow-2xs">
+                                                  P
+                                                </span>
+                                              )}
+                                              {st === "absent" && (
+                                                <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-rose-600 text-white font-bold text-[9px] shadow-2xs">
+                                                  A
+                                                </span>
+                                              )}
+                                              {(st === "leave" || st === "short_leave") && (
+                                                <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-amber-500 text-white font-bold text-[9px] shadow-2xs">
+                                                  L
+                                                </span>
+                                              )}
+                                              {st === "holiday" && (
+                                                <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-slate-500 text-white font-bold text-[8.5px] shadow-2xs">
+                                                  H
+                                                </span>
+                                              )}
+                                              {!st && (
+                                                <span className="text-muted-foreground/30 font-bold text-[10px]">-</span>
+                                              )}
+                                            </td>
+                                          );
+                                        })}
+
+                                        <td className="py-1 px-2 text-center font-bold text-foreground font-mono text-[11px] border border-border">
+                                          {subjPct}%
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
-            </Card>
-          </div>
+              {/* Scroll Sentinel for Fetch on Scroll */}
+              <div ref={scrollSentinelRef} className="h-6 w-full" />
+            </div>
+
+            {/* Scroll Pagination Footer */}
+            {filteredStudents.length > 0 && (
+              <div className="px-4 py-3.5 border-t border-border flex items-center justify-between text-xs text-muted-foreground bg-muted/20">
+                <span>
+                  Showing {pagedStudents.length} of {filteredStudents.length} students
+                </span>
+                {visibleCount < filteredStudents.length ? (
+                  <span className="text-[11px] text-muted-foreground animate-pulse font-medium">
+                    Scroll down to load more students...
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground font-medium">
+                    All {filteredStudents.length} students loaded
+                  </span>
+                )}
+              </div>
+            )}
+          </Card>
         </div>
       )}
     </div>

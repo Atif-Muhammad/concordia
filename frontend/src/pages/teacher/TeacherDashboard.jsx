@@ -157,14 +157,14 @@ export default function TeacherDashboard() {
   // 5. Assigned Classes Query
   const { data: classesData, isLoading: isClassesLoading } = useQuery({
     queryKey: ["teacherClasses", targetStaffId],
-    queryFn: getTeacherClasses,
+    queryFn: () => getTeacherClasses(targetStaffId),
     enabled: !!targetStaffId,
   });
 
   // 6. Assigned Subjects Query
   const { data: subjectsData, isLoading: isSubjectsLoading } = useQuery({
     queryKey: ["teacherSubjects", targetStaffId],
-    queryFn: getTeacherSubjects,
+    queryFn: () => getTeacherSubjects(targetStaffId),
     enabled: !!targetStaffId,
   });
 
@@ -258,6 +258,34 @@ export default function TeacherDashboard() {
     : Array.isArray(subjectsData)
     ? subjectsData
     : [];
+
+  const getSubjectsForClassItem = (item) => {
+    let subs = [];
+    if (Array.isArray(item.subjects) && item.subjects.length > 0) {
+      subs = item.subjects;
+    } else if (item.subject) {
+      subs = [item.subject];
+    } else if (item.subjectId) {
+      subs = [item.subjectId];
+    }
+
+    if (!subs.length && assignedSubjects.length > 0) {
+      const cId = (item.classId?._id || item.classId || item.class?._id || item.class)?.toString();
+      const sId = (item.sectionId?._id || item.sectionId || item.section?._id || item.section)?.toString();
+      const matched = assignedSubjects.filter((s) => {
+        const subClassId = (s.classId?._id || s.classId || s.class?._id || s.class)?.toString();
+        const subSecId = (s.sectionId?._id || s.sectionId || s.section?._id || s.section)?.toString();
+        if (sId && subSecId) {
+          return subClassId === cId && subSecId === sId;
+        }
+        return subClassId === cId;
+      });
+      if (matched.length > 0) {
+        subs = matched.map((m) => m.subjectId || m.subject || m);
+      }
+    }
+    return subs.filter(Boolean);
+  };
 
   const totalLeaves = staff?.leaveSettings
     ? (staff.leaveSettings.sickAllowed || 0) +
@@ -389,30 +417,30 @@ export default function TeacherDashboard() {
 
         {/* Tabbed Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="w-full bg-card border rounded-xl p-1.5 h-auto flex flex-wrap gap-1 shadow-xs justify-start">
+          <TabsList className="w-full bg-card border border-border/80 rounded-xl p-1.5 h-auto sm:h-auto min-h-[46px] flex flex-wrap items-center gap-1.5 shadow-2xs justify-start overflow-visible overflow-y-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
             <TabsTrigger
               value="profile"
-              className="py-2 px-4 gap-2 text-xs md:text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-xs"
+              className="py-2 px-3.5 sm:px-4 gap-2 text-xs sm:text-sm font-semibold rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-none data-[state=active]:shadow-xs transition-all cursor-pointer h-auto sm:h-auto"
             >
-              <User className="w-4 h-4" /> Profile & Details
+              <User className="w-4 h-4" /> Profile &amp; Details
             </TabsTrigger>
             <TabsTrigger
               value="teaching"
-              className="py-2 px-4 gap-2 text-xs md:text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-xs"
+              className="py-2 px-3.5 sm:px-4 gap-2 text-xs sm:text-sm font-semibold rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-none data-[state=active]:shadow-xs transition-all cursor-pointer h-auto sm:h-auto"
             >
               <GraduationCap className="w-4 h-4" /> Teaching Assignments
             </TabsTrigger>
             <TabsTrigger
               value="attendance"
-              className="py-2 px-4 gap-2 text-xs md:text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-xs"
+              className="py-2 px-3.5 sm:px-4 gap-2 text-xs sm:text-sm font-semibold rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-none data-[state=active]:shadow-xs transition-all cursor-pointer h-auto sm:h-auto"
             >
               <Calendar className="w-4 h-4" /> Monthly Attendance
             </TabsTrigger>
             <TabsTrigger
               value="payroll"
-              className="py-2 px-4 gap-2 text-xs md:text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-xs"
+              className="py-2 px-3.5 sm:px-4 gap-2 text-xs sm:text-sm font-semibold rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground shadow-none data-[state=active]:shadow-xs transition-all cursor-pointer h-auto sm:h-auto"
             >
-              <Coins className="w-4 h-4" /> Payroll & Salary
+              <Coins className="w-4 h-4" /> Payroll &amp; Salary
             </TabsTrigger>
           </TabsList>
 
@@ -619,121 +647,110 @@ export default function TeacherDashboard() {
 
           {/* TAB 2: TEACHING ASSIGNMENTS */}
           <TabsContent value="teaching" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Assigned Classes */}
-              <Card className="border shadow-xs bg-card">
-                <CardHeader className="flex flex-row items-center justify-between pb-3 border-b">
-                  <div>
-                    <CardTitle className="text-sm md:text-base font-semibold flex items-center gap-2">
-                      <School className="w-4 h-4 text-blue-600" /> Assigned Classes
-                    </CardTitle>
-                    <CardDescription className="text-xs mt-0.5">Classes and sections mapped to you</CardDescription>
-                  </div>
+            <Card className="border shadow-xs bg-card">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b gap-3">
+                <div>
+                  <CardTitle className="text-sm md:text-base font-semibold flex items-center gap-2">
+                    <School className="w-4 h-4 text-primary" /> Assigned Classes &amp; Teaching Subjects
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Classes, sections, and subjects mapped to your teaching profile
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="font-semibold text-xs">
                     {assignedClasses.length} {assignedClasses.length === 1 ? "Class" : "Classes"}
                   </Badge>
-                </CardHeader>
-                <CardContent className="pt-4">
-                  {isClassesLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                    </div>
-                  ) : assignedClasses.length > 0 ? (
-                    <div className="space-y-2.5">
-                      {assignedClasses.map((item, idx) => {
-                        const className = item.classId?.name || item.class?.name || "Class";
-                        const programName =
-                          item.classId?.programId?.name || item.class?.program?.name || "";
-                        const sectionName = item.sectionId?.name || item.section?.name || "";
-                        return (
-                          <div
-                            key={item._id || item.id || idx}
-                            className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
-                          >
-                            <div className="space-y-0.5">
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {isClassesLoading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : assignedClasses.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {assignedClasses.map((item, idx) => {
+                      const classObj = item.classId || item.class;
+                      const classId = (classObj?._id || classObj?.id || classObj)?.toString() || "";
+                      const className = classObj?.name || "Class";
+                      const programObj = classObj?.programId || item.programId || item.program;
+                      const programName = programObj?.name || "";
+                      const sectionObj = item.sectionId || item.section;
+                      const sectionId = (sectionObj?._id || sectionObj?.id || sectionObj)?.toString() || "";
+                      const sectionName = sectionObj?.name || "";
+                      const subjectsList = getSubjectsForClassItem(item);
+                      const firstSubId = (subjectsList[0]?._id || subjectsList[0]?.id || "")?.toString();
+
+                      const attendanceUrl = `/teacher/attendance?classId=${classId}${sectionId ? `&sectionId=${sectionId}` : ""}${firstSubId ? `&subjectId=${firstSubId}` : ""}`;
+
+                      return (
+                        <div
+                          key={item._id || item.id || idx}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
                               <p className="text-sm font-semibold text-foreground">{className}</p>
                               {programName && (
-                                <p className="text-xs text-muted-foreground">{programName}</p>
+                                <Badge variant="outline" className="text-xs font-normal text-muted-foreground bg-muted/30">
+                                  {programName}
+                                </Badge>
                               )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {sectionName && (
+                              {sectionName ? (
                                 <Badge variant="outline" className="text-xs font-medium">
                                   Section {sectionName}
                                 </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
+                                  All Sections
+                                </Badge>
                               )}
-                              <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-xs">
-                                <Link to="/teacher/attendance">
-                                  Attendance <ArrowRight className="w-3 h-3 ml-1" />
-                                </Link>
-                              </Button>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
-                      <School className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
-                      No classes currently assigned.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
-              {/* Assigned Subjects */}
-              <Card className="border shadow-xs bg-card">
-                <CardHeader className="flex flex-row items-center justify-between pb-3 border-b">
-                  <div>
-                    <CardTitle className="text-sm md:text-base font-semibold flex items-center gap-2">
-                      <BookOpen className="w-4 h-4 text-purple-600" /> Assigned Subjects
-                    </CardTitle>
-                    <CardDescription className="text-xs mt-0.5">Course subjects you are teaching</CardDescription>
-                  </div>
-                  <Badge variant="secondary" className="font-semibold text-xs">
-                    {assignedSubjects.length} {assignedSubjects.length === 1 ? "Subject" : "Subjects"}
-                  </Badge>
-                </CardHeader>
-                <CardContent className="pt-4">
-                  {isSubjectsLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                    </div>
-                  ) : assignedSubjects.length > 0 ? (
-                    <div className="space-y-2.5">
-                      {assignedSubjects.map((item, idx) => {
-                        const subjectName = item.subjectId?.name || item.subject?.name || "Subject";
-                        const subjectCode = item.subjectId?.code || item.subject?.code || "";
-                        const relatedClass = item.classId?.name || item.class?.name || "";
-                        return (
-                          <div
-                            key={item._id || item.id || idx}
-                            className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
-                          >
-                            <div className="space-y-0.5">
-                              <p className="text-sm font-semibold text-foreground">{subjectName}</p>
-                              {relatedClass && (
-                                <p className="text-xs text-muted-foreground">Class: {relatedClass}</p>
+                            {/* Subjects directly tied to this class & section */}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground flex items-center gap-1 font-medium">
+                                <BookOpen className="w-3.5 h-3.5 text-purple-600" /> Subjects:
+                              </span>
+                              {subjectsList.length > 0 ? (
+                                subjectsList.map((sub, sIdx) => {
+                                  const sName = sub?.name || sub?.subjectName || "Subject";
+                                  const sCode = sub?.code || sub?.subjectCode || "";
+                                  return (
+                                    <Badge
+                                      key={sub?._id || sub?.id || sIdx}
+                                      className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 text-xs font-medium"
+                                    >
+                                      {sName} {sCode ? `(${sCode})` : ""}
+                                    </Badge>
+                                  );
+                                })
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic">No subjects assigned</span>
                               )}
                             </div>
-                            {subjectCode && (
-                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300 text-xs font-mono">
-                                {subjectCode}
-                              </Badge>
-                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
-                      <BookOpen className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
-                      No subjects currently assigned.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                            <Button asChild size="sm" variant="ghost" className="h-8 px-2.5 text-xs font-medium hover:bg-primary/10 hover:text-primary">
+                              <Link to={attendanceUrl} state={{ classId, sectionId, subjectId: firstSubId }}>
+                                Attendance <ArrowRight className="w-3.5 h-3.5 ml-1 text-primary" />
+                              </Link>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    <School className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                    No classes currently assigned.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* TAB 3: MONTHLY ATTENDANCE */}

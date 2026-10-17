@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Loader2, 
@@ -39,6 +40,13 @@ import { cn } from '@/lib/utils';
 export default function TeacherAttendance() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const urlClassId = searchParams.get('classId') || location.state?.classId;
+  const urlSectionId = searchParams.get('sectionId') || location.state?.sectionId;
+  const urlSubjectId = searchParams.get('subjectId') || location.state?.subjectId;
+
   const [selectedClassData, setSelectedClassData] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -73,12 +81,33 @@ export default function TeacherAttendance() {
     return Array.isArray(classesData) ? classesData : classesData?.data || [];
   }, [classesData]);
 
-  // Auto-select first class when loaded
+  // Select class from URL params or default to first class
   useEffect(() => {
+    if (!classes.length) return;
+
+    if (urlClassId) {
+      const matched = classes.find((cls) => {
+        const cId = (cls.classId?._id || cls.classId || cls.class?._id || cls.class)?.toString();
+        const sId = (cls.sectionId?._id || cls.sectionId || cls.section?._id || cls.section)?.toString();
+        if (urlSectionId && urlSectionId !== 'null' && urlSectionId !== 'undefined') {
+          return cId === urlClassId && sId === urlSectionId;
+        }
+        return cId === urlClassId;
+      });
+
+      if (matched) {
+        setSelectedClassData(JSON.stringify(matched));
+        if (urlSubjectId) {
+          setSelectedSubjectId(urlSubjectId);
+        }
+        return;
+      }
+    }
+
     if (!selectedClassData && classes.length > 0) {
       setSelectedClassData(JSON.stringify(classes[0]));
     }
-  }, [classes, selectedClassData]);
+  }, [classes, urlClassId, urlSectionId, urlSubjectId]);
 
   const selectedClassDetails = useMemo(() => {
     if (!selectedClassData) return null;
@@ -98,19 +127,21 @@ export default function TeacherAttendance() {
     })).filter((s) => Boolean(s.id));
   }, [selectedClassDetails]);
 
-  // Auto-select first subject when class changes
+  // Auto-select subject when class changes or if URL specifies one
   useEffect(() => {
     if (assignedSubjects.length > 0) {
-      if (!selectedSubjectId || !assignedSubjects.some((s) => s.id === selectedSubjectId)) {
+      if (urlSubjectId && assignedSubjects.some((s) => s.id === urlSubjectId)) {
+        setSelectedSubjectId(urlSubjectId);
+      } else if (!selectedSubjectId || !assignedSubjects.some((s) => s.id === selectedSubjectId)) {
         setSelectedSubjectId(assignedSubjects[0].id);
       }
     } else {
       setSelectedSubjectId('');
     }
-  }, [assignedSubjects, selectedSubjectId]);
+  }, [assignedSubjects, selectedSubjectId, urlSubjectId]);
 
   // Fetch academic sessions to resolve active session
-  const { data: academicSessions = [] } = useQuery({
+  const { data: academicSessions = [], isLoading: isSessionsLoading } = useQuery({
     queryKey: ['academicSessions'],
     queryFn: getAcademicSessions,
   });
@@ -126,6 +157,10 @@ export default function TeacherAttendance() {
   const sessionId = rawSessionId ? String(rawSessionId) : activeSessionId;
   const targetId = sectionId || classId;
   const fetchFor = sectionId ? 'section' : 'class';
+
+  // Session & subject readiness guards to prevent premature queries (Bug 7)
+  const isSessionReady = Boolean(rawSessionId || activeSessionId || !isSessionsLoading);
+  const isSubjectReady = assignedSubjects.length === 0 || Boolean(selectedSubjectId);
 
   // 1. Fetch holidays
   const { data: holidaysData = [] } = useQuery({
@@ -144,7 +179,7 @@ export default function TeacherAttendance() {
   const { data: attendanceData, isLoading: isAttendanceLoading } = useQuery({
     queryKey: ['classAttendance', targetId, date, fetchFor, selectedSubjectId, sessionId],
     queryFn: () => getClasseOrSectionAttendance(targetId, date, fetchFor, selectedSubjectId, sessionId),
-    enabled: !!targetId && !!date,
+    enabled: Boolean(targetId && date && isSessionReady && isSubjectReady),
   });
 
   // Detect whether selected date is a holiday or attendance skip
@@ -246,10 +281,10 @@ export default function TeacherAttendance() {
         title: 'Attendance Saved', 
         description: `Successfully recorded attendance for ${date}.` 
       });
-      queryClient.invalidateQueries(['classAttendance', targetId, date, fetchFor, selectedSubjectId]);
-      queryClient.invalidateQueries(['studentAttendance']);
-      queryClient.invalidateQueries(['attendanceReport']);
-      queryClient.invalidateQueries(['missingAttendanceReport']);
+      queryClient.invalidateQueries({ queryKey: ['classAttendance'] });
+      queryClient.invalidateQueries({ queryKey: ['studentAttendance'] });
+      queryClient.invalidateQueries({ queryKey: ['attendanceReport'] });
+      queryClient.invalidateQueries({ queryKey: ['missingAttendanceReport'] });
     },
     onError: (error) => {
       toast({ 

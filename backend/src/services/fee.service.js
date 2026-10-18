@@ -143,7 +143,14 @@ class FeeService {
     }
 
     if (filters.month && filters.month !== 'all') {
-      query.month = { $regex: new RegExp(`^${filters.month}$`, 'i') };
+      const months = Array.isArray(filters.month)
+        ? filters.month
+        : String(filters.month).split(',').map(m => m.trim()).filter(Boolean);
+      if (months.length === 1) {
+        query.month = { $regex: new RegExp(`^${months[0]}$`, 'i') };
+      } else if (months.length > 1) {
+        query.month = { $in: months.map(m => new RegExp(`^${m}$`, 'i')) };
+      }
     }
 
     if (filters.installmentNumber && filters.installmentNumber !== 'all') {
@@ -223,17 +230,17 @@ class FeeService {
       ];
     }
 
+    const isReportMode = filters.report === 'true' || filters.report === true || filters.summary === 'true' || filters.summary === true;
     const page = Math.max(1, parseInt(filters.page) || 1);
-    const limit = Math.max(1, parseInt(filters.limit) || 10);
+    const limit = Math.max(1, parseInt(filters.limit) || (isReportMode ? 50000 : 10));
     const skip = (page - 1) * limit;
 
     const total = await FeeChallan.countDocuments(query);
-    const isReportMode = filters.report === 'true' || filters.report === true || filters.summary === 'true' || filters.summary === true;
 
     let challanQuery = FeeChallan.find(query);
     if (isReportMode) {
       challanQuery = challanQuery.select(
-        '_id challanNo installmentNumber amount basePayable dueDate fineAmount lateFeeAmount snapshotLateFee headsAmount arrearsAmount grossAmount discountAmount discount advanceApplied advanceAmount netPayable totalAmount status paidAmount directPaidAmount settledViaArrearsAmount settledAmount month session sessionId classId studentId challanHeads selectedHeads arrearAllocations advanceAllocations'
+        '_id challanNo installmentNumber amount basePayable dueDate fineAmount lateFeeAmount snapshotLateFee headsAmount arrearsAmount grossAmount discountAmount discount advanceApplied advanceAmount netPayable totalAmount status paidAmount directPaidAmount settledViaArrearsAmount settledAmount month session sessionId classId studentId challanHeads selectedHeads arrearAllocations advanceAllocations paidDate paidTime paidBy paymentMode walletId walletName receivedByName remarks'
       )
       .populate({
         path: 'studentId',
@@ -245,7 +252,8 @@ class FeeService {
         ]
       })
       .populate('sessionId', '_id name')
-      .populate('classId', '_id name');
+      .populate('classId', '_id name')
+      .populate('arrearAllocations.sourceChallanId', '_id netPayable totalAmount grossAmount paidAmount');
     } else {
       challanQuery = challanQuery
         .populate({
@@ -427,7 +435,11 @@ class FeeService {
       const headsAmount = Number(c.headsAmount ?? (Array.isArray(c.challanHeads) && c.challanHeads.length > 0
         ? c.challanHeads.reduce((s, h) => s + (Number(h.amount) || 0), 0)
         : (Array.isArray(c.selectedHeads) ? c.selectedHeads.reduce((s, h) => s + (Number(h?.amount) || 0), 0) : 0)));
-      let arrearsAmount = Number(c.arrearsAmount ?? (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0) : 0));
+      let arrearsAmount = Number(
+        (c.arrearsAmount != null && !isNaN(Number(c.arrearsAmount)) && Number(c.arrearsAmount) > 0)
+          ? c.arrearsAmount
+          : (Array.isArray(c.arrearAllocations) ? c.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward || a.amountSettled || a.amount) || 0), 0) : 0)
+      );
       let arrearAllocChanged = false;
       if (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0) {
         for (const alloc of c.arrearAllocations) {
@@ -503,11 +515,11 @@ class FeeService {
       const advanceFromChallanId = c.advanceFromChallanId || primarySource?.sourceChallanId || primarySource?.challanId || null;
 
       const calculatedGross = basePayable + headsAmount + arrearsAmount + lateFeeAmount;
-      const grossAmount = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
+      const grossAmount = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged || isReportMode)
         ? calculatedGross
-        : Number(c.grossAmount || calculatedGross);
+        : (Number(c.grossAmount) > 0 ? Number(c.grossAmount) : calculatedGross);
       const calculatedNet = Math.max(0, grossAmount - discountAmount - advanceApplied);
-      const netPayable = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged)
+      const netPayable = (fineUpdated || isEligibleForAutoFine || arrearAllocChanged || isReportMode)
         ? calculatedNet
         : ((c.netPayable != null && !isNaN(Number(c.netPayable)) && Number(c.netPayable) > 0)
             ? Number(c.netPayable)

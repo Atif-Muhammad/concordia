@@ -68,11 +68,17 @@ import {
   TrendingUp,
   ArrowRight,
   ArrowLeft,
+  Coins,
+  Layers,
+  Tag,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { StudentInstallmentReportsTab } from "./StudentInstallmentReportsTab";
+import { FeeSummaryReport } from "./FeeSummaryReport";
+import { FeeCollectionReport } from "./FeeCollectionReport";
+import { FeeDiscountReport } from "./FeeDiscountReport";
 import {
   normalizeChallan,
   getChallanGrossTotal,
@@ -133,7 +139,15 @@ export const FeeReportsTab = ({
     hasPermission(currentUser, "Fee Management", "reports", "read")
   );
 
-  const [selectedReport, setSelectedReport] = useState(null); // null = cards menu; "installments" | "pending" | "analytics"
+  const canViewFeeReports = Boolean(
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.role === "Super Admin" ||
+    currentUser?.permissions?.all === true ||
+    hasPermission(currentUser, "Fee Management", "reports", "read") ||
+    hasPermission(currentUser, "Fee Management", "challans", "read")
+  );
+
+  const [selectedReport, setSelectedReport] = useState(null); // null = cards menu; "installments" | "pending" | "analytics" | "fee-summary" | "fee-collection" | "fee-discount"
 
   // Pending Fee Report Filters (Multi-Select arrays for programs, classes, sections)
   const [selectedSession, setSelectedSession] = useState("all");
@@ -1025,6 +1039,45 @@ export const FeeReportsTab = ({
     );
   }
 
+  // 2. If "fee-summary" report is selected
+  if (selectedReport === "fee-summary") {
+    return (
+      <FeeSummaryReport
+        academicSessions={sessionList}
+        programs={programsList}
+        classes={classesList}
+        sections={sectionsList}
+        onBack={() => setSelectedReport(null)}
+      />
+    );
+  }
+
+  // 3. If "fee-collection" report is selected
+  if (selectedReport === "fee-collection") {
+    return (
+      <FeeCollectionReport
+        academicSessions={sessionList}
+        programs={programsList}
+        classes={classesList}
+        sections={sectionsList}
+        onBack={() => setSelectedReport(null)}
+      />
+    );
+  }
+
+  // 4. If "fee-discount" report is selected
+  if (selectedReport === "fee-discount") {
+    return (
+      <FeeDiscountReport
+        academicSessions={sessionList}
+        programs={programsList}
+        classes={classesList}
+        sections={sectionsList}
+        onBack={() => setSelectedReport(null)}
+      />
+    );
+  }
+
   // 2. If "pending" report is selected, render ONLY that report replacing the cards
   if (selectedReport === "pending") {
     return (
@@ -1655,7 +1708,7 @@ export const FeeReportsTab = ({
 
           <div className="flex items-center gap-2 shrink-0">
             <Badge variant="outline" className="font-mono text-xs bg-white dark:bg-card px-3 py-1 border-[#eae8df]">
-              3 Report Modules Available
+              6 Report Modules Available
             </Badge>
           </div>
         </div>
@@ -1778,9 +1831,123 @@ export const FeeReportsTab = ({
             </div>
           </div>
         )}
+
+        {/* BOX 4: Fee Summary (Month-Wise) */}
+        {canViewFeeReports && (
+          <div
+            onClick={() => setSelectedReport("fee-summary")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-emerald-600/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#1b4332] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <Layers className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-emerald-700 transition-colors">
+                Fee Summary (Month-Wise)
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Category-wise breakdown for the month showing Tuition Fee, unified Fee Heads, Arrears, Late Fee Fines, and Discounts collected via that month's challans.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("fee-summary");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-emerald-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  Open Fee Summary
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 5: Fee Collection Report (Month-Wise) */}
+        {canViewFeeReports && (
+          <div
+            onClick={() => setSelectedReport("fee-collection")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-sky-500/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#0369a1] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <Coins className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-sky-700 transition-colors">
+                Fee Collection Inflow Report
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Month-wise payment audit showing which challans received what inflow in our system, payment dates, bank/cash modes, and cashier audit logs.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("fee-collection");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-sky-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-sky-600" />
+                  Open Collection Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 6: Student Discount Report (Month-Wise) */}
+        {canViewFeeReports && (
+          <div
+            onClick={() => setSelectedReport("fee-discount")}
+            className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-purple-500/80 transition-all duration-200 cursor-pointer"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-xl bg-[#6b21a8] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+                <Tag className="w-5 h-5 text-white" strokeWidth={2.2} />
+              </div>
+
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-purple-700 transition-colors">
+                Student Discount Report
+              </h3>
+              <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+                Program and class-wise breakdown of student fee discounts and concessions awarded for the month, with nominal gross versus net realized totals.
+              </p>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReport("fee-discount");
+                }}
+                className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-purple-50 text-slate-800 border-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-purple-600" />
+                  Open Discount Report
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {!canViewInstallments && !canViewPending && !canViewAnalytics && (
+      {!canViewInstallments && !canViewPending && !canViewAnalytics && !canViewFeeReports && (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-card">
           <AlertCircle className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
           <h3 className="text-base font-bold text-foreground">Access Restricted</h3>

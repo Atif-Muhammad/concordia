@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -92,12 +92,12 @@ export const ExtraChallansTab = ({
   });
   const sections = (sectionsProp && sectionsProp.length > 0) ? sectionsProp : fetchedSections;
 
-  // Extra Fee Challan Template Query
-  const { data: extraTemplate } = useQuery({
-    queryKey: ['feeChallanTemplate', 'EXTRA'],
+  // Challan Template Query - using standard INSTALLMENT template directly
+  const { data: installmentTemplate } = useQuery({
+    queryKey: ['feeChallanTemplate', 'INSTALLMENT'],
     queryFn: async () => {
-      const t = await getDefaultFeeChallanTemplate("EXTRA");
-      if (t?.htmlContent) setCachedTemplate("EXTRA", t.htmlContent);
+      const t = await getDefaultFeeChallanTemplate("INSTALLMENT");
+      if (t?.htmlContent) setCachedTemplate("INSTALLMENT", t.htmlContent);
       return t;
     },
     staleTime: 5 * 60 * 1000,
@@ -131,6 +131,7 @@ export const ExtraChallansTab = ({
   const [extraSelectedHeads, setExtraSelectedHeads] = useState([]);
   const [extraCustomHeads, setExtraCustomHeads] = useState([]);
   const [extraRemarks, setExtraRemarks] = useState("");
+  const [extraDiscount, setExtraDiscount] = useState("");
   const [extraDueDate, setExtraDueDate] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -142,8 +143,41 @@ export const ExtraChallansTab = ({
   });
   const [bulkStudents, setBulkStudents] = useState([]);
   const [selectedBulkExtraStudents, setSelectedBulkExtraStudents] = useState([]);
+  const [bulkExtraDiscount, setBulkExtraDiscount] = useState("");
   const [isFetchingBulkStudents, setIsFetchingBulkStudents] = useState(false);
   const [generateResults, setGenerateResults] = useState(null);
+
+  // Student Prior Extra Challans & Arrears for Create Extra Challan
+  const selectedExtraStudentId = extractId(extraSelectedStudent?.id || extraSelectedStudent?._id);
+  const { data: studentPriorExtraData } = useQuery({
+    queryKey: ['priorExtraChallans', selectedExtraStudentId],
+    queryFn: () => getExtraChallansDedicated({ studentId: selectedExtraStudentId, limit: 100 }),
+    enabled: !!selectedExtraStudentId && createExtraChallanOpen,
+  });
+
+  const priorUnpaidChallans = useMemo(() => {
+    if (!studentPriorExtraData) return [];
+    const list = Array.isArray(studentPriorExtraData)
+      ? studentPriorExtraData
+      : (Array.isArray(studentPriorExtraData?.data) ? studentPriorExtraData.data : []);
+    return list.filter(c => ['PENDING', 'PARTIAL', 'OVERDUE'].includes((c.status || '').toUpperCase())).map(c => {
+      const tot = Number(c.totalAmount != null ? c.totalAmount : (c.amount || 0));
+      const paid = Number(c.paidAmount || 0);
+      const balance = Math.max(0, tot - paid);
+      return {
+        id: c.id || c._id,
+        challanNo: c.challanNo,
+        totalAmount: tot,
+        paidAmount: paid,
+        balance,
+        status: c.status
+      };
+    }).filter(c => c.balance > 0);
+  }, [studentPriorExtraData]);
+
+  const priorArrearsTotal = useMemo(() => {
+    return priorUnpaidChallans.reduce((sum, c) => sum + c.balance, 0);
+  }, [priorUnpaidChallans]);
 
   // Edit Extra Challan Form State
   const [editForm, setEditForm] = useState({
@@ -151,6 +185,7 @@ export const ExtraChallansTab = ({
     remarks: "",
     selectedHeads: [],
     customHeads: [],
+    discount: "0",
   });
 
   const searchTimeoutRef = useRef(null);
@@ -349,11 +384,11 @@ export const ExtraChallansTab = ({
     }
 
     try {
-      const tpl = extraTemplate || await getDefaultFeeChallanTemplate("EXTRA");
+      const tpl = installmentTemplate || await getDefaultFeeChallanTemplate("INSTALLMENT");
       const baseHtml = generateChallanHtml(
         { ...challan, isExtra: true, challanType: 'FEE_HEADS_ONLY' },
-        tpl?.htmlContent || getCachedTemplate("EXTRA"),
-        { extraChallanLateFee, classes, programs, feeHeads, academicSessions }
+        tpl?.htmlContent || getCachedTemplate("INSTALLMENT"),
+        { extraChallanLateFee, classes, programs, feeHeads, academicSessions, excludePaymentHistory: true }
       );
       const resolvedHtml = applyPaidChallanPrintTreatment(baseHtml, challan);
 
@@ -449,6 +484,7 @@ export const ExtraChallansTab = ({
       remarks: challan.remarks || "",
       selectedHeads: selectedHeadIds,
       customHeads,
+      discount: Number(challan.discount || 0).toString(),
     });
     setEditExtraChallanOpen(true);
   };
@@ -482,12 +518,13 @@ export const ExtraChallansTab = ({
     const totalAmount = extraHeadsPayload.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
 
     updateExtraChallanMutation.mutate({
-      id: editingChallan.id,
+      id: editingChallan._id || editingChallan.id,
       data: {
         dueDate: editForm.dueDate ? format(editForm.dueDate, "yyyy-MM-dd") : undefined,
         remarks: editForm.remarks,
         heads: extraHeadsPayload,
         amount: totalAmount,
+        discount: Math.max(0, parseFloat(editForm.discount) || 0),
       },
     });
   };
@@ -587,6 +624,7 @@ export const ExtraChallansTab = ({
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="py-2.5 px-3 text-xs font-semibold text-muted-foreground">Challan & Student</TableHead>
                   <TableHead className="hidden lg:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Heads Amount</TableHead>
+                  <TableHead className="hidden lg:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Arrears</TableHead>
                   <TableHead className="hidden xl:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Late Fee</TableHead>
                   <TableHead className="hidden xl:table-cell py-2 px-3 text-xs font-semibold text-muted-foreground">Discount</TableHead>
                   <TableHead className="py-2.5 px-3 text-xs font-semibold text-foreground text-right bg-slate-100 sm:bg-transparent">Total</TableHead>
@@ -598,7 +636,7 @@ export const ExtraChallansTab = ({
               </TableHeader>
               <TableBody>
                 {isExtraLoading ? (
-                  <TableRow><TableCell colSpan={9} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
                 ) : extraChallans.map((challan, idx) => (
                   <TableRow
                     key={challan.id}
@@ -616,7 +654,14 @@ export const ExtraChallansTab = ({
                       </div>
                     </TableCell>
                     <TableCell className="hidden lg:table-cell text-sm px-3 py-2 font-medium text-blue-600">
-                      PKR {formatAmount(challan.headsAmount ?? (Number(challan.totalAmount || 0) - Number(challan.lateFeeFine || 0) + Number(challan.discount || 0)))}
+                      PKR {formatAmount(challan.headsAmount ?? challan.amount ?? 0)}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-sm px-3 py-2 font-medium">
+                      {Number(challan.arrearsAmount || 0) > 0 ? (
+                        <span className="text-amber-600 font-semibold">+ PKR {formatAmount(challan.arrearsAmount)}</span>
+                      ) : (
+                        <span className="text-muted-foreground/60">PKR 0</span>
+                      )}
                     </TableCell>
                     <TableCell className="hidden xl:table-cell text-sm px-3 py-2 font-medium text-red-600">
                       {(() => {
@@ -689,7 +734,7 @@ export const ExtraChallansTab = ({
                           </TooltipTrigger>
                           <TooltipContent>Print Challan</TooltipContent>
                         </Tooltip>
-                        {canPayFee && challan.status !== "PAID" && challan.status !== "VOID" && (
+                        {canPayFee && challan.status !== "PAID" && challan.status !== "VOID" && challan.status !== "SUPERSEDED" && challan.status !== "SETTLED" && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button 
@@ -708,7 +753,7 @@ export const ExtraChallansTab = ({
                             <TooltipContent>Record Payment</TooltipContent>
                           </Tooltip>
                         )}
-                        {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED") ? (
+                        {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED" && challan.status !== "SUPERSEDED") ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button size="sm" variant="ghost" onClick={(e) => {
@@ -728,7 +773,7 @@ export const ExtraChallansTab = ({
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {challan.status === "PAID" ? "Paid challans cannot be edited" : "Fully settled challans cannot be edited"}
+                              {challan.status === "PAID" ? "Paid challans cannot be edited" : (challan.status === "SUPERSEDED" ? "Superseded challans cannot be edited" : "Fully settled challans cannot be edited")}
                             </TooltipContent>
                           </Tooltip>
                         ))}
@@ -963,9 +1008,27 @@ export const ExtraChallansTab = ({
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
-                  <Textarea value={extraRemarks} onChange={e => setExtraRemarks(e.target.value)} placeholder="Optional notes..." className="text-sm min-h-[60px]" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold uppercase text-muted-foreground">Discount (PKR)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={extraDiscount}
+                      onChange={e => setExtraDiscount(e.target.value)}
+                      className="h-8 text-xs font-medium"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
+                    <Input
+                      value={extraRemarks}
+                      onChange={e => setExtraRemarks(e.target.value)}
+                      placeholder="Optional notes..."
+                      className="h-8 text-xs"
+                    />
+                  </div>
                 </div>
 
                 {(extraSelectedHeads.length > 0 || extraCustomHeads.some(h => h.headName && parseFloat(h.amount) > 0)) && (() => {
@@ -973,13 +1036,35 @@ export const ExtraChallansTab = ({
                   const customCharges = extraCustomHeads.reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
                   const finalCharges = charges + customCharges;
                   const autoLateFee = calculateLateFee(extraDueDate, extraChallanLateFee);
-                  const grandTotal = finalCharges + autoLateFee;
+                  const disc = Math.max(0, parseFloat(extraDiscount) || 0);
+                  const grandTotal = Math.max(0, finalCharges + priorArrearsTotal + autoLateFee - disc);
 
                   return (
                     <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>Base Charges:</span><span>PKR {finalCharges.toLocaleString()}</span>
                       </div>
+                      {priorArrearsTotal > 0 && (
+                        <div className="flex flex-col gap-1 border-t border-orange-200/60 pt-1.5 my-1">
+                          <div className="flex justify-between text-xs text-orange-700 font-semibold">
+                            <span>Previous Arrears (Unpaid Challans):</span>
+                            <span>+ PKR {priorArrearsTotal.toLocaleString()}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground space-y-0.5 pl-2 max-h-24 overflow-y-auto">
+                            {priorUnpaidChallans.map(pc => (
+                              <div key={pc.id} className="flex justify-between">
+                                <span>Challan #{pc.challanNo} ({pc.status}):</span>
+                                <span className="font-medium text-orange-800">PKR {pc.balance.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {disc > 0 && (
+                        <div className="flex justify-between text-xs text-green-600 font-medium">
+                          <span>Discount:</span><span>- PKR {disc.toLocaleString()}</span>
+                        </div>
+                      )}
                       {autoLateFee > 0 && (
                         <div className="flex justify-between text-xs text-red-600 font-medium">
                           <span>Late Fee Fine:</span><span>+ PKR {autoLateFee.toLocaleString()}</span>
@@ -1021,6 +1106,14 @@ export const ExtraChallansTab = ({
                        studentId: extractId(extraSelectedStudent),
                        heads: headsPayload,
                        dueDate: format(extraDueDate, "yyyy-MM-dd"),
+                       discount: Math.max(0, parseFloat(extraDiscount) || 0),
+                       arrearsAmount: priorArrearsTotal,
+                       arrearAllocations: priorUnpaidChallans.map(pc => ({
+                         sourceChallanId: pc.id,
+                         sourceChallanNo: pc.challanNo,
+                         amountCarriedForward: pc.balance,
+                         amountSettled: 0
+                       })),
                        remarks: extraRemarks || "Extra fee head challan",
                      });
 
@@ -1028,6 +1121,7 @@ export const ExtraChallansTab = ({
                        toast({ title: "Extra challan created successfully" });
                        queryClient.invalidateQueries({ queryKey: ['feeChallans'] });
                        queryClient.invalidateQueries({ queryKey: ['extraChallans'] });
+                       setExtraDiscount("");
                        setCreateExtraChallanOpen(false);
                      } else {
                        toast({ title: "Could not create challan.", variant: "destructive" });
@@ -1351,6 +1445,17 @@ export const ExtraChallansTab = ({
                         )}
                       </div>
                     </div>
+                    <div className="mb-2">
+                      <Label className="text-[10px] uppercase font-bold text-white/90">Discount / Student (PKR)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={bulkExtraDiscount}
+                        onChange={e => setBulkExtraDiscount(e.target.value)}
+                        className="h-7 text-xs bg-white text-orange-900 font-semibold mt-0.5"
+                      />
+                    </div>
                     <div className="flex justify-between items-center mb-3 pt-2 border-t border-orange-500/50">
                       <span className="text-[10px] uppercase font-bold opacity-80">Total Est.</span>
                       <span className="font-black text-base">
@@ -1360,7 +1465,9 @@ export const ExtraChallansTab = ({
                             .reduce((s, h) => s + (Number(h.amount) || 0), 0);
                           const customCharges = extraCustomHeads.reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
                           const autoFine = calculateLateFee(extraDueDate, extraChallanLateFee);
-                          return `PKR ${((predefinedCharges + customCharges + autoFine) * selectedBulkExtraStudents.length).toLocaleString()}`;
+                          const disc = Math.max(0, parseFloat(bulkExtraDiscount) || 0);
+                          const netPerStudent = Math.max(0, predefinedCharges + customCharges + autoFine - disc);
+                          return `PKR ${(netPerStudent * selectedBulkExtraStudents.length).toLocaleString()}`;
                         })()}
                       </span>
                     </div>
@@ -1401,6 +1508,7 @@ export const ExtraChallansTab = ({
                           feeHeadIds: extraSelectedHeads,
                           heads: combinedHeads,
                           amount: totalAmount,
+                          discount: Math.max(0, parseFloat(bulkExtraDiscount) || 0),
                           dueDate: format(extraDueDate, "yyyy-MM-dd"),
                           remarks: extraRemarks || "Bulk extra challan generation",
                         });
@@ -1535,14 +1643,27 @@ export const ExtraChallansTab = ({
                 </div>
               </div>
 
-              <div className="space-y-1 pt-2 border-t">
-                <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
-                <Textarea
-                  value={editForm.remarks}
-                  onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })}
-                  placeholder="Optional remarks..."
-                  className="text-xs min-h-[50px]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Discount (PKR)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={editForm.discount}
+                    onChange={(e) => setEditForm({ ...editForm, discount: e.target.value })}
+                    className="h-8 text-xs font-medium"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
+                  <Input
+                    value={editForm.remarks}
+                    onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })}
+                    placeholder="Optional remarks..."
+                    className="h-8 text-xs"
+                  />
+                </div>
               </div>
 
               {/* Total preview */}
@@ -1554,19 +1675,26 @@ export const ExtraChallansTab = ({
                 const cstCharges = editForm.customHeads.reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
                 const total = stdCharges + cstCharges;
                 const autoLateFee = calculateLateFee(editForm.dueDate, extraChallanLateFee);
+                const disc = Math.max(0, parseFloat(editForm.discount) || 0);
+                const netDue = Math.max(0, total + autoLateFee - disc);
 
                 return (
                   <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 mt-2">
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Base Charges:</span><span>PKR {total.toLocaleString()}</span>
                     </div>
+                    {disc > 0 && (
+                      <div className="flex justify-between text-xs text-green-600 font-medium">
+                        <span>Discount:</span><span>- PKR {disc.toLocaleString()}</span>
+                      </div>
+                    )}
                     {autoLateFee > 0 && (
                       <div className="flex justify-between text-xs text-red-600 font-medium">
                         <span>Late Fee Fine:</span><span>+ PKR {autoLateFee.toLocaleString()}</span>
                       </div>
                     )}
                     <div className="flex justify-between font-bold border-t border-orange-300 mt-1 pt-1 text-orange-800">
-                      <span>Total Due:</span><span>PKR {(total + autoLateFee).toLocaleString()}</span>
+                      <span>Total Due:</span><span>PKR {netDue.toLocaleString()}</span>
                     </div>
                   </div>
                 );

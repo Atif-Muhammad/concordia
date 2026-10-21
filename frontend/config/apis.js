@@ -4957,6 +4957,57 @@ export const getFinanceReportsAnalytics = async (filters = {}) => {
   }
 };
 
+export const getFinanceUserContributionReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+    if (filters.dateTo) params.append('dateTo', filters.dateTo);
+    if (filters.staffId && filters.staffId !== 'all') params.append('staffId', filters.staffId);
+    if (filters.type && filters.type !== 'all') params.append('type', filters.type);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await axios.get(`${base_url}/finance/reports/user-contribution${query}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getFinanceProfitLossReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+    if (filters.dateTo) params.append('dateTo', filters.dateTo);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await axios.get(`${base_url}/finance/reports/profit-loss${query}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getFinanceAnnualProfitLossReport = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.startYear) params.append('startYear', filters.startYear);
+    if (filters.endYear) params.append('endYear', filters.endYear);
+    if (filters.selectedYear) params.append('selectedYear', filters.selectedYear);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await axios.get(`${base_url}/finance/reports/annual-profit-loss${query}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const createFinanceExpense = async (data) => {
   try {
     const response = await axios.post(`${base_url}/finance/expense`, data, {

@@ -1,412 +1,175 @@
-import React, { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip as RechartsTooltip,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-import {
-  ModernChartCard,
-  ModernTooltip,
-  ChartLegendPills,
-  MODERN_CHART_COLORS,
-} from "@/components/ui/modern-charts";
-import {
-  getFinanceIncomes,
-  getFinanceExpenses,
-  getFinanceReportsAnalytics,
-} from "../../../config/apis";
+  Users,
+  Scale,
+  CalendarDays,
+  ArrowRight,
+  TrendingUp,
+  FileSpreadsheet,
+  Receipt,
+  Layers,
+} from "lucide-react";
+import UserContributionReport from "./reports/UserContributionReport";
+import ProfitLossReport from "./reports/ProfitLossReport";
+import AnnualProfitLossReport from "./reports/AnnualProfitLossReport";
 
 export default function FinanceReportsTab() {
-  const [reportsDateFrom, setReportsDateFrom] = useState("");
-  const [reportsDateTo, setReportsDateTo] = useState("");
-  const [appliedReportsFilter, setAppliedReportsFilter] = useState({
-    dateFrom: "",
-    dateTo: "",
-  });
+  const [selectedReport, setSelectedReport] = useState(null); // null = cards menu; "userContribution" | "profitLoss" | "annualProfitLoss"
 
-  const { data: reportsIncomeData = [] } = useQuery({
-    queryKey: ["reportsIncome", appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
-    queryFn: () =>
-      getFinanceIncomes({
-        dateFrom: appliedReportsFilter.dateFrom,
-        dateTo: appliedReportsFilter.dateTo,
-      }),
-  });
+  // 1. Render Specific Report Views
+  if (selectedReport === "userContribution") {
+    return <UserContributionReport onBack={() => setSelectedReport(null)} />;
+  }
 
-  const { data: reportsExpenseData = [] } = useQuery({
-    queryKey: ["reportsExpense", appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
-    queryFn: () =>
-      getFinanceExpenses({
-        dateFrom: appliedReportsFilter.dateFrom,
-        dateTo: appliedReportsFilter.dateTo,
-      }),
-  });
+  if (selectedReport === "profitLoss") {
+    return <ProfitLossReport onBack={() => setSelectedReport(null)} />;
+  }
 
-  const { data: reportsAnalytics } = useQuery({
-    queryKey: [
-      "financeReportsAnalytics",
-      appliedReportsFilter.dateFrom,
-      appliedReportsFilter.dateTo,
-    ],
-    queryFn: () =>
-      getFinanceReportsAnalytics({
-        dateFrom: appliedReportsFilter.dateFrom || undefined,
-        dateTo: appliedReportsFilter.dateTo || undefined,
-        groupBy: "month",
-      }),
-    retry: 0,
-  });
+  if (selectedReport === "annualProfitLoss") {
+    return <AnnualProfitLossReport onBack={() => setSelectedReport(null)} />;
+  }
 
-  const reportsTotalIncome = useMemo(
-    () => reportsIncomeData.reduce((sum, item) => sum + Number(item.amount), 0),
-    [reportsIncomeData]
-  );
-  const reportsTotalExpense = useMemo(
-    () => reportsExpenseData.reduce((sum, item) => sum + Number(item.amount), 0),
-    [reportsExpenseData]
-  );
-  const reportsNetBalance = reportsTotalIncome - reportsTotalExpense;
-
-  const reportsCategoryIncomeData = [
-    {
-      name: "Tuition Fee",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Tuition Fee" || i.category === "Fee")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Extra Challan",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Extra Challan" || i.category === "Extra Fee")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Hostel Challan",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Hostel Challan" || i.category === "Hostel Fee")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Donation",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Donation")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Funding",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Funding")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Revenue",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Revenue")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-    {
-      name: "Investments",
-      amount: reportsIncomeData
-        .filter((i) => i.category === "Investments")
-        .reduce((sum, i) => sum + Number(i.amount), 0),
-    },
-  ];
-
-  const reportsCategoryExpenseData = useMemo(() => {
-    const grouped = reportsExpenseData.reduce((acc, item) => {
-      const category = item?.category || "Other";
-      const subCategory = item?.subCategory || "General";
-      const key = `${category} > ${subCategory}`;
-      acc[key] = (acc[key] || 0) + Number(item?.amount || 0);
-      return acc;
-    }, {});
-    return Object.entries(grouped)
-      .map(([name, amount]) => ({ name, amount }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [reportsExpenseData]);
-
-  const reportsTrendData = useMemo(() => {
-    if (reportsAnalytics?.timeseries?.length) {
-      return reportsAnalytics.timeseries.map((row) => ({
-        name: row.bucket,
-        income: Number(row.income || 0),
-        expense: Number(row.expense || 0),
-        net: Number(row.net || 0),
-      }));
-    }
-    const map = {};
-    [...reportsIncomeData, ...reportsExpenseData].forEach((row) => {
-      const d = new Date(row.date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      if (!map[key]) map[key] = { name: key, income: 0, expense: 0, net: 0 };
-      if (reportsIncomeData.includes(row)) map[key].income += Number(row.amount || 0);
-      else map[key].expense += Number(row.amount || 0);
-      map[key].net = map[key].income - map[key].expense;
-    });
-    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
-  }, [reportsAnalytics, reportsIncomeData, reportsExpenseData]);
-
-  const reportsIncomePieData = useMemo(
-    () =>
-      (
-        reportsAnalytics?.incomeByCategory ||
-        reportsCategoryIncomeData.map((x) => ({ name: x.name, value: x.amount }))
-      )
-        .filter((x) => Number(x.value || x.amount || 0) > 0)
-        .map((x) => ({ name: x.name, value: Number(x.value ?? x.amount ?? 0) })),
-    [reportsAnalytics, reportsCategoryIncomeData]
-  );
-
+  // 2. Default Cards Layout (No heavy queries on mount; high speed & clean UX)
   return (
-    <Card>
-      <CardHeader className="p-3 sm:p-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-          <CardTitle className="text-base sm:text-lg">Financial Reports</CardTitle>
-          <div className="flex flex-wrap gap-2 items-end w-full md:w-auto">
-            <div className="flex-1 sm:flex-initial">
-              <Label className="text-xs whitespace-nowrap">From</Label>
-              <Input
-                type="date"
-                value={reportsDateFrom}
-                onChange={(e) => setReportsDateFrom(e.target.value)}
-                className="h-8 text-xs w-full sm:w-[140px]"
-              />
+    <div className="space-y-6 max-w-full">
+      {/* Header Banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="min-w-0 max-w-2xl">
+            <p className="text-[10.5px] font-bold tracking-[0.2em] text-[#8c887b] dark:text-muted-foreground uppercase mb-1">
+              FINANCE MANAGEMENT • AUDITS &amp; STATEMENTS
+            </p>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[#22211f] dark:text-foreground">
+              Institutional Financial Statements &amp; Contribution Audits
+            </h1>
+            <p className="text-xs sm:text-[13px] text-[#66645d] dark:text-muted-foreground mt-1.5 leading-relaxed">
+              Select a financial report module below to review staff contribution attribution, comprehensive profit &amp; loss statements, or multi-year annual audits.
+            </p>
+            <div className="w-10 h-1 bg-[#d97c38] rounded-full mt-2.5" />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="outline" className="font-mono text-xs bg-white dark:bg-card px-3 py-1 border-[#eae8df]">
+              3 Financial Modules Available
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid of Report Navigation Cards (Matching Concordia ERP Navigation Cards) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {/* CARD 1: User Expense / Income Attribution Report */}
+        <div
+          onClick={() => setSelectedReport("userContribution")}
+          className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-emerald-500/80 transition-all duration-200 cursor-pointer"
+        >
+          <div>
+            <div className="w-11 h-11 rounded-xl bg-[#2e694d] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+              <Users className="w-5 h-5 text-white" strokeWidth={2.2} />
             </div>
-            <div className="flex-1 sm:flex-initial">
-              <Label className="text-xs whitespace-nowrap">To</Label>
-              <Input
-                type="date"
-                value={reportsDateTo}
-                onChange={(e) => setReportsDateTo(e.target.value)}
-                className="h-8 text-xs w-full sm:w-[140px]"
-              />
+
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-emerald-700 transition-colors">
+                Staff Expense &amp; Income Attribution
+              </h3>
             </div>
+            <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+              Audit financial inflows (fee collections across all challan types + custom income) and operational expenses created by non-teaching and dual-role staff.
+            </p>
+          </div>
+
+          <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
             <Button
-              size="sm"
-              className="h-8 text-xs px-3 w-full sm:w-auto"
-              onClick={() =>
-                setAppliedReportsFilter({
-                  dateFrom: reportsDateFrom,
-                  dateTo: reportsDateTo,
-                })
-              }
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedReport("userContribution");
+              }}
+              className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-emerald-50 text-slate-800 border-slate-200 dark:bg-card dark:text-foreground"
             >
-              Apply Filter
+              <span className="flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-600" />
+                Open Staff Attribution Report
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
             </Button>
-            {(appliedReportsFilter.dateFrom || appliedReportsFilter.dateTo) && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs px-3 w-full sm:w-auto"
-                onClick={() => {
-                  setReportsDateFrom("");
-                  setReportsDateTo("");
-                  setAppliedReportsFilter({ dateFrom: "", dateTo: "" });
-                }}
-              >
-                Clear
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <ModernChartCard
-            title="Income vs Expense Trend"
-            subtitle="Filtered reporting period"
-            empty={!reportsTrendData.length}
-          >
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={reportsTrendData}>
-                  <defs>
-                    <linearGradient id="finIncomeGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="5%"
-                        stopColor={MODERN_CHART_COLORS.success}
-                        stopOpacity={0.35}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={MODERN_CHART_COLORS.success}
-                        stopOpacity={0.04}
-                      />
-                    </linearGradient>
-                    <linearGradient id="finExpenseGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="5%"
-                        stopColor={MODERN_CHART_COLORS.danger}
-                        stopOpacity={0.35}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={MODERN_CHART_COLORS.danger}
-                        stopOpacity={0.04}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    strokeOpacity={0.15}
-                    vertical={false}
-                  />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <RechartsTooltip
-                    content={
-                      <ModernTooltip
-                        valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`}
-                      />
-                    }
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="income"
-                    stroke={MODERN_CHART_COLORS.success}
-                    fill="url(#finIncomeGrad)"
-                    strokeWidth={2.5}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="expense"
-                    stroke={MODERN_CHART_COLORS.danger}
-                    fill="url(#finExpenseGrad)"
-                    strokeWidth={2.5}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </ModernChartCard>
-          <ModernChartCard
-            title="Income Mix"
-            subtitle="Category contribution"
-            empty={!reportsIncomePieData.length}
-          >
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={reportsIncomePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={68}
-                    outerRadius={98}
-                    paddingAngle={3}
-                  >
-                    {reportsIncomePieData.map((item, index) => (
-                      <Cell
-                        key={`${item.name}-${index}`}
-                        fill={
-                          [
-                            MODERN_CHART_COLORS.primary,
-                            MODERN_CHART_COLORS.secondary,
-                            MODERN_CHART_COLORS.success,
-                            MODERN_CHART_COLORS.warning,
-                            MODERN_CHART_COLORS.sky,
-                            MODERN_CHART_COLORS.pink,
-                          ][index % 6]
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip
-                    content={
-                      <ModernTooltip
-                        valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`}
-                      />
-                    }
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <ChartLegendPills
-              items={reportsIncomePieData.slice(0, 6).map((x, i) => ({
-                label: x.name,
-                color: [
-                  MODERN_CHART_COLORS.primary,
-                  MODERN_CHART_COLORS.secondary,
-                  MODERN_CHART_COLORS.success,
-                  MODERN_CHART_COLORS.warning,
-                  MODERN_CHART_COLORS.sky,
-                  MODERN_CHART_COLORS.pink,
-                ][i % 6],
-              }))}
-            />
-          </ModernChartCard>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="border rounded-lg p-4">
-            <h3 className="font-semibold text-lg mb-4">Income Summary</h3>
-            <div className="space-y-2">
-              {reportsCategoryIncomeData.map((cat) => (
-                <div key={cat.name} className="flex justify-between">
-                  <span>{cat.name}:</span>
-                  <span className="font-bold">
-                    PKR {cat.amount.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-              <div className="border-t pt-2 mt-2">
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total Income:</span>
-                  <span className="text-success">
-                    PKR {reportsTotalIncome.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border rounded-lg p-4">
-            <h3 className="font-semibold text-lg mb-4">Expense Summary</h3>
-            <div className="space-y-2">
-              {reportsCategoryExpenseData.map((cat) => (
-                <div key={cat.name} className="flex justify-between">
-                  <span>{cat.name}:</span>
-                  <span className="font-bold">
-                    PKR {cat.amount.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-              <div className="border-t pt-2 mt-2">
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total Expense:</span>
-                  <span className="text-destructive">
-                    PKR {reportsTotalExpense.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
-        <div className="border rounded-lg p-6 bg-muted">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold text-xl">Net Balance</h3>
-            <span
-              className={`font-bold text-2xl ${
-                reportsNetBalance >= 0 ? "text-success" : "text-destructive"
-              }`}
+        {/* CARD 2: Profit & Loss Statement (Period-Based) */}
+        <div
+          onClick={() => setSelectedReport("profitLoss")}
+          className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-amber-500/80 transition-all duration-200 cursor-pointer"
+        >
+          <div>
+            <div className="w-11 h-11 rounded-xl bg-[#c85a17] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+              <Scale className="w-5 h-5 text-white" strokeWidth={2.2} />
+            </div>
+
+            <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-amber-700 transition-colors">
+              Statement of Profit &amp; Loss
+            </h3>
+            <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+              Structured GAAP financial statement tracking institutional revenues against consolidated payroll and operational expenses with net margin calculations.
+            </p>
+          </div>
+
+          <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+            <Button
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedReport("profitLoss");
+              }}
+              className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-amber-50 text-slate-800 border-slate-200 dark:bg-card dark:text-foreground"
             >
-              PKR {reportsNetBalance.toLocaleString()}
-            </span>
+              <span className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-amber-600" />
+                Open Profit &amp; Loss Statement
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Button>
           </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* CARD 3: Annual Profit / Loss Audit (Multi-Year) */}
+        <div
+          onClick={() => setSelectedReport("annualProfitLoss")}
+          className="group relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 flex flex-col justify-between shadow-xs hover:border-blue-500/80 transition-all duration-200 cursor-pointer"
+        >
+          <div>
+            <div className="w-11 h-11 rounded-xl bg-[#1d4ed8] flex items-center justify-center text-white shadow-sm shrink-0 mb-4">
+              <CalendarDays className="w-5 h-5 text-white" strokeWidth={2.2} />
+            </div>
+
+            <h3 className="font-bold text-base text-[#22211f] dark:text-foreground tracking-tight group-hover:text-blue-700 transition-colors">
+              Annual Profit &amp; Loss Audit
+            </h3>
+            <p className="mt-2 text-xs text-[#6e6b62] dark:text-muted-foreground leading-relaxed">
+              Multi-year comparative financial audit with visual combo bar &amp; trend line graphs, year-over-year revenue growth, and 12-month deep dive breakdowns.
+            </p>
+          </div>
+
+          <div className="mt-6 pt-3 border-t border-[#f0eee6] dark:border-border/60">
+            <Button
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedReport("annualProfitLoss");
+              }}
+              className="w-full justify-between text-xs font-semibold shadow-xs bg-white hover:bg-blue-50 text-slate-800 border-slate-200 dark:bg-card dark:text-foreground"
+            >
+              <span className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-blue-600" />
+                Open Annual P&amp;L Audit
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -190,23 +190,23 @@ export const PaymentDialog = ({
   const additionalLateFee = Math.max(0, autoLateFee - storedLateFee);
 
   const base = isExtraC
-    ? (Number(challan.totalAmount ?? 0) - Number(challan.lateFeeFine ?? 0) + Number(challan.discount ?? 0))
+    ? Number(challan.headsAmount ?? getSelectedHeadsTotal(challan) ?? (challan.amount || 0))
     : Number(challan.basePayable ?? challan.snapshotBaseAmount ?? challan.amount ?? 0);
-  const arrears = isExtraC ? 0 : Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? 0);
+  const arrears = Number(challan.arrearsAmount ?? challan.snapshotArrearsAmount ?? 0);
   const heads = Number(challan.headsAmount ?? getSelectedHeadsTotal(challan) ?? 0);
   const discount = Number(challan.discountAmount ?? challan.discount ?? 0);
-  const advanceApplied = Number(challan.advanceApplied || 0);
+  const advanceApplied = isExtraC ? 0 : Number(challan.advanceApplied || 0);
   const directPaid = Number(
     challan.directPaidAmount != null
       ? challan.directPaidAmount
-      : (challan.paidAmount != null && Number(challan.paidAmount) !== advanceApplied
+      : (challan.paidAmount != null && (isExtraC || Number(challan.paidAmount) !== advanceApplied)
           ? challan.paidAmount
           : 0)
   );
   const alreadyPaid = directPaid + advanceApplied;
 
   const baseTotalDue = isExtraC
-    ? Number(challan.totalAmount ?? 0)
+    ? Math.max(0, base + arrears + storedLateFee - discount)
     : Number(
         challan.grossAmount != null
           ? (Number(challan.grossAmount) - discount)
@@ -233,6 +233,10 @@ export const PaymentDialog = ({
     const resolvedMode = challanForm.paymentMode || challanForm.paidBy || 'Cash';
 
     if (isExtraC) {
+      if (receiving > (totalDue - alreadyPaid)) {
+        toast({ title: "Overpayment not allowed", description: "Payment cannot exceed remaining challan amount.", variant: "destructive" });
+        return;
+      }
       setIsPaymentLoading(true);
       try {
         await recordExtraFeePayment({
@@ -442,7 +446,7 @@ export const PaymentDialog = ({
                         <div>{arrears.toLocaleString()}</div>
                         {Array.isArray(challan.arrearAllocations) && challan.arrearAllocations.length > 0 && (
                           <div className="text-[9px] text-muted-foreground font-normal">
-                            {challan.arrearAllocations.map(a => a.sourceMonth ? a.sourceMonth.slice(0, 3) : `Inst #${a.sourceInstallmentNumber}`).join(', ')}
+                            {challan.arrearAllocations.map(a => a.sourceMonth ? a.sourceMonth.slice(0, 3) : (a.sourceChallanNo ? `#${a.sourceChallanNo}` : (a.sourceInstallmentNumber ? `Inst #${a.sourceInstallmentNumber}` : 'Prior'))).join(', ')}
                           </div>
                         )}
                       </div>
@@ -478,16 +482,26 @@ export const PaymentDialog = ({
                       autoFocus
                       className="h-7 text-center text-xs font-bold border-primary/50 focus-visible:ring-primary text-foreground"
                       value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      max={isExtraC ? Math.max(0, totalDue - alreadyPaid) : undefined}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (isExtraC && val !== "") {
+                          const maxPay = Math.max(0, totalDue - alreadyPaid);
+                          if (parseFloat(val) > maxPay) {
+                            val = maxPay.toString();
+                          }
+                        }
+                        setPaymentAmount(val);
+                      }}
                     />
                   </td>
                   <td className="py-2 px-2">
-                    {remaining < 0 ? (
+                    {remaining < 0 && !isExtraC ? (
                       <div className="bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold text-[11px] py-1 px-1.5 rounded text-center">
                         {Math.abs(remaining).toLocaleString()} Advance
                         <div className="text-[8px] font-normal opacity-80">Credit Ledger</div>
                       </div>
-                    ) : remaining === 0 ? (
+                    ) : remaining <= 0 ? (
                       <div className="text-emerald-600 font-bold text-xs">0 (Settled)</div>
                     ) : (
                       <div className="text-red-600 font-bold text-xs">{remaining.toLocaleString()}</div>
@@ -509,9 +523,9 @@ export const PaymentDialog = ({
                     {(parseFloat(paymentAmount) || 0).toLocaleString()}
                   </td>
                   <td className="py-1.5 px-1 font-bold">
-                    {remaining < 0 ? (
+                    {remaining < 0 && !isExtraC ? (
                       <span className="text-blue-600 text-[11px]">{Math.abs(remaining).toLocaleString()} (Adv)</span>
-                    ) : remaining === 0 ? (
+                    ) : remaining <= 0 ? (
                       <span className="text-emerald-600 text-xs">0</span>
                     ) : (
                       <span className="text-red-600 text-xs">{remaining.toLocaleString()}</span>
@@ -531,10 +545,16 @@ export const PaymentDialog = ({
               <div className="divide-y divide-purple-100 dark:divide-purple-900/30">
                 {challan.heads.map((h, i) => (
                   <div key={i} className="flex justify-between items-center px-3 py-1.5 text-xs">
-                    <span className="text-foreground">{h.headName}</span>
+                    <span className="text-foreground">{h.headName || h.name || (typeof h.headId === 'object' ? h.headId?.name : null) || (feeHeads?.find?.(fh => (fh.id || fh._id) === (h.headId?._id || h.headId))?.name) || 'Fee Head'}</span>
                     <span className="font-medium text-foreground">PKR {Number(h.amount).toLocaleString()}</span>
                   </div>
                 ))}
+                {Number(challan.discount ?? 0) > 0 && (
+                  <div className="flex justify-between items-center px-3 py-1.5 text-xs text-green-600">
+                    <span>Discount</span>
+                    <span className="font-medium">- PKR {Number(challan.discount).toLocaleString()}</span>
+                  </div>
+                )}
                 {Number(challan.lateFeeFine ?? 0) > 0 && (
                   <div className="flex justify-between items-center px-3 py-1.5 text-xs text-red-600">
                     <span>Late Fee Fine</span>

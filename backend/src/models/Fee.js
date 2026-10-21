@@ -164,11 +164,24 @@ const ExtraChallanSchema = new mongoose.Schema({
   }],
   paidAmount: { type: Number, default: 0 },
   lateFeeFine: { type: Number, default: 0 },
+  arrearsAmount: { type: Number, default: 0 },
+  arrearAllocations: [{
+    sourceChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtraChallan' },
+    sourceChallanNo: { type: String },
+    amountCarriedForward: { type: Number },
+    amountSettled: { type: Number, default: 0 }
+  }],
+  settledViaArrearsAmount: { type: Number, default: 0 },
+  settledByChallanNo: { type: String },
+  settledByChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtraChallan' },
+  supersededBy: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtraChallan' },
+  supersededByChallanNo: { type: String },
+  supersedes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ExtraChallan' }],
   totalAmount: { type: Number },
   discount: { type: Number, default: 0 },
   status: {
     type: String,
-    enum: ['PENDING', 'PAID', 'PARTIAL', 'OVERDUE', 'VOID'],
+    enum: ['PENDING', 'PAID', 'PARTIAL', 'OVERDUE', 'VOID', 'SETTLED', 'SUPERSEDED'],
     default: 'PENDING'
   },
   paidDate: { type: Date },

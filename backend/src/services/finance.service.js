@@ -10,6 +10,7 @@ const {
   FeeChallan,
   ExtraChallan,
   HostelChallan,
+  HostelRegistration,
   FeePaymentReceipt,
   Payroll,
   InventoryExpense,
@@ -102,6 +103,12 @@ class FinanceService {
       data.walletId = walletRecord._id;
       data.walletName = walletRecord.name;
       data.transactionId = walletTx._id;
+    }
+
+    if (userId) {
+      const creator = await User.findById(userId).select('name');
+      data.createdBy = userId;
+      data.createdByName = creator ? creator.name : (data.createdByName || 'System');
     }
 
     return FinanceIncome.create(data);
@@ -760,18 +767,15 @@ class FinanceService {
         { paidDate: { $in: [null, ''] }, createdAt: { $gte: startOfDay, $lte: endOfDay } },
       ],
     })
-      .populate({
-        path: 'challanId',
-        populate: {
-          path: 'studentId',
-          select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo'
-        }
-      })
+      .populate('challanId')
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
       .populate('walletId', 'name type')
       .populate('recordedBy', 'name role designation email refId')
       .lean()
-      .catch(() => []);
+      .catch((err) => {
+        console.error('Error fetching FeePaymentReceipt for closing:', err);
+        return [];
+      });
 
     const receiptChallanIds = new Set(
       feeReceipts
@@ -788,6 +792,7 @@ class FinanceService {
     })
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
       .populate('receivedBy', 'name role designation email refId')
+      .populate('walletId', 'name type')
       .lean()
       .catch(() => []);
 
@@ -800,6 +805,7 @@ class FinanceService {
     })
       .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
       .populate('receivedBy', 'name role designation email refId')
+      .populate('walletId', 'name type')
       .lean()
       .catch(() => []);
 
@@ -807,13 +813,32 @@ class FinanceService {
       status: { $in: ['PAID', 'PARTIAL'] },
       $or: [
         { paidDate: { $gte: startOfDay, $lte: endOfDay } },
+        { paidAt: { $gte: startOfDay, $lte: endOfDay } },
+        { 'payments.paymentDate': { $gte: startOfDay, $lte: endOfDay } },
         { paidDate: { $in: [null, ''] }, updatedAt: { $gte: startOfDay, $lte: endOfDay } },
       ],
     })
-      .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo')
-      .populate('receivedBy', 'name role designation email refId')
+      .populate({
+        path: 'registrationId',
+        populate: {
+          path: 'studentId',
+          select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo'
+        }
+      })
+      .populate({
+        path: 'hostelRegistrationId',
+        populate: {
+          path: 'studentId',
+          select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo'
+        }
+      })
+      .populate('walletId', 'name type')
       .lean()
       .catch(() => []);
+
+    feeChallans.forEach(c => { c._sourceType = 'FeeChallan'; });
+    extraChallans.forEach(c => { c._sourceType = 'ExtraChallan'; });
+    hostelChallans.forEach(c => { c._sourceType = 'HostelChallan'; });
 
     const feeCollectionDetails = [];
     const seenReceiptIds = new Set();
@@ -838,17 +863,35 @@ class FinanceService {
       const [fetchedFeeChallans, fetchedExtraChallans, fetchedHostelChallans] = await Promise.all([
         FeeChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
         ExtraChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
-        HostelChallan.find({ _id: { $in: unmappedChallanIds } }).populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName rollNumber rollNo').populate('receivedBy', 'name role designation email').lean().catch(() => []),
+        HostelChallan.find({ _id: { $in: unmappedChallanIds } }).populate({ path: 'registrationId', populate: { path: 'studentId', select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo' } }).populate({ path: 'hostelRegistrationId', populate: { path: 'studentId', select: 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo' } }).lean().catch(() => []),
       ]);
-      fetchedFeeChallans.forEach(c => challanMap.set(String(c._id), c));
-      fetchedExtraChallans.forEach(c => challanMap.set(String(c._id), c));
-      fetchedHostelChallans.forEach(c => challanMap.set(String(c._id), c));
+      fetchedFeeChallans.forEach(c => { c._sourceType = 'FeeChallan'; challanMap.set(String(c._id), c); });
+      fetchedExtraChallans.forEach(c => { c._sourceType = 'ExtraChallan'; challanMap.set(String(c._id), c); });
+      fetchedHostelChallans.forEach(c => { c._sourceType = 'HostelChallan'; challanMap.set(String(c._id), c); });
+    }
+
+    // Find any missing hostel registrations for external boarders in receipts
+    const missingHostelRegIds = [];
+    for (const r of feeReceipts) {
+      if (r.challanType === 'HostelChallan' && !r.studentId) {
+        const regId = r.challanId?.registrationId || r.challanId?.hostelRegistrationId;
+        if (regId) missingHostelRegIds.push(String(regId));
+      }
+    }
+
+    const hostelRegMap = new Map();
+    if (missingHostelRegIds.length > 0) {
+      const regs = await HostelRegistration.find({ _id: { $in: missingHostelRegIds } })
+        .populate('studentId', 'fName lName firstName lastName fatherOrguardian fatherName guardianName rollNumber rollNo')
+        .lean()
+        .catch(() => []);
+      regs.forEach(reg => hostelRegMap.set(String(reg._id), reg));
     }
 
     // 1A. Process explicit immutable FeePaymentReceipts
     for (const r of feeReceipts) {
       const rawChId = r.challanId?._id ? String(r.challanId._id) : (r.challanId ? String(r.challanId) : null);
-      const ch = (r.challanId && r.challanId.challanNo)
+      const ch = (r.challanId && (r.challanId.challanNo || r.challanId.challanNumber))
         ? r.challanId
         : (rawChId ? challanMap.get(rawChId) : null);
       const cNo = ch?.challanNo || ch?.challanNumber || r.challanNo || r.sourceChallanNo || '';
@@ -858,13 +901,6 @@ class FinanceService {
       if (seenReceiptIds.has(rId)) continue;
       seenReceiptIds.add(rId);
 
-      const st = r.studentId || ch?.studentId || ch?.registrationId?.studentId || {};
-      const fName = st.fName || st.firstName || '';
-      const lName = st.lName || st.lastName || '';
-      const stName = `${fName} ${lName}`.trim() || ch?.studentName || 'Student';
-      const father = st.fatherOrguardian || st.fatherName || ch?.fatherName || '—';
-      const roll = st.rollNumber || st.rollNo || ch?.rollNumber || ch?.hostelRegNumber || '—';
-
       const isAdvance = r.receiptType === 'ADVANCE_SETTLEMENT' || r.paymentMode === 'Advance Credit';
       const isArrears = r.receiptType === 'ARREARS_SETTLEMENT' || r.paymentMode === 'Arrears Transfer';
       const actualCashPaid = (isAdvance || isArrears) ? 0 : Math.max(0, Number(r.amountPaid || 0));
@@ -873,31 +909,42 @@ class FinanceService {
       // Closing is strictly for transactions that impact cash ledger flow of money on this date.
       if (isAdvance || isArrears || actualCashPaid <= 0) continue;
 
-      const assignedWalletId = r.walletId?._id ? String(r.walletId._id) : (r.walletId ? String(r.walletId) : defaultWalletId);
-      const assignedWalletName = r.walletId?.name || (r.walletId ? wallets.find(w => String(w._id) === String(r.walletId))?.name : defaultWalletName) || 'Cash in Hand';
+      const reg = (ch?.registrationId && hostelRegMap.get(String(ch.registrationId))) ||
+                  (ch?.hostelRegistrationId && hostelRegMap.get(String(ch.hostelRegistrationId))) ||
+                  {};
+      const st = r.studentId || ch?.studentId || reg?.studentId || {};
+      const fName = st.fName || st.firstName || '';
+      const lName = st.lName || st.lastName || '';
+      const stName = `${fName} ${lName}`.trim() || ch?.studentName || reg?.externalName || 'Student';
+      const father = st.fatherOrguardian || st.fatherName || ch?.fatherName || reg?.externalGuardianName || '—';
+      const roll = st.rollNumber || st.rollNo || ch?.rollNumber || ch?.hostelRegNumber || reg?.hostelRegNumber || '—';
 
-      const challanType = r.challanType || 'FeeChallan';
+      const assignedWalletId = r.walletId?._id ? String(r.walletId._id) : (r.walletId ? String(r.walletId) : (ch?.walletId ? String(ch.walletId) : defaultWalletId));
+      const assignedWalletName = r.walletId?.name || (r.walletId ? wallets.find(w => String(w._id) === String(r.walletId))?.name : (ch?.walletName || defaultWalletName)) || 'Cash in Hand';
+
+      const challanType = r.challanType || (ch?.challanNumber ? 'HostelChallan' : (ch?.isExtra || ch?.extraFeeType ? 'ExtraChallan' : 'FeeChallan'));
       let entryType = 'Tuition Challan';
       let headsStr = 'Tuition Fee';
       let headsAmount = Number(ch?.headsAmount || 0);
       let baseAmount = Number(ch?.basePayable || ch?.amount || 0);
-      let lateFeeFine = Number(r.allocatedToLateFee || ch?.lateFeeAmount || ch?.fineAmount || 0);
+      let lateFeeFine = Number(r.allocatedToLateFee || ch?.lateFeeAmount || ch?.fineAmount || ch?.lateFeeFine || 0);
       let totalAmount = Number(ch?.totalAmount || ch?.grossAmount || actualCashPaid);
 
       if (challanType === 'ExtraChallan') {
         entryType = 'Extra Challan';
-        headsStr = ch?.title || ch?.description || ch?.extraFeeType || 'Extra Fee';
-        baseAmount = Number(ch?.baseAmount || ch?.amount || actualCashPaid);
+        headsStr = ch?.title || ch?.description || ch?.extraFeeType || (Array.isArray(ch?.heads) && ch.heads[0]?.name) || 'Extra Fee';
+        baseAmount = Number(ch?.amount || ch?.baseAmount || actualCashPaid);
         headsAmount = baseAmount;
-        lateFeeFine = Number(ch?.lateFeeFine || 0);
+        lateFeeFine = Number(r.allocatedToLateFee || ch?.lateFeeFine || 0);
         totalAmount = Number(ch?.totalAmount || (baseAmount + lateFeeFine) || actualCashPaid);
       } else if (challanType === 'HostelChallan') {
         entryType = 'Hostel Challan';
         headsStr = ch?.month ? `Hostel Fee (${ch.month})` : 'Hostel Fee';
-        baseAmount = Number(ch?.rentAmount || ch?.totalAmount || actualCashPaid);
-        headsAmount = baseAmount;
-        lateFeeFine = Number(ch?.fineAmount || 0);
-        totalAmount = Number(ch?.totalAmount || actualCashPaid);
+        baseAmount = Number(ch?.hostelFee || ch?.amount || actualCashPaid);
+        const headsList = Array.isArray(ch?.heads) ? ch.heads : [];
+        headsAmount = headsList.reduce((sum, h) => sum + Number(h.amount || 0), 0);
+        lateFeeFine = Number(r.allocatedToLateFee || ch?.lateFeeFine || ch?.fineAmount || 0);
+        totalAmount = Number(ch?.totalAmount || (baseAmount + headsAmount + lateFeeFine) || actualCashPaid);
       } else if (Array.isArray(ch?.challanHeads) && ch.challanHeads.length > 0) {
         headsStr = ch.challanHeads.map(h => `${h.name || h.headName}: PKR ${Number(h.amount || 0).toLocaleString()}`).join(', ');
       }
@@ -943,28 +990,46 @@ class FinanceService {
 
       if (actualCashPaid <= 0 || isAdvance) continue;
 
-      const st = c.studentId || {};
+      const isExtra = c._sourceType === 'ExtraChallan';
+      const isHostel = c._sourceType === 'HostelChallan';
+
+      const reg = c.registrationId || c.hostelRegistrationId;
+      const st = c.studentId || reg?.studentId || {};
       const fName = st.fName || st.firstName || '';
       const lName = st.lName || st.lastName || '';
-      const stName = `${fName} ${lName}`.trim() || c.studentName || 'Student';
-      const father = st.fatherOrguardian || st.fatherName || c.fatherName || '—';
-      const roll = st.rollNumber || st.rollNo || c.rollNumber || '—';
+      const stName = `${fName} ${lName}`.trim() || c.studentName || reg?.externalName || 'Student';
+      const father = st.fatherOrguardian || st.fatherName || c.fatherName || reg?.externalGuardianName || '—';
+      const roll = st.rollNumber || st.rollNo || c.rollNumber || c.hostelRegNumber || '—';
 
-      const baseAmount = Number(c.basePayable || c.amount || 0);
+      let baseAmount = Number(c.basePayable || c.amount || 0);
       let headsStr = 'Tuition Fee';
       let totalHeadsAmount = 0;
-      if (Array.isArray(c.challanHeads) && c.challanHeads.length > 0) {
+      let lateFee = Number(c.lateFeeAmount || c.lateFeeFine || c.fineAmount || 0);
+      let entryType = 'Tuition Challan';
+
+      if (isExtra) {
+        entryType = 'Extra Challan';
+        headsStr = c.title || c.description || (Array.isArray(c.heads) && c.heads[0]?.name) || 'Extra Fee';
+        baseAmount = Number(c.amount || 0);
+        totalHeadsAmount = baseAmount;
+        lateFee = Number(c.lateFeeFine || 0);
+      } else if (isHostel) {
+        entryType = 'Hostel Challan';
+        headsStr = c.month ? `Hostel Fee (${c.month})` : 'Hostel Fee';
+        baseAmount = Number(c.hostelFee || c.amount || 0);
+        totalHeadsAmount = Array.isArray(c.heads) ? c.heads.reduce((sum, h) => sum + Number(h.amount || 0), 0) : 0;
+        lateFee = Number(c.lateFeeFine || c.fineAmount || 0);
+      } else if (Array.isArray(c.challanHeads) && c.challanHeads.length > 0) {
         totalHeadsAmount = c.challanHeads.reduce((s, h) => s + Number(h.amount || 0), 0);
         headsStr = c.challanHeads.map(h => `${h.name || h.headName}: PKR ${Number(h.amount || 0).toLocaleString()}`).join(', ');
       } else if (c.headsAmount) {
         totalHeadsAmount = Number(c.headsAmount || 0);
         headsStr = `PKR ${totalHeadsAmount.toLocaleString()}`;
       } else if (c.totalAmount && baseAmount) {
-        const diff = Number(c.totalAmount) - baseAmount - Number(c.lateFeeAmount || c.fineAmount || 0);
+        const diff = Number(c.totalAmount) - baseAmount - lateFee;
         if (diff > 0) totalHeadsAmount = diff;
       }
 
-      const lateFee = Number(c.lateFeeAmount || c.fineAmount || 0);
       const totalAmount = Number(c.totalAmount || c.grossAmount || (baseAmount + lateFee + totalHeadsAmount));
 
       const assignedWalletId = c.walletId ? String(c.walletId) : defaultWalletId;
@@ -984,7 +1049,7 @@ class FinanceService {
         totalAmount,
         paidAmount: actualCashPaid,
         advanceCreditUsed: Number(c.advanceApplied || 0),
-        type: c.challanNo?.startsWith('EX') ? 'Extra Challan' : (c.challanNo?.startsWith('HOS') ? 'Hostel Challan' : 'Tuition Challan'),
+        type: entryType,
         paymentMode: isAdvance ? 'Advance Credit' : (c.paymentMode || c.paidBy || 'Cash'),
         walletId: assignedWalletId,
         walletName: isAdvance ? 'Non-Cash Settlement' : assignedWalletName,
@@ -1645,6 +1710,660 @@ class FinanceService {
       netBalance: totalIncome - totalExpense,
       incomeCount: incomes.length,
       expenseCount: expenses.length,
+    };
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // FINANCIAL REPORTS: USER CONTRIBUTION, PROFIT & LOSS, ANNUAL P&L
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  async getUserContributionReport({ dateFrom, dateTo, staffId, type }) {
+    const eligibleStaffList = await Staff.find({
+      isNonTeaching: true,
+      isSupportingStaff: { $ne: true }
+    }).select('_id staffId name designation email phone isTeaching isNonTeaching').lean();
+
+    const adminUsers = await User.find({
+      role: { $in: ['SUPER_ADMIN', 'ADMIN'] }
+    }).select('_id name email role').lean();
+
+    const staffMap = new Map();
+    const nameToStaffKey = new Map();
+    const idToStaffKey = new Map();
+
+    eligibleStaffList.forEach(s => {
+      const key = s._id.toString();
+      const roleLabel = s.isTeaching ? 'Both (Teaching + Non-Teaching)' : 'Non-Teaching';
+      const staffObj = {
+        id: key,
+        staffId: s.staffId || '',
+        name: s.name,
+        designation: s.designation || 'Staff',
+        roleType: roleLabel,
+        totalIncome: 0,
+        feeCollections: 0,
+        customIncome: 0,
+        totalExpense: 0,
+        generalExpense: 0,
+        boardingExpense: 0,
+        inventoryExpense: 0,
+        payrollAmount: 0,
+        netContribution: 0,
+        transactionCount: 0,
+      };
+      staffMap.set(key, staffObj);
+      idToStaffKey.set(key, key);
+      if (s.name) nameToStaffKey.set(s.name.trim().toLowerCase(), key);
+      if (s.email) nameToStaffKey.set(s.email.trim().toLowerCase(), key);
+    });
+
+    adminUsers.forEach(u => {
+      const uKey = u._id.toString();
+      const matchedKey = (u.name && nameToStaffKey.get(u.name.trim().toLowerCase())) ||
+                         (u.email && nameToStaffKey.get(u.email.trim().toLowerCase()));
+      if (matchedKey) {
+        idToStaffKey.set(uKey, matchedKey);
+      } else {
+        const staffObj = {
+          id: uKey,
+          staffId: 'ADMIN',
+          name: u.name || 'Administrator',
+          designation: u.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin',
+          roleType: 'Administration',
+          totalIncome: 0,
+          feeCollections: 0,
+          customIncome: 0,
+          totalExpense: 0,
+          generalExpense: 0,
+          boardingExpense: 0,
+          inventoryExpense: 0,
+          payrollAmount: 0,
+          netContribution: 0,
+          transactionCount: 0,
+        };
+        staffMap.set(uKey, staffObj);
+        idToStaffKey.set(uKey, uKey);
+        if (u.name) nameToStaffKey.set(u.name.trim().toLowerCase(), uKey);
+        if (u.email) nameToStaffKey.set(u.email.trim().toLowerCase(), uKey);
+      }
+    });
+
+    const resolveStaffKey = (userRef, nameRef) => {
+      if (userRef) {
+        const strId = userRef._id ? userRef._id.toString() : userRef.toString();
+        if (idToStaffKey.has(strId)) return idToStaffKey.get(strId);
+      }
+      if (nameRef) {
+        const cleanName = String(nameRef).replace(/\s*\([^)]*\)$/, '').trim().toLowerCase();
+        if (nameToStaffKey.has(cleanName)) return nameToStaffKey.get(cleanName);
+      }
+      return null;
+    };
+
+    const hasDateRange = Boolean(dateFrom && dateTo);
+    const startD = dateFrom ? new Date(dateFrom + 'T00:00:00.000Z') : null;
+    const endD = dateTo ? new Date(dateTo + 'T23:59:59.999Z') : null;
+
+    const itemized = [];
+
+    // 1. Inflow: FeeChallan (Paid collections)
+    const feeQuery = { paidAmount: { $gt: 0 } };
+    if (hasDateRange) {
+      feeQuery.$or = [
+        { paidDate: { $gte: startD, $lte: endD } },
+        { paidDate: null, updatedAt: { $gte: startD, $lte: endD } }
+      ];
+    }
+    const feeChallans = await FeeChallan.find(feeQuery)
+      .select('_id challanNo paidAmount directPaidAmount paidDate paidTime paidBy receivedByName receivedBy paymentMode walletName')
+      .lean();
+
+    feeChallans.forEach(c => {
+      const amount = Number(c.directPaidAmount || c.paidAmount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(c.receivedBy, c.receivedByName || c.paidBy);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalIncome += amount;
+        staff.feeCollections += amount;
+        staff.netContribution += amount;
+        staff.transactionCount += 1;
+      }
+      const txDate = c.paidDate ? new Date(c.paidDate).toISOString().split('T')[0] : (c.updatedAt ? new Date(c.updatedAt).toISOString().split('T')[0] : '');
+      itemized.push({
+        id: c._id.toString(),
+        date: txDate,
+        staffId: staff?.id || null,
+        staffName: staff?.name || c.receivedByName || c.paidBy || 'Administrator',
+        type: 'INCOME',
+        category: 'Fee Collection',
+        sourceModule: 'Fee Challan',
+        referenceNo: c.challanNo,
+        description: `Fee Payment Received (Challan #${c.challanNo})`,
+        amount,
+        paymentMode: c.paymentMode || 'Cash',
+        walletName: c.walletName || ''
+      });
+    });
+
+    // Inflow: ExtraChallan (Paid collections)
+    const extraQuery = { paidAmount: { $gt: 0 } };
+    if (hasDateRange) {
+      extraQuery.$or = [
+        { paidDate: { $gte: startD, $lte: endD } },
+        { paidDate: null, updatedAt: { $gte: startD, $lte: endD } }
+      ];
+    }
+    const extraChallans = await ExtraChallan.find(extraQuery)
+      .select('_id challanNo paidAmount paidDate paidBy receivedByName receivedBy paymentMode walletName')
+      .lean();
+
+    extraChallans.forEach(c => {
+      const amount = Number(c.paidAmount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(c.receivedBy, c.receivedByName || c.paidBy);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalIncome += amount;
+        staff.feeCollections += amount;
+        staff.netContribution += amount;
+        staff.transactionCount += 1;
+      }
+      const txDate = c.paidDate ? new Date(c.paidDate).toISOString().split('T')[0] : '';
+      itemized.push({
+        id: c._id.toString(),
+        date: txDate,
+        staffId: staff?.id || null,
+        staffName: staff?.name || c.receivedByName || c.paidBy || 'Administrator',
+        type: 'INCOME',
+        category: 'Extra Fee',
+        sourceModule: 'Extra Challan',
+        referenceNo: c.challanNo,
+        description: `Extra Challan Payment (#${c.challanNo})`,
+        amount,
+        paymentMode: c.paymentMode || 'Cash',
+        walletName: c.walletName || ''
+      });
+    });
+
+    // Inflow: HostelChallan (Paid collections)
+    const hostelQuery = { paidAmount: { $gt: 0 } };
+    if (hasDateRange) {
+      hostelQuery.$or = [
+        { paidDate: { $gte: startD, $lte: endD } },
+        { paidAt: { $gte: startD, $lte: endD } }
+      ];
+    }
+    const hostelChallans = await HostelChallan.find(hostelQuery)
+      .select('_id challanNo paidAmount paidDate paidAt paidBy paymentMode walletName')
+      .lean();
+
+    hostelChallans.forEach(c => {
+      const amount = Number(c.paidAmount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(null, c.paidBy);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalIncome += amount;
+        staff.feeCollections += amount;
+        staff.netContribution += amount;
+        staff.transactionCount += 1;
+      }
+      const rawDate = c.paidDate || c.paidAt;
+      const txDate = rawDate ? new Date(rawDate).toISOString().split('T')[0] : '';
+      itemized.push({
+        id: c._id.toString(),
+        date: txDate,
+        staffId: staff?.id || null,
+        staffName: staff?.name || c.paidBy || 'Administrator',
+        type: 'INCOME',
+        category: 'Hostel Fee',
+        sourceModule: 'Hostel Challan',
+        referenceNo: c.challanNo,
+        description: `Hostel Fee Payment (#${c.challanNo})`,
+        amount,
+        paymentMode: c.paymentMode || 'Cash',
+        walletName: c.walletName || ''
+      });
+    });
+
+    // Inflow: Custom Income (FinanceIncome)
+    const incQuery = {};
+    if (hasDateRange) {
+      incQuery.date = { $gte: dateFrom, $lte: dateTo };
+    }
+    const incomes = await FinanceIncome.find(incQuery)
+      .populate('createdBy', 'name email')
+      .lean();
+
+    incomes.forEach(i => {
+      const amount = Number(i.amount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(i.createdBy, i.createdByName);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalIncome += amount;
+        staff.customIncome += amount;
+        staff.netContribution += amount;
+        staff.transactionCount += 1;
+      }
+      itemized.push({
+        id: i._id.toString(),
+        date: i.date || '',
+        staffId: staff?.id || null,
+        staffName: staff?.name || i.createdByName || i.createdBy?.name || 'Administrator',
+        type: 'INCOME',
+        category: i.category || 'General Income',
+        sourceModule: 'Custom Income',
+        referenceNo: i.id || i._id.toString().slice(-6),
+        description: i.description || `Income: ${i.category}`,
+        amount,
+        paymentMode: 'Bank/Wallet',
+        walletName: i.walletName || ''
+      });
+    });
+
+    // 2. Outflow: FinanceExpense (General Expense)
+    const expQuery = { status: { $ne: 'Rejected' } };
+    if (hasDateRange) {
+      expQuery.date = { $gte: dateFrom, $lte: dateTo };
+    }
+    const expenses = await FinanceExpense.find(expQuery)
+      .populate('createdBy', 'name email')
+      .lean();
+
+    expenses.forEach(e => {
+      const amount = Number(e.amount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(e.createdBy, e.createdByName);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalExpense += amount;
+        staff.generalExpense += amount;
+        staff.netContribution -= amount;
+        staff.transactionCount += 1;
+      }
+      itemized.push({
+        id: e._id.toString(),
+        date: e.date || '',
+        staffId: staff?.id || null,
+        staffName: staff?.name || e.createdByName || e.createdBy?.name || 'Administrator',
+        type: 'EXPENSE',
+        category: e.category || 'General Expense',
+        sourceModule: 'Finance Expense',
+        referenceNo: e.id || e._id.toString().slice(-6),
+        description: e.description || `Expense: ${e.category} - ${e.subCategory || ''}`,
+        amount,
+        paymentMode: 'Bank/Wallet',
+        walletName: e.walletName || ''
+      });
+    });
+
+    // Outflow: HostelExpense (Boarding Expense)
+    const hExpQuery = {};
+    if (hasDateRange) {
+      hExpQuery.date = { $gte: dateFrom, $lte: dateTo };
+    }
+    const hostelExpenses = await HostelExpense.find(hExpQuery)
+      .populate('createdBy', 'name email')
+      .lean();
+
+    hostelExpenses.forEach(he => {
+      const amount = Number(he.amount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(he.createdBy, he.createdByName);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalExpense += amount;
+        staff.boardingExpense += amount;
+        staff.netContribution -= amount;
+        staff.transactionCount += 1;
+      }
+      itemized.push({
+        id: he._id.toString(),
+        date: he.date || '',
+        staffId: staff?.id || null,
+        staffName: staff?.name || he.createdByName || he.createdBy?.name || 'Administrator',
+        type: 'EXPENSE',
+        category: he.category || 'Boarding Expense',
+        sourceModule: 'Hostel Expense',
+        referenceNo: he.id || he._id.toString().slice(-6),
+        description: he.description || he.title || 'Hostel Expense',
+        amount,
+        paymentMode: 'Bank/Wallet',
+        walletName: he.walletName || ''
+      });
+    });
+
+    // Outflow: InventoryExpense
+    const invExpQuery = {};
+    if (hasDateRange) {
+      invExpQuery.date = { $gte: dateFrom, $lte: dateTo };
+    }
+    const inventoryExpenses = await InventoryExpense.find(invExpQuery)
+      .populate('createdBy', 'name email')
+      .lean();
+
+    inventoryExpenses.forEach(ie => {
+      const amount = Number(ie.amount || 0);
+      if (amount <= 0) return;
+      const sKey = resolveStaffKey(ie.createdBy, ie.createdByName);
+      const staff = sKey ? staffMap.get(sKey) : null;
+      if (staff) {
+        staff.totalExpense += amount;
+        staff.inventoryExpense += amount;
+        staff.netContribution -= amount;
+        staff.transactionCount += 1;
+      }
+      itemized.push({
+        id: ie._id.toString(),
+        date: ie.date || '',
+        staffId: staff?.id || null,
+        staffName: staff?.name || ie.createdByName || ie.createdBy?.name || 'Administrator',
+        type: 'EXPENSE',
+        category: ie.expenseType || 'Inventory Expense',
+        sourceModule: 'Inventory Expense',
+        referenceNo: ie.id || ie._id.toString().slice(-6),
+        description: ie.description || `Inventory ${ie.expenseType || 'Expense'}`,
+        amount,
+        paymentMode: 'Bank/Wallet',
+        walletName: ie.walletName || ''
+      });
+    });
+
+    let finalStaffBreakdown = Array.from(staffMap.values());
+    if (staffId && staffId !== 'all') {
+      finalStaffBreakdown = finalStaffBreakdown.filter(s => s.id === staffId || s.staffId === staffId);
+    }
+
+    let finalItemized = itemized;
+    if (staffId && staffId !== 'all') {
+      finalItemized = finalItemized.filter(i => i.staffId === staffId);
+    }
+    if (type && type !== 'all') {
+      finalItemized = finalItemized.filter(i => i.type.toUpperCase() === type.toUpperCase());
+    }
+
+    finalItemized.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    finalStaffBreakdown.sort((a, b) => b.netContribution - a.netContribution);
+
+    const totalIncomeBrought = finalStaffBreakdown.reduce((s, st) => s + st.totalIncome, 0);
+    const totalExpenseCreated = finalStaffBreakdown.reduce((s, st) => s + st.totalExpense, 0);
+
+    return {
+      summary: {
+        totalIncomeBrought,
+        totalExpenseCreated,
+        netContribution: totalIncomeBrought - totalExpenseCreated,
+        activeStaffCount: finalStaffBreakdown.filter(s => s.transactionCount > 0).length,
+        totalEligibleStaff: finalStaffBreakdown.length,
+      },
+      staffBreakdown: finalStaffBreakdown,
+      itemizedTransactions: finalItemized,
+    };
+  }
+
+  async getProfitLossReport({ dateFrom, dateTo }) {
+    const hasDateRange = Boolean(dateFrom && dateTo);
+    const startD = dateFrom ? new Date(dateFrom + 'T00:00:00.000Z') : null;
+    const endD = dateTo ? new Date(dateTo + 'T23:59:59.999Z') : null;
+
+    const feeQuery = { paidAmount: { $gt: 0 } };
+    if (hasDateRange) {
+      feeQuery.$or = [
+        { paidDate: { $gte: startD, $lte: endD } },
+        { paidDate: null, updatedAt: { $gte: startD, $lte: endD } }
+      ];
+    }
+    const [feeChallans, extraChallans, hostelChallans, customIncomes] = await Promise.all([
+      FeeChallan.find(feeQuery).select('paidAmount directPaidAmount paidDate updatedAt').lean(),
+      ExtraChallan.find(feeQuery).select('paidAmount paidDate heads updatedAt').lean(),
+      HostelChallan.find({ paidAmount: { $gt: 0 }, ...(hasDateRange ? { $or: [{ paidDate: { $gte: startD, $lte: endD } }, { paidAt: { $gte: startD, $lte: endD } }] } : {}) }).select('paidAmount paidDate paidAt').lean(),
+      FinanceIncome.find(hasDateRange ? { date: { $gte: dateFrom, $lte: dateTo } } : {}).lean(),
+    ]);
+
+    const regularFeeTotal = feeChallans.reduce((s, c) => s + Number(c.directPaidAmount || c.paidAmount || 0), 0);
+    const extraFeeTotal = extraChallans.reduce((s, c) => s + Number(c.paidAmount || 0), 0);
+    const hostelFeeTotal = hostelChallans.reduce((s, c) => s + Number(c.paidAmount || 0), 0);
+    const customIncomeTotal = customIncomes.reduce((s, i) => s + Number(i.amount || 0), 0);
+    const totalRevenue = regularFeeTotal + extraFeeTotal + hostelFeeTotal + customIncomeTotal;
+
+    const [financeExpenses, hostelExpenses, inventoryExpenses, payrolls] = await Promise.all([
+      FinanceExpense.find({ status: { $ne: 'Rejected' }, ...(hasDateRange ? { date: { $gte: dateFrom, $lte: dateTo } } : {}) }).lean(),
+      HostelExpense.find(hasDateRange ? { date: { $gte: dateFrom, $lte: dateTo } } : {}).lean(),
+      InventoryExpense.find(hasDateRange ? { date: { $gte: dateFrom, $lte: dateTo } } : {}).lean(),
+      Payroll.find({ paidAmount: { $gt: 0 }, ...(hasDateRange ? { $or: [{ paymentDate: { $gte: startD, $lte: endD } }, { month: { $gte: dateFrom.slice(0, 7), $lte: dateTo.slice(0, 7) } }] } : {}) }).lean()
+    ]);
+
+    const generalExpenseTotal = financeExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const boardingExpenseTotal = hostelExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const inventoryExpenseTotal = inventoryExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const payrollTotal = payrolls.reduce((s, p) => s + Number(p.paidAmount || 0), 0);
+    const totalExpenses = generalExpenseTotal + boardingExpenseTotal + inventoryExpenseTotal + payrollTotal;
+
+    const netProfit = totalRevenue - totalExpenses;
+    const marginPercentage = totalRevenue > 0 ? Number(((netProfit / totalRevenue) * 100).toFixed(2)) : 0;
+
+    const inflowBreakdown = [
+      { category: 'Regular Tuition & Academic Fees', amount: regularFeeTotal },
+      { category: 'Hostel / Boarding Fees', amount: hostelFeeTotal },
+      { category: 'Extra Challan Fees', amount: extraFeeTotal },
+      ...Array.from(customIncomes.reduce((m, i) => {
+        const cat = i.category || 'Other Income';
+        m.set(cat, (m.get(cat) || 0) + Number(i.amount || 0));
+        return m;
+      }, new Map()).entries()).map(([category, amount]) => ({ category, amount }))
+    ].filter(x => x.amount > 0);
+
+    const outflowBreakdown = [
+      { category: 'Staff Payroll & Salaries', amount: payrollTotal },
+      { category: 'Boarding & Hostel Operations', amount: boardingExpenseTotal },
+      { category: 'Inventory & Supplies', amount: inventoryExpenseTotal },
+      ...Array.from(financeExpenses.reduce((m, e) => {
+        const cat = e.category || 'General Operations';
+        m.set(cat, (m.get(cat) || 0) + Number(e.amount || 0));
+        return m;
+      }, new Map()).entries()).map(([category, amount]) => ({ category, amount }))
+    ].filter(x => x.amount > 0);
+
+    const dateMap = new Map();
+    const addToTrend = (dStr, rev, exp) => {
+      if (!dStr) return;
+      const d = dStr.slice(0, 10);
+      if (!dateMap.has(d)) dateMap.set(d, { date: d, revenue: 0, expense: 0, net: 0 });
+      const row = dateMap.get(d);
+      row.revenue += rev;
+      row.expense += exp;
+      row.net = row.revenue - row.expense;
+    };
+
+    feeChallans.forEach(c => addToTrend(c.paidDate ? new Date(c.paidDate).toISOString().split('T')[0] : '', Number(c.directPaidAmount || c.paidAmount || 0), 0));
+    extraChallans.forEach(c => addToTrend(c.paidDate ? new Date(c.paidDate).toISOString().split('T')[0] : '', Number(c.paidAmount || 0), 0));
+    hostelChallans.forEach(c => addToTrend(c.paidDate ? new Date(c.paidDate).toISOString().split('T')[0] : '', Number(c.paidAmount || 0), 0));
+    customIncomes.forEach(i => addToTrend(i.date, Number(i.amount || 0), 0));
+
+    financeExpenses.forEach(e => addToTrend(e.date, 0, Number(e.amount || 0)));
+    hostelExpenses.forEach(e => addToTrend(e.date, 0, Number(e.amount || 0)));
+    inventoryExpenses.forEach(e => addToTrend(e.date, 0, Number(e.amount || 0)));
+    payrolls.forEach(p => {
+      const pDate = p.paymentDate ? new Date(p.paymentDate).toISOString().split('T')[0] : (p.month ? `${p.month}-01` : '');
+      addToTrend(pDate, 0, Number(p.paidAmount || 0));
+    });
+
+    const timeseries = Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      period: { dateFrom: dateFrom || '', dateTo: dateTo || '' },
+      kpis: {
+        totalRevenue,
+        totalExpenses,
+        netProfit,
+        marginPercentage,
+      },
+      inflows: {
+        regularFees: regularFeeTotal,
+        extraFees: extraFeeTotal,
+        hostelFees: hostelFeeTotal,
+        customIncome: customIncomeTotal,
+        total: totalRevenue,
+        breakdownByCategory: inflowBreakdown,
+      },
+      outflows: {
+        generalExpenses: generalExpenseTotal,
+        boardingExpenses: boardingExpenseTotal,
+        inventoryExpenses: inventoryExpenseTotal,
+        payrolls: payrollTotal,
+        total: totalExpenses,
+        breakdownByCategory: outflowBreakdown,
+      },
+      timeseries,
+    };
+  }
+
+  async getAnnualProfitLossReport({ startYear, endYear, selectedYear }) {
+    const curYear = new Date().getFullYear();
+    const sYr = parseInt(startYear) || (curYear - 3);
+    const eYr = parseInt(endYear) || curYear;
+    const targetYear = parseInt(selectedYear) || curYear;
+
+    const startRange = `${sYr}-01-01`;
+    const endRange = `${eYr}-12-31`;
+    const startD = new Date(startRange + 'T00:00:00.000Z');
+    const endD = new Date(endRange + 'T23:59:59.999Z');
+
+    const [feeChallans, extraChallans, hostelChallans, customIncomes, financeExpenses, hostelExpenses, inventoryExpenses, payrolls] = await Promise.all([
+      FeeChallan.find({ paidAmount: { $gt: 0 }, $or: [{ paidDate: { $gte: startD, $lte: endD } }, { paidDate: null, updatedAt: { $gte: startD, $lte: endD } }] }).select('paidAmount directPaidAmount paidDate updatedAt').lean(),
+      ExtraChallan.find({ paidAmount: { $gt: 0 }, $or: [{ paidDate: { $gte: startD, $lte: endD } }, { paidDate: null, updatedAt: { $gte: startD, $lte: endD } }] }).select('paidAmount paidDate').lean(),
+      HostelChallan.find({ paidAmount: { $gt: 0 }, $or: [{ paidDate: { $gte: startD, $lte: endD } }, { paidAt: { $gte: startD, $lte: endD } }] }).select('paidAmount paidDate paidAt').lean(),
+      FinanceIncome.find({ date: { $gte: startRange, $lte: endRange } }).lean(),
+      FinanceExpense.find({ status: { $ne: 'Rejected' }, date: { $gte: startRange, $lte: endRange } }).lean(),
+      HostelExpense.find({ date: { $gte: startRange, $lte: endRange } }).lean(),
+      InventoryExpense.find({ date: { $gte: startRange, $lte: endRange } }).lean(),
+      Payroll.find({ paidAmount: { $gt: 0 }, $or: [{ paymentDate: { $gte: startD, $lte: endD } }, { month: { $gte: `${sYr}-01`, $lte: `${eYr}-12` } }] }).lean()
+    ]);
+
+    const yearlyData = {};
+    for (let y = sYr; y <= eYr; y++) {
+      yearlyData[y] = {
+        year: y,
+        revenue: 0,
+        expense: 0,
+        netProfit: 0,
+        marginPercentage: 0,
+        yoyGrowth: 0,
+        fees: 0,
+        customIncome: 0,
+        payroll: 0,
+        generalExpense: 0,
+        boardingExpense: 0,
+        inventoryExpense: 0,
+      };
+    }
+
+    const getYear = (d) => {
+      if (!d) return null;
+      if (typeof d === 'string') return parseInt(d.slice(0, 4)) || null;
+      if (d instanceof Date) return d.getFullYear();
+      return null;
+    };
+
+    const addRev = (d, amt, isFee = true) => {
+      const y = getYear(d);
+      if (y && yearlyData[y]) {
+        yearlyData[y].revenue += amt;
+        if (isFee) yearlyData[y].fees += amt;
+        else yearlyData[y].customIncome += amt;
+      }
+    };
+
+    const addExp = (d, amt, type) => {
+      const y = getYear(d);
+      if (y && yearlyData[y]) {
+        yearlyData[y].expense += amt;
+        if (type === 'payroll') yearlyData[y].payroll += amt;
+        else if (type === 'general') yearlyData[y].generalExpense += amt;
+        else if (type === 'boarding') yearlyData[y].boardingExpense += amt;
+        else if (type === 'inventory') yearlyData[y].inventoryExpense += amt;
+      }
+    };
+
+    feeChallans.forEach(c => addRev(c.paidDate || c.updatedAt, Number(c.directPaidAmount || c.paidAmount || 0), true));
+    extraChallans.forEach(c => addRev(c.paidDate, Number(c.paidAmount || 0), true));
+    hostelChallans.forEach(c => addRev(c.paidDate || c.paidAt, Number(c.paidAmount || 0), true));
+    customIncomes.forEach(i => addRev(i.date, Number(i.amount || 0), false));
+
+    financeExpenses.forEach(e => addExp(e.date, Number(e.amount || 0), 'general'));
+    hostelExpenses.forEach(e => addExp(e.date, Number(e.amount || 0), 'boarding'));
+    inventoryExpenses.forEach(e => addExp(e.date, Number(e.amount || 0), 'inventory'));
+    payrolls.forEach(p => addExp(p.paymentDate || p.month, Number(p.paidAmount || 0), 'payroll'));
+
+    const yearlyComparison = Object.values(yearlyData).sort((a, b) => a.year - b.year);
+
+    yearlyComparison.forEach((row, idx) => {
+      row.netProfit = row.revenue - row.expense;
+      row.marginPercentage = row.revenue > 0 ? Number(((row.netProfit / row.revenue) * 100).toFixed(2)) : 0;
+      if (idx > 0) {
+        const prevRev = yearlyComparison[idx - 1].revenue;
+        row.yoyGrowth = prevRev > 0 ? Number((((row.revenue - prevRev) / prevRev) * 100).toFixed(1)) : 0;
+      } else {
+        row.yoyGrowth = 0;
+      }
+    });
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthlyBreakdown = monthNames.map((name, i) => ({
+      month: name,
+      monthIndex: i + 1,
+      year: targetYear,
+      revenue: 0,
+      expense: 0,
+      netProfit: 0,
+      margin: 0
+    }));
+
+    const getMonthIdx = (d) => {
+      if (!d) return null;
+      const y = getYear(d);
+      if (y !== targetYear) return null;
+      let m = 0;
+      if (typeof d === 'string') {
+        const parts = d.split('-');
+        if (parts.length >= 2) m = parseInt(parts[1]);
+      } else if (d instanceof Date) {
+        m = d.getMonth() + 1;
+      }
+      return m >= 1 && m <= 12 ? m - 1 : null;
+    };
+
+    const addMonthRev = (d, amt) => {
+      const idx = getMonthIdx(d);
+      if (idx !== null) monthlyBreakdown[idx].revenue += amt;
+    };
+    const addMonthExp = (d, amt) => {
+      const idx = getMonthIdx(d);
+      if (idx !== null) monthlyBreakdown[idx].expense += amt;
+    };
+
+    feeChallans.forEach(c => addMonthRev(c.paidDate || c.updatedAt, Number(c.directPaidAmount || c.paidAmount || 0)));
+    extraChallans.forEach(c => addMonthRev(c.paidDate, Number(c.paidAmount || 0)));
+    hostelChallans.forEach(c => addMonthRev(c.paidDate || c.paidAt, Number(c.paidAmount || 0)));
+    customIncomes.forEach(i => addMonthRev(i.date, Number(i.amount || 0)));
+
+    financeExpenses.forEach(e => addMonthExp(e.date, Number(e.amount || 0)));
+    hostelExpenses.forEach(e => addMonthExp(e.date, Number(e.amount || 0)));
+    inventoryExpenses.forEach(e => addMonthExp(e.date, Number(e.amount || 0)));
+    payrolls.forEach(p => addMonthExp(p.paymentDate || p.month, Number(p.paidAmount || 0)));
+
+    monthlyBreakdown.forEach(m => {
+      m.netProfit = m.revenue - m.expense;
+      m.margin = m.revenue > 0 ? Number(((m.netProfit / m.revenue) * 100).toFixed(1)) : 0;
+    });
+
+    return {
+      selectedYear: targetYear,
+      availableYears: yearlyComparison.map(y => y.year),
+      yearlyComparison,
+      monthlyBreakdown,
     };
   }
 

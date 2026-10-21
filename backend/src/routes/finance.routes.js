@@ -25,6 +25,9 @@ router.delete('/closing/:id', authMiddleware, financeController.deleteClosing);
 // Ledger & Analytics
 router.get('/ledger', financeController.getFinanceLedger);
 router.get('/reports/analytics', financeController.getAnalytics);
+router.get('/reports/user-contribution', financeController.getUserContributionReport);
+router.get('/reports/profit-loss', financeController.getProfitLossReport);
+router.get('/reports/annual-profit-loss', financeController.getAnnualProfitLossReport);
 
 // Categories & Sub-categories
 router.get('/categories', financeController.getCategories);

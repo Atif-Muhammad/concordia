@@ -183,7 +183,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
     queryKey: ['wallets'],
     queryFn: getWallets,
   });
-  const activeWallets = (walletsData?.wallets || []).filter((w) => w.status === 'ACTIVE');
+  const activeWallets = (walletsData?.wallets || (Array.isArray(walletsData) ? walletsData : [])).filter((w) => w.status === 'ACTIVE' || !w.status);
 
   const { data: allChallansResponse, isLoading: allChallansLoading } = useQuery({
     queryKey: ['hostelChallansAll', allChallansPage, allChallansStatus, allChallansSearch],
@@ -258,7 +258,8 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
     try {
       const templateExists = await checkHostelTemplateExists();
       setHasTemplateInConfig(templateExists);
-      const html = await generateHostelChallanHtml(challan, reg, hostelLateFee);
+      const allPool = (Array.isArray(hostelChallans) && hostelChallans.length > 0) ? hostelChallans : allChallans;
+      const html = await generateHostelChallanHtml(challan, reg, hostelLateFee, allPool);
       setChallanPreviewHtml(html);
       setChallanPreviewOpen(true);
     } catch (e) {
@@ -277,7 +278,8 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
     const trackingId = `hostel-${challan.id || challan.challanNumber}`;
     setHostelPrintingId(trackingId);
     try {
-      const html = await generateHostelChallanHtml(challan, reg, hostelLateFee);
+      const allPool = (Array.isArray(hostelChallans) && hostelChallans.length > 0) ? hostelChallans : allChallans;
+      const html = await generateHostelChallanHtml(challan, reg, hostelLateFee, allPool);
       await openManagedPrintWindow({ html, title: `Challan #${challan.challanNumber || ""}`, toast, printWindow });
     } catch (e) {
       toast({ title: "Print error", description: e.message || "Failed to print", variant: "destructive" });
@@ -1107,201 +1109,317 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
       </Dialog>
 
       {/* Record Payment Dialog */}
+      {/* Pay Hostel Challan Dialog */}
       <Dialog open={payHostelChallanOpen} onOpenChange={setPayHostelChallanOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wallet className="w-5 h-5 text-emerald-600" />
-              Record Challan Payment
-            </DialogTitle>
+        <DialogContent className="max-w-6xl p-[2px] border-none" bodyClassName="p-[2px] gap-2">
+          <DialogHeader className="px-2 py-1.5 border-b border-border flex flex-row items-center justify-between space-y-0 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="p-1 rounded-lg bg-primary/10 text-primary">
+                <Wallet className="w-4 h-4 text-emerald-600" />
+              </div>
+              <DialogTitle className="text-base font-bold text-foreground">
+                Pay Boarding Challan
+              </DialogTitle>
+              {payingChallan && (
+                <Badge variant="outline" className="text-xs font-mono font-semibold text-primary border-primary/30 bg-primary/5">
+                  #{payingChallan.challanNumber || payingChallan.challanNo}
+                </Badge>
+              )}
+            </div>
           </DialogHeader>
+
           {payingChallan && (() => {
+            const reg = payingChallan.hostelRegistration;
+            const student = payingChallan.student || reg?.student;
+            const rollNo = student?.rollNumber || payingChallan.hostelRegNumber || reg?.id || '—';
+            const boarderName = student
+              ? `${student.fName || ''} ${student.lName || ''}`.trim()
+              : (reg?.externalName || payingChallan.hostelRegistration?.externalName || "Boarder");
+            const guardian = student?.fatherOrguardian || reg?.externalGuardianName || '—';
+            const roomBed = `${payingChallan.roomNumber || reg?.roomNumber || '—'} / ${payingChallan.bedNumber || reg?.bedNumber || '—'}`;
+            const baseFee = getHostelBaseFee(payingChallan);
+            const headsList = Array.isArray(payingChallan.heads) ? payingChallan.heads : [];
+            const headsTotal = headsList.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+            const arrearsAmount = toHostelAmount(payingChallan.arrearsAmount);
             const effectiveLF = getEffectiveLateFee(payingChallan, hostelLateFee);
+            const discountAmount = toHostelAmount(payingChallan.discount);
+            const advanceApplied = Number(payingChallan.advanceApplied || payingChallan.advanceAmount || 0);
+            const alreadyPaid = Number(payingChallan.paidAmount || 0);
             const effectiveTotal = getChallanTotalEffective(payingChallan, hostelLateFee);
             const effectiveBalance = getChallanBalanceEffective(payingChallan, hostelLateFee);
-            const studentName = payingChallan.student
-              ? `${payingChallan.student.fName} ${payingChallan.student.lName || ''}`.trim()
-              : (payingChallan.hostelRegistration?.externalName || payingChallan.hostelRegNumber);
-            const enteredAmount = Number(payHostelAmount || 0);
-            const isExcess = enteredAmount > effectiveBalance;
-            const excessAmount = isExcess ? enteredAmount - effectiveBalance : 0;
+            const receiving = parseFloat(payHostelAmount) || 0;
+            const remaining = effectiveBalance - receiving;
+            const isExcess = receiving > effectiveBalance;
+            const excessAmount = isExcess ? receiving - effectiveBalance : 0;
 
             return (
-              <div className="space-y-2">
-                <div className="bg-muted/40 p-3 rounded-lg border text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Challan:</span>
-                    <span className="font-semibold font-mono">{payingChallan.challanNumber} ({payingChallan.month})</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Boarder:</span>
-                    <span className="font-medium text-foreground">{studentName}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Payable:</span>
-                    <span>PKR {effectiveTotal.toLocaleString()}</span>
-                  </div>
-                  {(payingChallan.advanceApplied || 0) > 0 && (
-                    <div className="flex justify-between text-emerald-600">
-                      <span>Advance Deducted:</span>
-                      <span>-PKR {Number(payingChallan.advanceApplied).toLocaleString()}</span>
+              <div className="w-full p-[2px] space-y-2">
+                {/* Advance Warning / Indicator Banner */}
+                {isExcess && (
+                  <div className="p-2 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Challan will be marked fully paid. The excess <strong>PKR {excessAmount.toLocaleString()}</strong> will be added to the boarder's Advance Credit Ledger.
+                      </span>
                     </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Already Paid:</span>
-                    <span className="text-green-600 font-medium">PKR {(payingChallan.paidAmount || 0).toLocaleString()}</span>
+                    <Badge variant="outline" className="border-emerald-300 text-emerald-800 bg-emerald-100 font-bold text-[10px]">
+                      Advance Credit
+                    </Badge>
                   </div>
-                  <div className="flex justify-between pt-1 border-t font-semibold">
-                    <span>Remaining Balance:</span>
-                    <span className="text-orange-600">PKR {effectiveBalance.toLocaleString()}</span>
-                  </div>
-                  {effectiveLF > (payingChallan.lateFeeFine || 0) && (
-                    <div className="text-[11px] text-amber-600 pt-0.5">Includes overdue late fee: PKR {effectiveLF.toLocaleString()}</div>
-                  )}
+                )}
+
+                {/* Main Multi-Column Table */}
+                <div className="w-full border border-border/80 rounded-md overflow-x-auto shadow-xs bg-card">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-muted/60 text-muted-foreground text-[11px] font-semibold text-center border-b border-border">
+                        <th className="border-r border-border/50 py-1 px-1.5">Roll / Reg</th>
+                        <th className="border-r border-border/50 py-1 px-2">Boarder</th>
+                        <th className="border-r border-border/50 py-1 px-1.5">Room / Bed</th>
+                        <th className="border-r border-border/50 py-1 px-1.5">Month</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[70px]">Base Fee</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[65px]">Heads</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[65px]">Arrears</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[65px]">Late Fee</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[65px]">Discount</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[65px]">Advance</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[75px]">Total Due</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[60px]">Paid</th>
+                        <th className="border-r border-border/50 py-1 px-1.5 min-w-[100px]">
+                          <div className="flex items-center justify-center gap-1">
+                            <span>Receiving</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-4 px-1 text-[9px] text-primary border-primary/30 hover:bg-primary/10 font-bold"
+                              onClick={() => setPayHostelAmount(effectiveBalance.toString())}
+                            >
+                              Fill All
+                            </Button>
+                          </div>
+                        </th>
+                        <th className="py-1 px-1.5 min-w-[75px]">Remaining</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="text-xs text-center bg-card hover:bg-muted/20 transition-colors">
+                        <td className="border-r border-border/50 py-1 px-1.5 font-mono text-[11px]">{rollNo}</td>
+                        <td className="border-r border-border/50 py-1 px-2 text-left">
+                          <div className="font-semibold text-foreground text-xs leading-tight">{boarderName}</div>
+                          <div className="text-[10px] text-muted-foreground">{guardian}</div>
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-xs">{roomBed}</td>
+                        <td className="border-r border-border/50 py-1 px-1.5 font-semibold text-foreground">
+                          {payingChallan.month}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 font-medium">
+                          {baseFee.toLocaleString()}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-purple-600 font-medium">
+                          {headsTotal > 0 ? headsTotal.toLocaleString() : <span className="text-muted-foreground/60">0</span>}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-orange-600 font-semibold">
+                          {arrearsAmount > 0 ? arrearsAmount.toLocaleString() : <span className="text-muted-foreground/60">0</span>}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-red-600 font-semibold">
+                          {effectiveLF > 0 ? effectiveLF.toLocaleString() : <span className="text-muted-foreground/60">0</span>}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-emerald-600 font-medium">
+                          {discountAmount > 0 ? `-${discountAmount.toLocaleString()}` : <span className="text-muted-foreground/60">0</span>}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-blue-600 font-medium">
+                          {advanceApplied > 0 ? `-${advanceApplied.toLocaleString()}` : <span className="text-muted-foreground/60">0</span>}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 font-bold text-foreground">
+                          {effectiveTotal.toLocaleString()}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5 text-emerald-600 font-semibold">
+                          {alreadyPaid.toLocaleString()}
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1.5">
+                          <Input
+                            type="number"
+                            autoFocus
+                            className="h-6 text-center text-xs font-bold border-primary/50 focus-visible:ring-primary text-foreground"
+                            value={payHostelAmount}
+                            onChange={(e) => setPayHostelAmount(e.target.value)}
+                          />
+                        </td>
+                        <td className="py-1 px-1.5">
+                          {remaining < 0 ? (
+                            <div className="bg-blue-50 text-blue-700 font-bold text-[10px] py-0.5 px-1 rounded text-center">
+                              {Math.abs(remaining).toLocaleString()} Advance
+                              <div className="text-[8px] font-normal opacity-80">Credit Ledger</div>
+                            </div>
+                          ) : remaining === 0 ? (
+                            <div className="text-emerald-600 font-bold text-xs">0 (Settled)</div>
+                          ) : (
+                            <div className="text-red-600 font-bold text-xs">{remaining.toLocaleString()}</div>
+                          )}
+                        </td>
+                      </tr>
+
+                      {/* Grand Total Row */}
+                      <tr className="bg-primary/5 text-foreground font-bold text-xs text-center border-t-2 border-primary/25">
+                        <td colSpan={4} className="text-left px-2 py-1 border-r border-border/50 uppercase tracking-wider text-[10px] text-primary">
+                          Grand Total
+                        </td>
+                        <td className="border-r border-border/50 py-1 px-1">{baseFee.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-purple-600">{headsTotal.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-orange-600">{arrearsAmount.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-red-600">{effectiveLF.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-emerald-600">{discountAmount > 0 ? `-${discountAmount.toLocaleString()}` : '0'}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-blue-600">{advanceApplied > 0 ? `-${advanceApplied.toLocaleString()}` : '0'}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-foreground font-extrabold">{effectiveTotal.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-emerald-600">{alreadyPaid.toLocaleString()}</td>
+                        <td className="border-r border-border/50 py-1 px-1 text-primary font-black">
+                          {receiving.toLocaleString()}
+                        </td>
+                        <td className="py-1 px-1 font-bold">
+                          {remaining < 0 ? (
+                            <span className="text-blue-600 text-[10px]">{Math.abs(remaining).toLocaleString()} (Adv)</span>
+                          ) : remaining === 0 ? (
+                            <span className="text-emerald-600 text-xs">0</span>
+                          ) : (
+                            <span className="text-red-600 text-xs">{remaining.toLocaleString()}</span>
+                          )}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
 
-                {isExcess && (
-                  <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-semibold">Advance Payment Detected</div>
-                      <div>
-                        This challan will be marked fully paid. The excess <strong>PKR {excessAmount.toLocaleString()}</strong> will be recorded as Advance Credit in the boarder's ledger and automatically deducted from upcoming hostel challan(s).
-                      </div>
+                {/* Itemized Heads Breakdown (if heads exist) */}
+                {headsList.length > 0 && (
+                  <div className="p-2 bg-muted/20 border rounded-md">
+                    <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                      Fee Heads Included
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                      {headsList.map((h, i) => (
+                        <div key={i} className="flex justify-between items-center bg-white px-2 py-0.5 rounded border text-xs">
+                          <span className="text-slate-600 font-medium truncate">{h.headName || h.name || 'Head'}</span>
+                          <span className="font-bold text-purple-700 ml-1">PKR {Number(h.amount || 0).toLocaleString()}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                {/* Payment Form Fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 bg-muted/10 p-2 rounded-md border">
+                  <div>
+                    <Label className="text-xs font-semibold">Payment Date</Label>
+                    <Input
+                      type="date"
+                      value={payHostelDate}
+                      onChange={(e) => setPayHostelDate(e.target.value)}
+                      className="mt-1 h-7 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">Payment Mode</Label>
+                    <Select value={payHostelPaymentMode} onValueChange={setPayHostelPaymentMode}>
+                      <SelectTrigger className="mt-1 h-7 text-xs">
+                        <SelectValue placeholder="Mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="Cheque">Cheque</SelectItem>
+                        <SelectItem value="Online">Online / Mobile</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">Deposit Account / Wallet <span className="text-destructive">*</span></Label>
+                    <Select value={payHostelWalletId} onValueChange={(val) => {
+                      setPayHostelWalletId(val);
+                      const chosen = activeWallets.find((w) => w.id === val);
+                      if (chosen?.type === 'BANK') setPayHostelPaymentMode('Bank Transfer');
+                      else if (chosen?.type === 'DIGITAL_WALLET') setPayHostelPaymentMode('Online');
+                      else setPayHostelPaymentMode('Cash');
+                    }}>
+                      <SelectTrigger className="mt-1 h-7 text-xs">
+                        <SelectValue placeholder="-- Select Wallet --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeWallets.map((w) => (
+                          <SelectItem key={w.id} value={w.id}>
+                            {w.name} ({w.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">Remarks / Notes</Label>
+                    <Input
+                      placeholder="e.g. Received by warden"
+                      value={payHostelRemarks}
+                      onChange={(e) => setPayHostelRemarks(e.target.value)}
+                      className="mt-1 h-7 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1 border-t">
+                  <Button variant="outline" size="sm" onClick={() => setPayHostelChallanOpen(false)} disabled={payHostelLoading}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={payHostelLoading}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={async () => {
+                      const amt = Number(payHostelAmount);
+                      if (!amt || amt <= 0) {
+                        toast({ title: "Valid amount is required", variant: "destructive" });
+                        return;
+                      }
+                      if (!payHostelWalletId) {
+                        toast({ title: "Account / Wallet required", description: "Please select an account or wallet to deposit the payment into.", variant: "destructive" });
+                        return;
+                      }
+                      setPayHostelLoading(true);
+                      try {
+                        await recordHostelPayment(payingChallan.id, {
+                          amount: amt,
+                          paymentMode: payHostelPaymentMode,
+                          paidDate: payHostelDate,
+                          walletId: payHostelWalletId,
+                          remarks: payHostelRemarks,
+                        });
+                        const effBal = payingChallan ? getChallanBalanceEffective(payingChallan, hostelLateFee) : 0;
+                        const isExcessPayment = amt > effBal;
+                        invalidateAllChallanQueries();
+                        queryClient.invalidateQueries({ queryKey: ["wallets"] });
+                        queryClient.invalidateQueries({ queryKey: ["walletHistory"] });
+                        queryClient.invalidateQueries({ queryKey: ["walletHostelLogs"] });
+                        setPayHostelChallanOpen(false);
+                        setPayingChallan(null);
+                        toast({
+                          title: "Payment Recorded",
+                          description: isExcessPayment
+                            ? `PKR ${amt.toLocaleString()} recorded. PKR ${(amt - effBal).toLocaleString()} added to advance credit ledger.`
+                            : `PKR ${amt.toLocaleString()} recorded and credited to account.`
+                        });
+                      } catch (e) {
+                        toast({ title: e.message || "Failed to record payment", variant: "destructive" });
+                      } finally {
+                        setPayHostelLoading(false);
+                      }
+                    }}
+                  >
+                    {payHostelLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wallet className="mr-2 h-4 w-4" />}
+                    {payHostelLoading ? "Recording..." : "Record Payment"}
+                  </Button>
+                </div>
               </div>
             );
           })()}
-
-          <div className="space-y-3 py-2">
-            <div>
-              <Label className="text-xs font-semibold">Amount Received (PKR) <span className="text-destructive">*</span></Label>
-              <Input
-                type="number"
-                min={1}
-                required
-                placeholder="Enter amount received"
-                value={payHostelAmount}
-                onChange={(e) => setPayHostelAmount(e.target.value)}
-                className="font-mono font-bold text-base mt-1"
-              />
-            </div>
-
-            <div>
-              <Label className="text-xs font-semibold">Deposit To Account / Wallet <span className="text-destructive">*</span></Label>
-              <Select value={payHostelWalletId} onValueChange={(val) => {
-                setPayHostelWalletId(val);
-                const chosen = activeWallets.find((w) => w.id === val);
-                if (chosen?.type === 'BANK') setPayHostelPaymentMode('Bank Transfer');
-                else if (chosen?.type === 'DIGITAL_WALLET') setPayHostelPaymentMode('Online');
-                else setPayHostelPaymentMode('Cash');
-              }}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="-- Select Account / Wallet --" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeWallets.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name} ({w.type === 'DIGITAL_WALLET' ? (w.provider || 'Digital Wallet') : w.type})
-                      {w.accountNumber ? ` · ${w.accountNumber}` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs font-semibold">Payment Mode</Label>
-                <Select value={payHostelPaymentMode} onValueChange={setPayHostelPaymentMode}>
-                  <SelectTrigger className="mt-1 text-xs">
-                    <SelectValue placeholder="Mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Cash">Cash</SelectItem>
-                    <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="Cheque">Cheque</SelectItem>
-                    <SelectItem value="Online">Online / Mobile</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs font-semibold">Payment Date</Label>
-                <Input
-                  type="date"
-                  value={payHostelDate}
-                  onChange={(e) => setPayHostelDate(e.target.value)}
-                  className="mt-1 text-xs"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs font-semibold">Remarks / Notes</Label>
-              <Input
-                placeholder="e.g. Received by hostel warden"
-                value={payHostelRemarks}
-                onChange={(e) => setPayHostelRemarks(e.target.value)}
-                className="mt-1 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-            <Button variant="outline" size="sm" onClick={() => setPayHostelChallanOpen(false)} disabled={payHostelLoading}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={payHostelLoading}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={async () => {
-                const amt = Number(payHostelAmount);
-                if (!amt || amt <= 0) {
-                  toast({ title: "Valid amount is required", variant: "destructive" });
-                  return;
-                }
-                if (!payHostelWalletId) {
-                  toast({ title: "Account / Wallet required", description: "Please select an account or wallet to deposit the payment into.", variant: "destructive" });
-                  return;
-                }
-                setPayHostelLoading(true);
-                try {
-                  await recordHostelPayment(payingChallan.id, {
-                    amount: amt,
-                    paymentMode: payHostelPaymentMode,
-                    paidDate: payHostelDate,
-                    walletId: payHostelWalletId,
-                    remarks: payHostelRemarks,
-                  });
-                  const effBal = payingChallan ? getChallanBalanceEffective(payingChallan, hostelLateFee) : 0;
-                  const isExcessPayment = amt > effBal;
-                  invalidateAllChallanQueries();
-                  queryClient.invalidateQueries({ queryKey: ["wallets"] });
-                  queryClient.invalidateQueries({ queryKey: ["walletHistory"] });
-                  queryClient.invalidateQueries({ queryKey: ["walletHostelLogs"] });
-                  setPayHostelChallanOpen(false);
-                  setPayingChallan(null);
-                  toast({
-                    title: "Payment Recorded",
-                    description: isExcessPayment
-                      ? `PKR ${amt.toLocaleString()} recorded. PKR ${(amt - effBal).toLocaleString()} added to advance credit ledger.`
-                      : `PKR ${amt.toLocaleString()} recorded and credited to account.`
-                  });
-                } catch (e) {
-                  toast({ title: e.message || "Failed to record payment", variant: "destructive" });
-                } finally {
-                  setPayHostelLoading(false);
-                }
-              }}
-            >
-              {payHostelLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wallet className="mr-2 h-4 w-4" />}
-              {payHostelLoading ? "Recording..." : "Record Payment"}
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
 
@@ -1424,6 +1542,12 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                           <div className="flex justify-between text-green-600">
                             <span>- Discount:</span>
                             <span>- PKR {toHostelAmount(viewingChallan.discount).toLocaleString()}</span>
+                          </div>
+                        )}
+                        {toHostelAmount(viewingChallan.advanceApplied) > 0 && (
+                          <div className="flex justify-between text-sky-600 font-semibold">
+                            <span>- Advance Deduction:</span>
+                            <span>- PKR {toHostelAmount(viewingChallan.advanceApplied).toLocaleString()}</span>
                           </div>
                         )}
                         <div className="flex justify-between pt-1 border-t font-bold text-foreground">

@@ -26,9 +26,13 @@ function parseYearMonth(val) {
   }
   if (typeof val !== 'string') return null;
   const str = val.trim();
-  const ymMatch = str.match(/^(\d{4})-(\d{1,2})/);
+  const ymMatch = str.match(/^(\d{4})[-/](\d{1,2})/);
   if (ymMatch) {
     return { year: parseInt(ymMatch[1], 10), month: parseInt(ymMatch[2], 10) };
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    return { year: parseInt(dmyMatch[3], 10), month: parseInt(dmyMatch[2], 10) };
   }
   const parts = str.toLowerCase().split(/[\s,/-]+/);
   let year = null;
@@ -417,7 +421,7 @@ class HostelService {
   }
 
   async getRegistrationByStudent(studentId) {
-    const reg = await HostelRegistration.findOne({
+    let reg = await HostelRegistration.findOne({
       studentId,
       status: { $in: ['active', 'ACTIVE'] }
     })
@@ -426,6 +430,16 @@ class HostelService {
         populate: { path: 'programId' }
       })
       .populate('roomId');
+
+    if (!reg) {
+      reg = await HostelRegistration.findOne({ studentId })
+        .sort({ createdAt: -1 })
+        .populate({
+          path: 'studentId',
+          populate: { path: 'programId' }
+        })
+        .populate('roomId');
+    }
     if (!reg) return null;
     const plain = reg.toJSON ? reg.toJSON() : reg.toObject();
     const s = reg.studentId && reg.studentId._id ? (reg.studentId.toJSON ? reg.studentId.toJSON() : reg.studentId) : null;
@@ -437,6 +451,7 @@ class HostelService {
       studentId: s ? s._id.toString() : (reg.studentId ? reg.studentId.toString() : null),
       roomId: reg.roomId && reg.roomId._id ? reg.roomId._id.toString() : (reg.roomId ? reg.roomId.toString() : null),
       room: reg.roomId && reg.roomId._id ? reg.roomId : null,
+      advanceBalance: Number(reg.advanceBalance || 0),
       status: (reg.status || 'active').toLowerCase()
     };
   }
@@ -964,6 +979,14 @@ class HostelService {
         { registrationId: regId },
         { hostelRegistrationId: regId }
       ];
+    } else if (filters.studentId) {
+      const studentRegs = await HostelRegistration.find({ studentId: filters.studentId }).select('_id');
+      const studentRegIds = studentRegs.map(r => r._id);
+      query.$or = [
+        { registrationId: { $in: studentRegIds } },
+        { hostelRegistrationId: { $in: studentRegIds } },
+        { studentId: filters.studentId }
+      ];
     }
 
     if (filters.status && filters.status !== 'all') {
@@ -994,6 +1017,42 @@ class HostelService {
         { registrationId: { $in: regIds } },
         { hostelRegistrationId: { $in: regIds } }
       ];
+    }
+
+    // Self-heal: fix any hostel challans where advanceApplied was applied but paidAmount was incorrectly initialized to advanceApplied
+    try {
+      const advanceChallans = await HostelChallan.find({
+        advanceApplied: { $gt: 0 },
+        $or: [
+          { payments: { $size: 0 } },
+          { payments: { $exists: false } }
+        ]
+      });
+      for (const ac of advanceChallans) {
+        const headsTotal = (ac.heads || []).reduce((sum, h) => sum + Number(h.amount || 0), 0);
+        const gross = Number(ac.hostelFee || 0) + headsTotal + Number(ac.fineAmount || 0) + Number(ac.lateFeeFine || 0) + Number(ac.arrearsAmount || 0) - Number(ac.discount || 0);
+        const net = Math.max(0, gross - Number(ac.advanceApplied || 0));
+        let changed = false;
+        if (ac.totalAmount !== net) {
+          ac.totalAmount = net;
+          ac.amount = net;
+          changed = true;
+        }
+        if (ac.paidAmount !== 0) {
+          ac.paidAmount = 0;
+          changed = true;
+        }
+        const expectedStatus = net === 0 ? 'PAID' : 'PENDING';
+        if (ac.status !== expectedStatus && ac.status !== 'VOID') {
+          ac.status = expectedStatus;
+          changed = true;
+        }
+        if (changed) {
+          await ac.save();
+        }
+      }
+    } catch (healErr) {
+      console.error('Error self-healing advance applied hostel challans:', healErr);
     }
 
     const challans = await HostelChallan.find(query)
@@ -1345,14 +1404,17 @@ class HostelService {
     const baseAmount = hostelFee + headsTotal;
     const grossAmount = baseAmount + fineAmount + lateFeeFine + arrearsAmount - discount;
 
-    // Advance Payments Auto-Application from HostelCreditLedger
+    // Advance Payments Auto-Application from HostelCreditLedger & reg.advanceBalance
     const availableCreditRecords = await HostelCreditLedger.find({
       registrationId: regId,
       status: 'AVAILABLE',
       availableBalance: { $gt: 0 }
     }).sort({ createdAt: 1 });
 
-    const totalAvailableCredit = availableCreditRecords.reduce((sum, r) => sum + (Number(r.availableBalance) || 0), 0);
+    const ledgerCredit = availableCreditRecords.reduce((sum, r) => sum + (Number(r.availableBalance) || 0), 0);
+    const regAdvance = Number(reg.advanceBalance || 0);
+    const totalAvailableCredit = Math.max(ledgerCredit, regAdvance);
+
     let advanceToApply = 0;
     if (data.advanceApplied !== undefined) {
       advanceToApply = Math.min(grossAmount, Math.max(0, Number(data.advanceApplied)), totalAvailableCredit);
@@ -1360,8 +1422,9 @@ class HostelService {
       advanceToApply = Math.min(grossAmount, totalAvailableCredit);
     }
 
-    const netAmount = Math.max(0, grossAmount - advanceToApply);
-    const isFullyPaidByAdvance = (netAmount === 0 && advanceToApply > 0);
+    const netRemaining = Math.max(0, grossAmount - advanceToApply);
+    const isFullyPaidByAdvance = (netRemaining === 0 && advanceToApply > 0);
+    const isPartiallyPaidByAdvance = (netRemaining > 0 && advanceToApply > 0);
 
     const challanData = {
       ...data,
@@ -1378,8 +1441,8 @@ class HostelService {
       arrearsAmount,
       discount,
       advanceApplied: advanceToApply,
-      amount: netAmount,
-      totalAmount: netAmount,
+      amount: netRemaining,
+      totalAmount: netRemaining,
       paidAmount: 0,
       paidDate: isFullyPaidByAdvance ? new Date() : undefined,
       paidAt: isFullyPaidByAdvance ? new Date() : undefined,
@@ -1439,6 +1502,9 @@ class HostelService {
         challan.advanceFromChallanId = advanceAllocations[0].sourceChallanId;
       }
       await challan.save();
+
+      reg.advanceBalance = Math.max(0, (Number(reg.advanceBalance) || 0) - advanceToApply);
+      await reg.save();
     }
 
     // Mark previous challan superseded or settled if its arrears were carried over
@@ -1484,6 +1550,8 @@ class HostelService {
     challan.totalAmount = netAmount;
 
     if (challan.paidAmount >= challan.totalAmount && challan.totalAmount > 0) {
+      challan.status = 'PAID';
+    } else if (challan.totalAmount === 0 && (challan.advanceApplied || 0) > 0) {
       challan.status = 'PAID';
     } else if (challan.paidAmount > 0) {
       challan.status = 'PARTIAL';
@@ -1729,7 +1797,19 @@ class HostelService {
     if (!Array.isArray(challan.payments)) challan.payments = [];
     challan.payments.push(paymentRecord);
 
-    challan.paidAmount = (challan.paidAmount || 0) + payAmount;
+    const total = challan.totalAmount || challan.amount || 0;
+    const previousPaid = Number(challan.paidAmount || 0);
+    const remainingDue = Math.max(0, total - previousPaid);
+
+    let paymentAppliedToChallan = payAmount;
+    let excessToCredit = 0;
+
+    if (payAmount > remainingDue) {
+      paymentAppliedToChallan = remainingDue;
+      excessToCredit = payAmount - remainingDue;
+    }
+
+    challan.paidAmount = previousPaid + paymentAppliedToChallan;
     challan.paidDate = paymentRecord.paymentDate;
     challan.paidAt = paymentRecord.paymentDate;
     challan.paidBy = paymentRecord.paidBy;
@@ -1739,7 +1819,6 @@ class HostelService {
       challan.walletName = walletRecord.name;
     }
 
-    const total = challan.totalAmount || challan.amount || 0;
     if (challan.paidAmount >= total) {
       challan.status = 'PAID';
     } else if (challan.paidAmount > 0) {
@@ -1747,7 +1826,7 @@ class HostelService {
     }
 
     // Arrears settlement on superseded source challan(s)
-    let remPayForArrears = payAmount;
+    let remPayForArrears = paymentAppliedToChallan;
     if (Array.isArray(challan.arrearAllocations) && challan.arrearAllocations.length > 0) {
       for (const alloc of challan.arrearAllocations) {
         const needed = Math.max(0, (alloc.amountCarriedForward || 0) - (alloc.amountSettled || 0));
@@ -1794,12 +1873,10 @@ class HostelService {
       }
     }
 
-    // Excess Payment -> HostelCreditLedger
-    const currentExcess = Math.max(0, challan.paidAmount - total);
-    const prevExcess = Number(challan.excessCreditGenerated || 0);
-    const incrementalExcess = Math.max(0, currentExcess - prevExcess);
+    // Excess Payment -> HostelCreditLedger & Registration advanceBalance
+    const currentExcess = excessToCredit;
 
-    if (incrementalExcess > 0) {
+    if (currentExcess > 0) {
       const reg = challan.registrationId || challan.hostelRegistrationId;
       const regId = reg?._id || challan.registrationId || challan.hostelRegistrationId;
       const student = reg?.studentId;
@@ -1811,12 +1888,18 @@ class HostelService {
         sourceChallanId: challan._id,
         sourceChallanNo: challan.challanNumber || challan.challanNo,
         sourceMonth: challan.month || '',
-        amount: incrementalExcess,
-        availableBalance: incrementalExcess,
+        amount: currentExcess,
+        availableBalance: currentExcess,
         status: 'AVAILABLE',
         allocations: []
       });
-      challan.excessCreditGenerated = currentExcess;
+      challan.excessCreditGenerated = (Number(challan.excessCreditGenerated) || 0) + currentExcess;
+
+      const regDoc = await HostelRegistration.findById(regId);
+      if (regDoc) {
+        regDoc.advanceBalance = (Number(regDoc.advanceBalance) || 0) + currentExcess;
+        await regDoc.save();
+      }
     }
 
     await challan.save();
@@ -1966,18 +2049,30 @@ class HostelService {
 
     let totalCollected = 0;
     let totalOutstanding = 0;
+    let totalBaseFee = 0;
+    let totalHeads = 0;
+    let totalLateFees = 0;
+    let totalDiscounts = 0;
     const monthlyMap = {};
     const perStudentMap = {};
 
     for (const c of challans) {
       const isVoidOrSuperseded = c.status === 'VOID' || c.status === 'SUPERSEDED';
-      const total = (c.amount || c.totalAmount || 0);
-      const paid = (c.paidAmount || 0);
+      const total = Number(c.totalAmount || c.amount || 0);
+      const paid = Number(c.paidAmount || 0);
       const balance = Math.max(0, total - paid);
+      const base = Number(c.hostelFee || 0);
+      const heads = Array.isArray(c.heads) ? c.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0) : 0;
+      const lateFee = Number(c.lateFeeFine || c.fineAmount || 0);
+      const discount = Number(c.discount || 0);
 
       if (!isVoidOrSuperseded) {
         totalCollected += paid;
         totalOutstanding += balance;
+        totalBaseFee += base;
+        totalHeads += heads;
+        totalLateFees += lateFee;
+        totalDiscounts += discount;
       }
 
       const m = c.month || (c.createdAt ? new Date(c.createdAt).toLocaleString('default', { month: 'long', year: 'numeric' }) : 'Unknown');
@@ -1994,6 +2089,10 @@ class HostelService {
         perStudentMap[regId] = {
           registrationId: regId,
           name: studentName,
+          baseFee: 0,
+          headsAmount: 0,
+          lateFeeAmount: 0,
+          discountAmount: 0,
           totalBilled: 0,
           totalPaid: 0,
           outstanding: 0
@@ -2001,6 +2100,10 @@ class HostelService {
       }
 
       if (!isVoidOrSuperseded) {
+        perStudentMap[regId].baseFee += base;
+        perStudentMap[regId].headsAmount += heads;
+        perStudentMap[regId].lateFeeAmount += lateFee;
+        perStudentMap[regId].discountAmount += discount;
         perStudentMap[regId].totalBilled += total;
         perStudentMap[regId].totalPaid += paid;
         perStudentMap[regId].outstanding += balance;
@@ -2017,6 +2120,10 @@ class HostelService {
     return {
       totalCollected,
       totalOutstanding,
+      totalBaseFee,
+      totalHeads,
+      totalLateFees,
+      totalDiscounts,
       monthlyBreakdown,
       perStudent
     };

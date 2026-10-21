@@ -40,6 +40,8 @@ const InventoryExpenseSchema = new mongoose.Schema({
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet', default: null },
   walletName: { type: String, default: '' },
   transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'WalletTransaction', default: null },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdByName: { type: String, default: '' },
 }, { timestamps: true });
 
 InventoryExpenseSchema.virtual('id').get(function () {

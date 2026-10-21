@@ -1469,7 +1469,90 @@ class FeeService {
         }
       }
       if (updatedCount > 0) {
-        console.log(`[FeeCron] Automatically updated late fee for ${updatedCount} challans.`);
+        console.log(`[FeeCron] Automatically updated late fee for ${updatedCount} installment challans.`);
+      }
+
+      // Auto late fee update for ExtraChallan
+      try {
+        const extraLateFeeRate = Number(feeSettings?.extraChallanLateFee || feeSettings?.lateFeeRatePerDay || 0);
+        if (extraLateFeeRate > 0) {
+          const eligibleExtraChallans = await ExtraChallan.find({
+            status: { $in: ['PENDING', 'OVERDUE'] },
+            paidDate: null,
+            dueDate: { $exists: true, $ne: null }
+          });
+          let extraUpdated = 0;
+          for (const ec of eligibleExtraChallans) {
+            const st = (ec.status || '').toUpperCase();
+            if (['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes(st)) continue;
+            if (ec.paidDate || Number(ec.paidAmount || 0) > 0) continue;
+            const duePKTStr = pktFormatter.format(new Date(ec.dueDate));
+            const duePKT = new Date(duePKTStr + 'T00:00:00Z');
+            let autoFine = 0;
+            if (nowPKT > duePKT) {
+              const diffDays = Math.floor((nowPKT.getTime() - duePKT.getTime()) / (1000 * 60 * 60 * 24));
+              autoFine = diffDays * extraLateFeeRate;
+            }
+            if (autoFine !== Number(ec.lateFeeFine || 0)) {
+              ec.lateFeeFine = autoFine;
+              if (ec.status === 'PENDING' && autoFine > 0) ec.status = 'OVERDUE';
+              else if (ec.status === 'OVERDUE' && autoFine === 0) ec.status = 'PENDING';
+              ec.totalAmount = Math.max(0, Number(ec.amount || 0) + autoFine - Number(ec.discount || 0));
+              await ec.save();
+              extraUpdated++;
+            }
+          }
+          if (extraUpdated > 0) {
+            console.log(`[FeeCron] Automatically updated late fee for ${extraUpdated} extra challans.`);
+          }
+        }
+      } catch (extraErr) {
+        console.error('[FeeCron] Error updating late fee for ExtraChallans:', extraErr);
+      }
+
+      // Auto late fee update for HostelChallan
+      try {
+        const instituteSettings = await InstituteSettings.findOne().lean().catch(() => null);
+        const hostelLateFeeRate = Number(instituteSettings?.hostelLateFee || feeSettings?.lateFeeRatePerDay || 0);
+        if (hostelLateFeeRate > 0) {
+          const eligibleHostelChallans = await HostelChallan.find({
+            status: { $in: ['PENDING', 'OVERDUE'] },
+            paidDate: null,
+            dueDate: { $exists: true, $ne: null }
+          });
+          let hostelUpdated = 0;
+          for (const hc of eligibleHostelChallans) {
+            const st = (hc.status || '').toUpperCase();
+            if (['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes(st)) continue;
+            if (hc.supersededBy || hc.settledByChallanId) continue;
+            if (hc.paidDate || Number(hc.paidAmount || 0) > 0) continue;
+            const duePKTStr = pktFormatter.format(new Date(hc.dueDate));
+            const duePKT = new Date(duePKTStr + 'T00:00:00Z');
+            let autoFine = 0;
+            if (nowPKT > duePKT) {
+              const diffDays = Math.floor((nowPKT.getTime() - duePKT.getTime()) / (1000 * 60 * 60 * 24));
+              autoFine = diffDays * hostelLateFeeRate;
+            }
+            if (autoFine !== Number(hc.lateFeeFine || 0)) {
+              hc.lateFeeFine = autoFine;
+              if (hc.status === 'PENDING' && autoFine > 0) hc.status = 'OVERDUE';
+              else if (hc.status === 'OVERDUE' && autoFine === 0) hc.status = 'PENDING';
+              const base = Number(hc.hostelFee || 0);
+              const heads = Array.isArray(hc.heads) ? hc.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0) : 0;
+              const arrears = Number(hc.arrearsAmount || 0);
+              const disc = Number(hc.discount || 0);
+              const fine = Number(hc.fineAmount || 0);
+              hc.totalAmount = Math.max(0, base + heads + arrears + fine + autoFine - disc);
+              await hc.save();
+              hostelUpdated++;
+            }
+          }
+          if (hostelUpdated > 0) {
+            console.log(`[FeeCron] Automatically updated late fee for ${hostelUpdated} hostel challans.`);
+          }
+        }
+      } catch (hostelErr) {
+        console.error('[FeeCron] Error updating late fee for HostelChallans:', hostelErr);
       }
     } catch (err) {
       console.error('[FeeCron] Error in runLateFeeCronJob:', err);
@@ -2140,21 +2223,119 @@ class FeeService {
       }
     }
 
-    if (isExtra && (!challan.lateFeeFine || challan.lateFeeFine === 0) && challan.dueDate) {
-      const settings = await FeeSettings.findOne();
-      const extraRate = Number(settings?.extraChallanLateFee ?? 0);
-      if (extraRate > 0) {
-        const now = new Date(paidDate || Date.now());
-        now.setHours(0, 0, 0, 0);
-        const due = new Date(challan.dueDate);
-        due.setHours(0, 0, 0, 0);
-        if (now > due) {
-          const diffDays = Math.floor(Math.abs(now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-          const autoLate = diffDays * extraRate;
-          challan.lateFeeFine = autoLate;
-          challan.totalAmount = Number(challan.amount || 0) + autoLate;
+    if (isExtra) {
+      if ((!challan.lateFeeFine || challan.lateFeeFine === 0) && challan.dueDate) {
+        const settings = await FeeSettings.findOne();
+        const extraRate = Number(settings?.extraChallanLateFee ?? 0) || Number(settings?.lateFeeRatePerDay ?? 0);
+        if (extraRate > 0) {
+          const now = new Date(paidDate || Date.now());
+          now.setHours(0, 0, 0, 0);
+          const due = new Date(challan.dueDate);
+          due.setHours(0, 0, 0, 0);
+          if (now > due) {
+            const diffDays = Math.floor(Math.abs(now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+            const autoLate = diffDays * extraRate;
+            challan.lateFeeFine = autoLate;
+            challan.totalAmount = Math.max(0, Number(challan.amount || 0) + Number(challan.arrearsAmount || 0) + autoLate - Number(challan.discount || 0));
+          }
         }
       }
+
+      // 1. Settle arrearAllocations across previous extra challans (FIFO waterfall, N-hop chain)
+      if (Array.isArray(challan.arrearAllocations) && challan.arrearAllocations.length > 0) {
+        for (const alloc of challan.arrearAllocations) {
+          const needed = Math.max(0, (alloc.amountCarriedForward || 0) - (alloc.amountSettled || 0));
+          if (needed > 0 && remPay > 0) {
+            const settle = Math.min(needed, remPay);
+            alloc.amountSettled = (alloc.amountSettled || 0) + settle;
+            remPay -= settle;
+            allocatedToArrears += settle;
+
+            if (alloc.sourceChallanId && settle > 0) {
+              const collectExtraAncestors = async (startChallanId) => {
+                const chain = [];
+                const visited = new Set();
+                const queue = [startChallanId.toString()];
+                while (queue.length > 0) {
+                  const currId = queue.shift();
+                  if (visited.has(currId)) continue;
+                  visited.add(currId);
+                  const ch = await ExtraChallan.findById(currId);
+                  if (!ch) continue;
+                  chain.push(ch);
+                  if (Array.isArray(ch.arrearAllocations)) {
+                    for (const a of ch.arrearAllocations) {
+                      if (a.sourceChallanId && !visited.has(a.sourceChallanId.toString())) {
+                        queue.push(a.sourceChallanId.toString());
+                      }
+                    }
+                  }
+                }
+                chain.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+                return chain;
+              };
+
+              const ancestors = await collectExtraAncestors(alloc.sourceChallanId);
+              let remSettleToDistribute = settle;
+
+              for (const anc of ancestors) {
+                const ancTotal = Number(anc.totalAmount != null ? anc.totalAmount : anc.amount || 0);
+                const ancPaid = Number(anc.paidAmount || 0);
+                const ancAlreadySettled = Number(anc.settledViaArrearsAmount || 0);
+                const effectiveDue = Math.max(0, ancTotal - ancPaid - ancAlreadySettled);
+
+                const ancAlloc = remSettleToDistribute > 0 ? Math.min(effectiveDue, remSettleToDistribute) : 0;
+                remSettleToDistribute -= ancAlloc;
+
+                anc.settledViaArrearsAmount = (anc.settledViaArrearsAmount || 0) + ancAlloc;
+                anc.settledByChallanId = challan._id;
+                anc.settledByChallanNo = challan.challanNo;
+
+                if (anc.paidAmount + anc.settledViaArrearsAmount >= ancTotal && ancTotal > 0) {
+                  anc.status = 'SETTLED';
+                }
+                await anc.save();
+
+                if (ancAlloc > 0) {
+                  const arrRecNo = `REC-ARR-EXT-${anc.challanNo || anc._id.toString().slice(-4)}-${Date.now().toString().slice(-4)}`;
+                  await FeePaymentReceipt.create({
+                    receiptNo: arrRecNo,
+                    challanType: 'ExtraChallan',
+                    challanId: anc._id,
+                    studentId: anc.studentId,
+                    receiptType: 'ARREARS_SETTLEMENT',
+                    amountPaid: 0,
+                    settledViaArrearsAmount: ancAlloc,
+                    sourceChallanId: challan._id,
+                    sourceChallanNo: challan.challanNo,
+                    paymentMode: 'Arrears Transfer',
+                    paidDate: challan.paidDate || new Date(),
+                    recordedBy: userId || null,
+                    remarks: `Settled via arrears on Extra Challan #${challan.challanNo}`
+                  }).catch(() => null);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Late fee fine
+      const extraLateDue = Math.max(0, Number(challan.lateFeeFine || 0));
+      if (extraLateDue > 0 && remPay > 0) {
+        const lateChunk = Math.min(extraLateDue, remPay);
+        allocatedToLateFee += lateChunk;
+        remPay -= lateChunk;
+      }
+
+      // 3. Heads / base charges
+      const extraBaseDue = Math.max(0, Number(challan.amount || 0) - Number(challan.discount || 0));
+      if (extraBaseDue > 0 && remPay > 0) {
+        const baseChunk = Math.min(extraBaseDue, remPay);
+        allocatedToHeads += baseChunk;
+        remPay -= baseChunk;
+      }
+      // Explicit requirement: no advance payment / credit ledger for extra challans
     }
 
     // Update paid amount and status
@@ -2289,6 +2470,35 @@ class FeeService {
 
   // Extra Challans
   async getExtraChallans(filters = {}) {
+    // Self-heal: ensure any extra challans rolled forward into an active extra challan are marked SUPERSEDED
+    try {
+      const activeCarryingArrears = await ExtraChallan.find({
+        status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
+        'arrearAllocations.0': { $exists: true }
+      }).select('_id challanNo arrearAllocations').lean();
+
+      for (const ac of activeCarryingArrears) {
+        const sourceIds = (ac.arrearAllocations || []).map(a => a.sourceChallanId).filter(Boolean);
+        if (sourceIds.length > 0) {
+          await ExtraChallan.updateMany(
+            {
+              _id: { $in: sourceIds },
+              status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] }
+            },
+            {
+              $set: {
+                status: 'SUPERSEDED',
+                supersededBy: ac._id,
+                supersededByChallanNo: ac.challanNo
+              }
+            }
+          );
+        }
+      }
+    } catch (healErr) {
+      console.error('Error self-healing superseded extra challans:', healErr);
+    }
+
     const query = {};
     if (filters.studentId) {
       query.studentId = filters.studentId;
@@ -2327,6 +2537,11 @@ class FeeService {
           { path: 'programId', select: 'name' }
         ]
       })
+      .populate('heads.headId', 'name amount')
+      .populate('arrearAllocations.sourceChallanId', '_id challanNo totalAmount amount paidAmount status')
+      .populate('settledByChallanId', '_id challanNo')
+      .populate('supersededBy', '_id challanNo status')
+      .populate('supersedes', '_id challanNo status')
       .sort({ createdAt: -1, dueDate: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
@@ -2372,20 +2587,63 @@ class FeeService {
         ? Number(data.amount)
         : normalizedHeads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
 
+      const discount = Number(data.discount || 0);
       const effectiveDueDate = data.dueDate ? new Date(data.dueDate) : new Date();
 
       for (const student of students) {
         try {
           const challanNo = await this.generate8DigitChallanNo();
+
+          let studentArrears = 0;
+          const studentAllocations = [];
+          const prevChallans = await ExtraChallan.find({
+            studentId: student._id,
+            status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] }
+          }).sort({ createdAt: 1 });
+          for (const pc of prevChallans) {
+            const pcBalance = Math.max(0, (pc.totalAmount != null ? pc.totalAmount : pc.amount) - (pc.paidAmount || 0));
+            if (pcBalance > 0) {
+              studentArrears += pcBalance;
+              studentAllocations.push({
+                sourceChallanId: pc._id,
+                sourceChallanNo: pc.challanNo,
+                amountCarriedForward: pcBalance,
+                amountSettled: 0
+              });
+            }
+          }
+
+          const netTotal = Math.max(0, totalAmount + studentArrears - discount);
           const extraChallan = await ExtraChallan.create({
             studentId: student._id,
             challanNo,
             amount: totalAmount,
+            arrearsAmount: studentArrears,
+            arrearAllocations: studentAllocations,
+            supersedes: studentAllocations.map(a => a.sourceChallanId).filter(Boolean),
+            discount,
+            totalAmount: netTotal,
             dueDate: effectiveDueDate,
             heads: normalizedHeads,
             remarks: data.remarks || '',
             status: 'PENDING',
           });
+
+          if (studentAllocations.length > 0) {
+            const sourceIds = studentAllocations.map(a => a.sourceChallanId).filter(Boolean);
+            if (sourceIds.length > 0) {
+              await ExtraChallan.updateMany(
+                { _id: { $in: sourceIds } },
+                {
+                  $set: {
+                    status: 'SUPERSEDED',
+                    supersededBy: extraChallan._id,
+                    supersededByChallanNo: extraChallan.challanNo,
+                  }
+                }
+              );
+            }
+          }
 
           results.push({
             id: extraChallan._id.toString(),
@@ -2409,17 +2667,111 @@ class FeeService {
     if (!data.challanNo) {
       data.challanNo = await this.generate8DigitChallanNo();
     }
-    if (data.amount === undefined || data.amount === null) {
-      if (Array.isArray(data.heads)) {
-        data.amount = data.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+    if (Array.isArray(data.heads)) {
+      data.heads = data.heads.map(h => ({
+        headId: (h.headId && mongoose.Types.ObjectId.isValid(h.headId)) ? h.headId : undefined,
+        name: h.headName || h.name || 'Fee Head',
+        amount: Number(h.amount || 0)
+      })).filter(h => h.name && h.amount > 0);
+      data.amount = data.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+    } else {
+      data.amount = Number(data.amount || 0);
+    }
+    const discount = Number(data.discount || 0);
+    data.discount = discount;
+
+    let arrearsAmount = Number(data.arrearsAmount || 0);
+    let arrearAllocations = Array.isArray(data.arrearAllocations) ? data.arrearAllocations : [];
+    if (data.studentId) {
+      const prevChallans = await ExtraChallan.find({
+        studentId: data.studentId,
+        status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] }
+      }).sort({ createdAt: 1 });
+
+      if (arrearAllocations.length === 0) {
+        arrearsAmount = 0;
+        for (const pc of prevChallans) {
+          const pcBalance = Math.max(0, (pc.totalAmount != null ? pc.totalAmount : pc.amount) - (pc.paidAmount || 0));
+          if (pcBalance > 0) {
+            arrearsAmount += pcBalance;
+            arrearAllocations.push({
+              sourceChallanId: pc._id,
+              sourceChallanNo: pc.challanNo,
+              amountCarriedForward: pcBalance,
+              amountSettled: 0
+            });
+          }
+        }
       } else {
-        data.amount = 0;
+        if (arrearsAmount === 0 && arrearAllocations.length > 0) {
+          arrearsAmount = arrearAllocations.reduce((sum, a) => sum + (Number(a.amountCarriedForward) || 0), 0);
+        }
       }
     }
-    return ExtraChallan.create(data);
+    data.arrearsAmount = arrearsAmount;
+    data.arrearAllocations = arrearAllocations;
+    data.supersedes = arrearAllocations.map(a => a.sourceChallanId).filter(Boolean);
+    data.totalAmount = Math.max(0, (data.amount || 0) + arrearsAmount + Number(data.lateFeeFine || 0) - discount);
+    
+    const createdChallan = await ExtraChallan.create(data);
+
+    if (arrearAllocations.length > 0) {
+      const sourceIds = arrearAllocations.map(a => a.sourceChallanId).filter(Boolean);
+      if (sourceIds.length > 0) {
+        await ExtraChallan.updateMany(
+          { _id: { $in: sourceIds } },
+          {
+            $set: {
+              status: 'SUPERSEDED',
+              supersededBy: createdChallan._id,
+              supersededByChallanNo: createdChallan.challanNo,
+            }
+          }
+        );
+      }
+    }
+    return createdChallan;
   }
 
   async updateExtraChallan(id, data) {
+    const challan = await ExtraChallan.findById(id);
+    if (!challan) throw new Error('Challan not found');
+    if (['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase())) {
+      throw new Error('Challan is locked (PAID, SETTLED, or SUPERSEDED) and cannot be updated');
+    }
+
+    if (Array.isArray(data.heads)) {
+      data.heads = data.heads.map(h => ({
+        headId: (h.headId && mongoose.Types.ObjectId.isValid(h.headId)) ? h.headId : undefined,
+        name: h.headName || h.name || 'Fee Head',
+        amount: Number(h.amount || 0)
+      })).filter(h => h.name && h.amount > 0);
+      data.amount = data.heads.reduce((sum, h) => sum + h.amount, 0);
+    } else if (data.amount !== undefined) {
+      data.amount = Number(data.amount || 0);
+    } else {
+      data.amount = Number(challan.amount || 0);
+    }
+
+    const discount = data.discount !== undefined ? Number(data.discount || 0) : Number(challan.discount || 0);
+    const lateFine = data.lateFeeFine !== undefined ? Number(data.lateFeeFine || 0) : Number(challan.lateFeeFine || 0);
+    const arrears = data.arrearsAmount !== undefined ? Number(data.arrearsAmount || 0) : Number(challan.arrearsAmount || 0);
+    data.discount = discount;
+    data.lateFeeFine = lateFine;
+    data.arrearsAmount = arrears;
+    data.totalAmount = Math.max(0, data.amount + arrears + lateFine - discount);
+
+    const paid = Number(challan.paidAmount || 0);
+    if (paid >= data.totalAmount && data.totalAmount > 0) {
+      data.status = 'PAID';
+    } else if (paid > 0) {
+      data.status = 'PARTIAL';
+    } else if (lateFine > 0) {
+      data.status = 'OVERDUE';
+    } else {
+      data.status = 'PENDING';
+    }
+
     return ExtraChallan.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -2507,6 +2859,19 @@ class FeeService {
 
     // Clean up any receipts created for this extra challan
     await FeePaymentReceipt.deleteMany({ challanId: id });
+
+    // Revert previous challans that were superseded by this deleted challan
+    if (Array.isArray(challan.supersedes) && challan.supersedes.length > 0) {
+      const supersededChallans = await ExtraChallan.find({ _id: { $in: challan.supersedes } });
+      for (const sc of supersededChallans) {
+        sc.supersededBy = undefined;
+        sc.supersededByChallanNo = undefined;
+        if (sc.status === 'SUPERSEDED') {
+          sc.status = (Number(sc.paidAmount || 0) > 0) ? 'PARTIAL' : 'PENDING';
+        }
+        await sc.save();
+      }
+    }
 
     return ExtraChallan.findByIdAndDelete(id);
   }

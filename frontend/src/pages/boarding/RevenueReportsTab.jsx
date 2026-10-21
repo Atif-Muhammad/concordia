@@ -138,21 +138,41 @@ export const RevenueReportsTab = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
-              <CardHeader><CardTitle className="text-sm">Total Collected</CardTitle></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Total Billed</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-green-600">
-                  PKR {Math.round(revenueData?.totalCollected ?? 0).toLocaleString()}
+                <p className="text-xl font-bold text-foreground">
+                  PKR {Math.round((revenueData?.totalCollected ?? 0) + (revenueData?.totalOutstanding ?? 0)).toLocaleString()}
                 </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Base: PKR {Math.round(revenueData?.totalBaseFee ?? 0).toLocaleString()}</p>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-sm">Total Outstanding</CardTitle></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Total Collected</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-orange-600">
+                <p className="text-xl font-bold text-green-600">
+                  PKR {Math.round(revenueData?.totalCollected ?? 0).toLocaleString()}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Fee Heads: PKR {Math.round(revenueData?.totalHeads ?? 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Total Outstanding</CardTitle></CardHeader>
+              <CardContent>
+                <p className="text-xl font-bold text-orange-600">
                   PKR {Math.round(revenueData?.totalOutstanding ?? 0).toLocaleString()}
                 </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Late Fine: PKR {Math.round(revenueData?.totalLateFees ?? 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Discounts Given</CardTitle></CardHeader>
+              <CardContent>
+                <p className="text-xl font-bold text-emerald-600">
+                  PKR {Math.round(revenueData?.totalDiscounts ?? 0).toLocaleString()}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Applied across all challans</p>
               </CardContent>
             </Card>
           </div>
@@ -210,7 +230,7 @@ export const RevenueReportsTab = () => {
                     <BarChart data={chartData} margin={{ bottom: 40 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-                      <YAxis tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fontSize: 11 }} />
+                      <YAxis tickFormatter={(v) => Number(v).toLocaleString()} tick={{ fontSize: 11 }} width={70} />
                       <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
                       <Bar dataKey="collected" fill={MODERN_CHART_COLORS.success} radius={[8, 8, 0, 0]} />
                     </BarChart>
@@ -241,6 +261,10 @@ export const RevenueReportsTab = () => {
                       {[
                         { col: 'name', label: 'Student Name' },
                         { col: 'registrationId', label: 'Registration ID' },
+                        { col: 'baseFee', label: 'Base Fee' },
+                        { col: 'headsAmount', label: 'Heads' },
+                        { col: 'lateFeeAmount', label: 'Late Fee' },
+                        { col: 'discountAmount', label: 'Discount' },
                         { col: 'totalBilled', label: 'Total Billed' },
                         { col: 'totalPaid', label: 'Total Paid' },
                         { col: 'outstanding', label: 'Outstanding' },
@@ -274,7 +298,7 @@ export const RevenueReportsTab = () => {
                           return 0;
                         });
                       if (rows.length === 0) return (
-                        <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No data available.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">No data available.</TableCell></TableRow>
                       );
                       return rows.map((row, idx) => {
                         const outstanding = Math.round(row.outstanding ?? 0);
@@ -282,7 +306,11 @@ export const RevenueReportsTab = () => {
                           <TableRow key={row.registrationId} className={idx % 2 === 1 ? 'bg-muted/20' : ''}>
                             <TableCell className="py-2 px-3 text-sm font-medium">{row.name}</TableCell>
                             <TableCell className="py-2 px-3 text-sm font-mono text-xs">{row.registrationId}</TableCell>
-                            <TableCell className="py-2 px-3 text-sm">PKR {Math.round(row.totalBilled ?? 0).toLocaleString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">PKR {Math.round(row.baseFee ?? 0).toLocaleString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">PKR {Math.round(row.headsAmount ?? 0).toLocaleString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm text-red-600">PKR {Math.round(row.lateFeeAmount ?? 0).toLocaleString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm text-green-600">PKR {Math.round(row.discountAmount ?? 0).toLocaleString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm font-semibold">PKR {Math.round(row.totalBilled ?? 0).toLocaleString()}</TableCell>
                             <TableCell className="py-2 px-3 text-sm text-green-600 font-semibold">PKR {Math.round(row.totalPaid ?? 0).toLocaleString()}</TableCell>
                             <TableCell className={`py-2 px-3 text-sm font-semibold ${outstanding > 0 ? "text-orange-600" : "text-green-600"}`}>
                               PKR {outstanding.toLocaleString()}

@@ -468,7 +468,6 @@ export const ReportsTab = () => {
                 <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
                 <div class="header-title-block">
                   <h1>Concordia College Peshawar</h1>
-                  <div class="tagline">A Project of Beaconhouse</div>
                 </div>
               </div>
               <div class="meta-box">
@@ -910,7 +909,6 @@ export const ReportsTab = () => {
                 <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
                 <div class="header-title-block">
                   <h1>Concordia College Peshawar</h1>
-                  <div class="tagline">A Project of Beaconhouse</div>
                 </div>
               </div>
               <div class="meta-box">

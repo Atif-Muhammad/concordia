@@ -31,9 +31,13 @@ export const parseYearMonth = (val) => {
   }
   if (typeof val !== 'string') return null;
   const str = val.trim();
-  const ymMatch = str.match(/^(\d{4})-(\d{1,2})/);
+  const ymMatch = str.match(/^(\d{4})[-/](\d{1,2})/);
   if (ymMatch) {
     return { year: parseInt(ymMatch[1], 10), month: parseInt(ymMatch[2], 10) };
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    return { year: parseInt(dmyMatch[3], 10), month: parseInt(dmyMatch[2], 10) };
   }
   const parts = str.toLowerCase().split(/[\s,/-]+/);
   let year = null;
@@ -363,19 +367,30 @@ export const getHostelPaidSystemNote = () => `
 
 export const checkHostelTemplateExists = async () => {
   try {
-    const template = await getDefaultFeeChallanTemplate("HOSTEL");
+    let template = await getDefaultFeeChallanTemplate("HOSTEL");
+    if (template && template.htmlContent && template.htmlContent.trim()) {
+      return true;
+    }
+    template = await getDefaultFeeChallanTemplate("INSTALLMENT");
     return !!(template && template.htmlContent && template.htmlContent.trim());
   } catch {
     return false;
   }
 };
 
-export const generateHostelChallanHtml = async (challan, reg, hostelLateFee = 0) => {
+export const generateHostelChallanHtml = async (challan, reg, hostelLateFee = 0, allChallans = []) => {
   let template = null;
   try {
     template = await getDefaultFeeChallanTemplate("HOSTEL");
   } catch {
     template = null;
+  }
+  if (!template?.htmlContent) {
+    try {
+      template = await getDefaultFeeChallanTemplate("INSTALLMENT");
+    } catch {
+      template = null;
+    }
   }
   const name = reg?.student ? `${reg.student.fName || ''} ${reg.student.lName || ''}`.trim() : (reg?.externalName || challan.hostelRegistration?.externalName || "Student");
   const registrationNo = challan.hostelRegNumber || reg.id;
@@ -443,13 +458,83 @@ export const generateHostelChallanHtml = async (challan, reg, hostelLateFee = 0)
   const settledChallanNo = challan.settledByChallanNo || challan.supersededBy?.challanNumber || challan.supersededBy?.challanNo || '';
   const settledMonth = challan.settledByMonth || challan.supersededBy?.month || '';
 
-  const historyChallans = prevChainChallans.slice(-5);
-  const paymentHistoryMonths = historyChallans.map(h => `<td>${h.month}</td>`).join('');
-  const paymentHistoryTotals = historyChallans.map(h => {
-    const t = (h.hostelFee||0) + (h.fineAmount||0) + (h.lateFeeFine||0) + (h.arrearsAmount||0) - (h.discount||0) - (h.advanceApplied||0);
-    return `<td>${Math.max(0, t).toLocaleString()}</td>`;
+  // Match past challans for this student/registration
+  const targetRegId = String(reg?.id || reg?._id || challan.registrationId?._id || challan.registrationId || challan.hostelRegistrationId?._id || challan.hostelRegistrationId || '');
+  const targetStudentId = String(reg?.student?._id || reg?.student?.id || challan.student?._id || challan.student?.id || '');
+  const targetRoll = String(reg?.student?.rollNumber || challan.student?.rollNumber || '').trim().toLowerCase();
+  const currentChallanId = String(challan.id || challan._id || '');
+  const currentChallanNo = String(challan.challanNumber || challan.challanNo || '');
+  const currentMonthYm = parseYearMonth(challan.month);
+
+  let pool = Array.isArray(allChallans) ? [...allChallans] : [];
+  if (pool.length === 0 && Array.isArray(prevChainChallans) && prevChainChallans.length > 0) {
+    pool = [...prevChainChallans];
+  }
+
+  const matchedChallans = pool.filter(c => {
+    if (!c) return false;
+    const cId = String(c.id || c._id || '');
+    const cNo = String(c.challanNumber || c.challanNo || '');
+    if ((currentChallanId && cId === currentChallanId) || (currentChallanNo && cNo === currentChallanNo)) return false;
+    if (c.status === 'VOID') return false;
+
+    const cRegId = String(c.registrationId?._id || c.registrationId || c.hostelRegistrationId?._id || c.hostelRegistrationId || c.hostelRegNumber || '');
+    const cStudId = String(c.student?._id || c.student?.id || c.studentId?._id || c.studentId || '');
+    const cRoll = String(c.student?.rollNumber || '').trim().toLowerCase();
+
+    const isMatch = (targetRegId && cRegId && targetRegId === cRegId) ||
+                    (targetStudentId && cStudId && targetStudentId === cStudId) ||
+                    (targetRoll && cRoll && targetRoll === cRoll);
+    if (!isMatch) return false;
+
+    // Filter to strictly prior months / dates
+    const cYm = parseYearMonth(c.month);
+    if (currentMonthYm && cYm) {
+      return compareYearMonth(cYm, currentMonthYm) < 0;
+    }
+    const cDue = new Date(c.dueDate || c.createdAt || 0);
+    const currDue = new Date(challan.dueDate || challan.createdAt || 0);
+    return cDue < currDue;
+  });
+
+  // Sort chronologically ascending
+  matchedChallans.sort((a, b) => {
+    const aYm = parseYearMonth(a.month);
+    const bYm = parseYearMonth(b.month);
+    if (aYm && bYm) {
+      const cmp = compareYearMonth(aYm, bYm);
+      if (cmp !== 0) return cmp;
+    }
+    return new Date(a.dueDate || a.createdAt || 0) - new Date(b.dueDate || b.createdAt || 0);
+  });
+
+  // Take the past 4 prior challans
+  const last4Prior = matchedChallans.slice(-4);
+  const displayHistory = [...last4Prior];
+  while (displayHistory.length < 4) {
+    displayHistory.push(null);
+  }
+
+  const paymentHistoryMonths = displayHistory.map(h => {
+    if (!h) return '<td>-</td>';
+    return `<td>${monthValueToLabel(h.month) || h.month || '-'}</td>`;
   }).join('');
-  const paymentHistoryPaid = historyChallans.map(h => `<td>${(h.paidAmount||0).toLocaleString()}</td>`).join('');
+
+  const paymentHistoryTotals = displayHistory.map(h => {
+    if (!h) return '<td>-</td>';
+    const t = getChallanTotal(h);
+    return `<td>${Math.round(t).toLocaleString()}</td>`;
+  }).join('');
+
+  const paymentHistoryPaid = displayHistory.map(h => {
+    if (!h) return '<td>-</td>';
+    const hSettled = h.status === 'SETTLED' || (h.supersededBy && (h.supersededBy.status === 'PAID' || h.supersededBy.paidAmount > 0));
+    const directPaid = toHostelAmount(h.paidAmount);
+    const settledArrears = toHostelAmount(h.settledViaArrearsAmount);
+    const tot = getChallanTotal(h);
+    const effectivePaid = hSettled ? tot : (directPaid + settledArrears);
+    return `<td>${Math.round(effectivePaid).toLocaleString()}</td>`;
+  }).join('');
 
   const isPaid = challan.status === 'PAID' || isSettled || balance <= 0;
   const isVoid = challan.status === 'VOID';

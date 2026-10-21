@@ -68,6 +68,12 @@ import {
   getHostelFeePayments,
   getHostelChallansDedicated,
 } from "../../../config/apis";
+import { getDefaultFeeChallanTemplate } from "@/services/api";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
+import {
+  generateChallanHtml,
+  applyPaidChallanPrintTreatment,
+} from "../fee-management/feeFinancialUtils";
 import {
   getStudentAcademicPath,
   normalizeChallan,
@@ -121,7 +127,7 @@ export const StudentProfileDialog = ({
   const { data: extraChallansRaw, isLoading: extraChallansLoading } = useQuery({
     queryKey: ["extraChallans", studentId],
     queryFn: () => getExtraChallansDedicated({ studentId }),
-    enabled: false,
+    enabled: open && !!studentId,
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
@@ -142,6 +148,7 @@ export const StudentProfileDialog = ({
       paidAmount: Number(c.paidAmount ?? 0),
       lateFeeFine: Number(c.lateFeeFine ?? 0),
       discount: Number(c.discount ?? 0),
+      arrearsAmount: Number(c.arrearsAmount ?? 0),
       remainingAmount: Math.max(
         0,
         Number(c.totalAmount ?? 0) - Number(c.paidAmount ?? 0)
@@ -212,50 +219,24 @@ export const StudentProfileDialog = ({
   const hostelRegId = studentHostelReg?.id || studentHostelReg?._id;
 
   const { data: studentHostelChallansRaw } = useQuery({
-    queryKey: ["studentHostelChallans", hostelRegId],
-    queryFn: () => getHostelChallansDedicated({ registrationId: hostelRegId }),
+    queryKey: ["studentHostelChallans", hostelRegId, studentId],
+    queryFn: () => getHostelChallansDedicated({ registrationId: hostelRegId, studentId }),
     enabled:
       open &&
-      !!hostelRegId &&
+      (!!hostelRegId || !!studentId) &&
       activeProfileTab === "boarding" &&
       activeBoardingSubTab === "challans",
   });
-
-  const { data: studentFeesHostelRaw = [] } = useQuery({
-    queryKey: ["studentFees", studentId, "HOSTEL"],
-    queryFn: () => getStudentFeeHistory(studentId, "HOSTEL"),
-    enabled:
-      open &&
-      !!studentId &&
-      activeProfileTab === "boarding" &&
-      activeBoardingSubTab === "challans",
-    staleTime: 60000,
-    refetchOnWindowFocus: false,
-  });
-
-  const studentFeesHostel = useMemo(() => {
-    return Array.isArray(studentFeesHostelRaw)
-      ? studentFeesHostelRaw
-      : Array.isArray(studentFeesHostelRaw?.data)
-      ? studentFeesHostelRaw.data
-      : [];
-  }, [studentFeesHostelRaw]);
 
   const studentHostelChallans = useMemo(() => {
-    const fromDedicated = (
-      Array.isArray(studentHostelChallansRaw)
-        ? studentHostelChallansRaw
-        : Array.isArray(studentHostelChallansRaw?.data)
-        ? studentHostelChallansRaw.data
-        : []
-    ).map((c) => normalizeChallan(c));
+    const list = Array.isArray(studentHostelChallansRaw)
+      ? studentHostelChallansRaw
+      : Array.isArray(studentHostelChallansRaw?.data)
+      ? studentHostelChallansRaw.data
+      : [];
 
-    const fromMain = (
-      Array.isArray(studentFeesHostel) ? studentFeesHostel : []
-    ).map((c) => normalizeChallan(c));
-
-    return [...fromDedicated, ...fromMain];
-  }, [studentHostelChallansRaw, studentFeesHostel]);
+    return list.map((c) => normalizeChallan(c));
+  }, [studentHostelChallansRaw]);
 
   const processFeesData = () => {
     if (!viewStudent) {
@@ -919,6 +900,42 @@ export const StudentProfileDialog = ({
       .sort((a, b) => b.key.localeCompare(a.key));
   }, [filteredAttendance]);
 
+  // Print Extra Challan Handler
+  const printExtraChallan = async (challan) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({
+        title: "Pop-up blocked",
+        description: "Please allow pop-ups to print challans.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const tpl = await getDefaultFeeChallanTemplate("INSTALLMENT");
+      const baseHtml = generateChallanHtml(
+        { ...challan, isExtra: true, challanType: "FEE_HEADS_ONLY", student: viewStudent || studentDetails },
+        tpl?.htmlContent,
+        { classes: classesData, programs: programData, excludePaymentHistory: true }
+      );
+      const resolvedHtml = applyPaidChallanPrintTreatment(baseHtml, challan);
+      await openManagedPrintWindow({
+        html: resolvedHtml,
+        title: `Extra Challan #${challan.challanNo || challan.challanNumber || ""}`,
+        toast,
+        printWindow,
+      });
+    } catch (err) {
+      console.error("Failed to print extra challan:", err);
+      printWindow.close?.();
+      toast({
+        title: "Print error",
+        description: "Failed to generate print view.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Print Attendance Handler
   const handlePrintAttendance = () => {
     const printWindow = window.open("", "", "height=800,width=1000");
@@ -1508,8 +1525,8 @@ export const StudentProfileDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:w-[90vw] h-[90vh] flex flex-col p-4 sm:p-6 overflow-hidden">
-        <DialogHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 shrink-0 border-b">
+      <DialogContent className="w-[95vw] sm:w-[90vw] h-[90vh] flex flex-col p-[2px] overflow-hidden" bodyClassName="p-[2px] gap-1">
+        <DialogHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-1.5 shrink-0 border-b">
           <div>
             <DialogTitle>Student Profile</DialogTitle>
             <DialogDescription>
@@ -1546,7 +1563,7 @@ export const StudentProfileDialog = ({
         {detailsLoading && !studentDetails ? (
           <StudentProfileSkeleton />
         ) : (
-          <div className="flex-1 min-h-0 overflow-y-auto pt-3">
+          <div className="flex-1 min-h-0 overflow-y-auto p-[2px]">
             <Tabs
               value={activeProfileTab}
               onValueChange={setActiveProfileTab}
@@ -1768,6 +1785,17 @@ export const StudentProfileDialog = ({
               );
             })()}
 
+            <Tabs defaultValue="installments" className="w-full">
+              <div className="flex items-center justify-between pb-2 border-b">
+                <TabsList className="grid w-full grid-cols-2 max-w-xs">
+                  <TabsTrigger value="installments">Installment Plan</TabsTrigger>
+                  <TabsTrigger value="extra">
+                    Extra Challans ({studentExtraChallans.length})
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="installments" className="space-y-4 pt-3">
                 {(() => {
                   const feeInsts =
                     (Array.isArray(studentDetails?.feeInstallments) && studentDetails.feeInstallments.length > 0)
@@ -2161,6 +2189,125 @@ export const StudentProfileDialog = ({
                     </div>
                   ));
                 })()}
+              </TabsContent>
+
+              <TabsContent value="extra" className="space-y-4 pt-3">
+                {studentExtraChallans.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg bg-card/50">
+                    <Receipt className="w-12 h-12 text-muted-foreground mb-3 opacity-20" />
+                    <p className="text-base font-medium text-foreground">No Extra Challans Found</p>
+                    <p className="text-xs text-muted-foreground mt-1">There are no standalone fee head challans generated for this student.</p>
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-x-auto bg-card">
+                    <Table>
+                      <TableHeader className="bg-muted/40">
+                        <TableRow>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Challan No</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Fee Heads Breakdown</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Due Date</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Base</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Arrears</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Discount</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Late Fine</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Total Due</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Paid</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Balance</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold">Status</TableHead>
+                          <TableHead className="py-2.5 px-3 text-xs font-semibold text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {studentExtraChallans.map((ec) => {
+                          const base = Number(ec.amount || 0);
+                          const arr = Number(ec.arrearsAmount || 0);
+                          const disc = Number(ec.discount || 0);
+                          const late = Number(ec.lateFeeFine || 0);
+                          const total = Number(ec.totalAmount ?? Math.max(0, base + arr + late - disc));
+                          const paid = Number(ec.paidAmount || 0);
+                          const balance = Math.max(0, total - paid);
+                          const headsList = Array.isArray(ec.heads) ? ec.heads : (Array.isArray(ec.selectedHeads) ? ec.selectedHeads : []);
+                          return (
+                            <TableRow key={ec._id || ec.id} className="hover:bg-muted/20">
+                              <TableCell className="py-2 px-3 font-mono text-xs font-semibold text-foreground">
+                                {ec.challanNo || ec.challanNumber}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs">
+                                <div className="space-y-0.5">
+                                  {headsList.length > 0 ? (
+                                    headsList.map((h, hi) => (
+                                      <div key={hi} className="text-muted-foreground flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block" />
+                                        <span className="font-medium text-foreground">{h.headName || h.name || 'Fee Head'}:</span>
+                                        <span>PKR {Number(h.amount || 0).toLocaleString()}</span>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <span className="text-muted-foreground">General Extra Fee</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs">
+                                {ec.dueDate ? new Date(ec.dueDate).toLocaleDateString() : '—'}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs font-medium">
+                                PKR {base.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs font-medium text-amber-600">
+                                {arr > 0 ? `+ PKR ${arr.toLocaleString()}` : '—'}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs text-green-600 font-medium">
+                                {disc > 0 ? `- PKR ${disc.toLocaleString()}` : '—'}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs text-red-600 font-medium">
+                                {late > 0 ? `+ PKR ${late.toLocaleString()}` : '—'}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs font-bold text-foreground">
+                                PKR {total.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs text-green-600 font-bold">
+                                PKR {paid.toLocaleString()}
+                              </TableCell>
+                              <TableCell className={cn("py-2 px-3 text-xs font-bold", balance > 0 ? "text-orange-600" : "text-green-600")}>
+                                PKR {balance.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs">
+                                <Badge
+                                  variant={
+                                    ec.status === 'PAID'
+                                      ? 'default'
+                                      : ec.status === 'PARTIAL'
+                                      ? 'warning'
+                                      : ec.status === 'OVERDUE'
+                                      ? 'destructive'
+                                      : (ec.status === 'SUPERSEDED' || ec.status === 'VOID' || ec.status === 'SETTLED')
+                                      ? 'outline'
+                                      : 'secondary'
+                                  }
+                                  className="text-[10px] font-bold uppercase"
+                                >
+                                  {ec.status === 'SUPERSEDED' ? 'SUPERSEDED' : (ec.status || 'PENDING')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-xs text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs gap-1"
+                                  onClick={() => printExtraChallan(ec)}
+                                >
+                                  <Printer className="w-3 h-3 text-primary" /> Print
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           {/* ── ATTENDANCE TAB ── */}
@@ -3122,6 +3269,14 @@ export const StudentProfileDialog = ({
                             ).toLocaleString()}`
                           : "-"}
                       </div>
+                      <div>
+                        <span className="font-semibold">
+                          Advance Balance:
+                        </span>{" "}
+                        <span className="font-bold text-emerald-600">
+                          PKR {Number(studentHostelReg.advanceBalance || 0).toLocaleString()}
+                        </span>
+                      </div>
                     </CardContent>
                   </Card>
                   {studentHostelRoom && (
@@ -3182,43 +3337,68 @@ export const StudentProfileDialog = ({
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
                                 Challan No
                               </TableHead>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
                                 Month
                               </TableHead>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
+                                Base Fee
+                              </TableHead>
+                              <TableHead className="py-2 px-3 text-xs">
+                                Heads
+                              </TableHead>
+                              <TableHead className="py-2 px-3 text-xs">
+                                Late Fee
+                              </TableHead>
+                              <TableHead className="py-2 px-3 text-xs">
+                                Discount
+                              </TableHead>
+                              <TableHead className="py-2 px-3 text-xs">
                                 Total
                               </TableHead>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
                                 Paid
                               </TableHead>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
                                 Due Date
                               </TableHead>
-                              <TableHead className="py-2 px-3 text-sm">
+                              <TableHead className="py-2 px-3 text-xs">
                                 Status
                               </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {studentHostelChallans.map((c) => {
+                              const base = Number(c.hostelFee || 0);
+                              const heads = Array.isArray(c.heads)
+                                ? c.heads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0)
+                                : 0;
+                              const lateFee = Number(c.lateFeeFine || c.fineAmount || 0);
+                              const disc = Number(c.discount || 0);
+                              const adv = Number(c.advanceApplied || c.advanceAmount || 0);
                               const total =
                                 c.snapshotTotalDue != null
                                   ? Number(c.snapshotTotalDue)
-                                  : (c.hostelFee || 0) +
-                                    (c.fineAmount || 0) +
-                                    (c.lateFeeFine || 0) +
-                                    (c.arrearsAmount || 0) -
-                                    (c.discount || 0);
+                                  : (c.totalAmount != null
+                                      ? Number(c.totalAmount)
+                                      : Math.max(
+                                          0,
+                                          base +
+                                            heads +
+                                            lateFee +
+                                            Number(c.arrearsAmount || 0) -
+                                            disc -
+                                            adv
+                                        ));
                               const balance = Math.max(
                                 0,
                                 total - (c.paidAmount || 0)
                               );
                               return (
                                 <TableRow
-                                  key={c.id}
+                                  key={c.id || c._id}
                                   className={
                                     ["VOID", "SUPERSEDED", "SETTLED"].includes(
                                       c.status
@@ -3227,19 +3407,31 @@ export const StudentProfileDialog = ({
                                       : ""
                                   }
                                 >
-                                  <TableCell className="py-2 px-3 text-sm font-medium text-xs">
-                                    {c.challanNumber}
+                                  <TableCell className="py-2 px-3 text-xs font-mono font-medium">
+                                    {c.challanNumber || c.challanNo}
                                   </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">
+                                  <TableCell className="py-2 px-3 text-xs">
                                     {c.month}
                                   </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">
+                                  <TableCell className="py-2 px-3 text-xs">
+                                    PKR {base.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-xs">
+                                    PKR {heads.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-xs text-red-600">
+                                    {lateFee > 0 ? `+ PKR ${lateFee.toLocaleString()}` : "—"}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-xs text-green-600">
+                                    {disc > 0 ? `- PKR ${disc.toLocaleString()}` : "—"}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-xs font-bold">
                                     PKR {total.toLocaleString()}
                                   </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm text-green-600">
+                                  <TableCell className="py-2 px-3 text-xs text-green-600 font-semibold">
                                     PKR {(c.paidAmount || 0).toLocaleString()}
                                   </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">
+                                  <TableCell className="py-2 px-3 text-xs">
                                     {c.dueDate
                                       ? new Date(c.dueDate).toLocaleDateString()
                                       : "—"}

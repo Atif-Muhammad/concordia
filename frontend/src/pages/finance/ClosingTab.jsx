@@ -435,7 +435,7 @@ export default function ClosingTab() {
                   ${feeCollectionDetails.map((c, idx) => `
                     <tr>
                       <td class="text-center font-mono">${idx + 1}</td>
-                      <td class="font-mono">${c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
+                      <td class="font-mono">${c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}${c.type && c.type !== 'Tuition Challan' ? ` <span style="font-size: 8px; border: 1px solid #777; border-radius: 2px; padding: 0 2px; font-weight: normal; margin-left: 2px;">${c.type}</span>` : ''}</td>
                       <td><strong>${c.studentName}</strong> (Father: ${c.fatherName} • Roll: ${c.rollNumber})</td>
                       <td class="text-right font-mono">${Number(c.baseAmount || 0).toLocaleString()}</td>
                       <td class="text-right font-mono">${Number(getHeadsAmount(c) || 0).toLocaleString()}</td>
@@ -2231,7 +2231,7 @@ export default function ClosingTab() {
                                   {feeCollectionDetails.map((c, idx) => (
                                     <tr key={idx}>
                                       <td className="border border-black p-1 text-center font-mono">{idx + 1}</td>
-                                      <td className="border border-black p-1 font-mono">{c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}</td>
+                                      <td className="border border-black p-1 font-mono">{c.challanNo && c.challanNo !== "—" && c.challanNo !== "-" ? `#${c.challanNo.replace(/^#/, "")}` : (c.receiptNo || "—")}{c.type && c.type !== "Tuition Challan" && <span className="ml-1 text-[8px] border border-black px-0.5 rounded font-normal">{c.type}</span>}</td>
                                       <td className="border border-black p-1 truncate"><strong>{c.studentName}</strong> <span className="text-slate-700">(Father: {c.fatherName || "—"}, Roll: {c.rollNumber || "—"})</span></td>
                                       <td className="border border-black p-1 text-right font-mono">{Number(c.baseAmount || 0).toLocaleString()}</td>
                                       <td className="border border-black p-1 text-right font-mono">{Number(getHeadsAmount(c) || 0).toLocaleString()}</td>

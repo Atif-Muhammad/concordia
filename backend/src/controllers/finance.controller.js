@@ -153,6 +153,33 @@ class FinanceController {
     }
   }
 
+  async getUserContributionReport(req, res, next) {
+    try {
+      const report = await financeService.getUserContributionReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getProfitLossReport(req, res, next) {
+    try {
+      const report = await financeService.getProfitLossReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getAnnualProfitLossReport(req, res, next) {
+    try {
+      const report = await financeService.getAnnualProfitLossReport(req.query);
+      res.json(report);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // Categories & Sub-categories
   async getCategories(req, res, next) {
     try {

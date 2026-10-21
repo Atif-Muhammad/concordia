@@ -358,10 +358,8 @@ const generateMissingAttendancePdfHtml = ({
       <div class="header-container">
         <div class="brand-section">
           <img src="${logoDataUrl}" alt="Concordia Logo" class="brand-logo" />
-          <img src="${beaconhouseLogoUrl}" alt="Beaconhouse Logo" class="beaconhouse-logo" />
           <div class="brand-text">
             <h1>CONCORDIA COLLEGE PESHAWAR</h1>
-            <p>A Project of Beaconhouse</p>
           </div>
         </div>
         <div class="report-meta">

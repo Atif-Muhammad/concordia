@@ -809,7 +809,6 @@ export const generateStudentDocumentReportBodyHtml = ({
           <img src="${logoUrl}" alt="Concordia College Peshawar Logo" />
           <div>
             <h1>Concordia College Peshawar</h1>
-            <div class="tagline">A Project of Beaconhouse Group</div>
           </div>
         </div>
         <div class="report-title-box">

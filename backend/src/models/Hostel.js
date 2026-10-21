@@ -49,6 +49,7 @@ const HostelRegistrationSchema = new mongoose.Schema({
   studentCnic: { type: String, default: '' },
   address: { type: String, default: '' },
   decidedFeePerMonth: { type: Number, required: true },
+  advanceBalance: { type: Number, default: 0 },
   registrationDate: { type: String, default: () => new Date().toISOString().split('T')[0] },
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'HostelRoom' },
   hostelName: { type: String, default: 'Main Hostel' },
@@ -89,6 +90,8 @@ const HostelExpenseSchema = new mongoose.Schema({
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet', default: null },
   walletName: { type: String, default: '' },
   transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'WalletTransaction', default: null },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdByName: { type: String, default: '' },
 }, { timestamps: true });
 
 HostelExpenseSchema.pre('save', function () {

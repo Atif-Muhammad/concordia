@@ -1084,7 +1084,6 @@ export const generateStudentProfileFormBodyHtml = ({
           <img src="${logoUrl}" alt="Concordia College Peshawar Logo" />
           <div class="header-title-block">
             <h1>Concordia College Peshawar</h1>
-            <div class="tagline">A Project of Beaconhouse Group</div>
           </div>
         </div>
         ${photoBoxHtml}

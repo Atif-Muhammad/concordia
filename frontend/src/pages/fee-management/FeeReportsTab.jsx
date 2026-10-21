@@ -698,7 +698,6 @@ export const FeeReportsTab = ({
                 <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
                 <div class="header-title-block">
                   <h1>Concordia College Peshawar</h1>
-                  <div class="tagline">A Project of Beaconhouse</div>
                 </div>
               </div>
               <div class="meta-box">
@@ -1597,8 +1596,8 @@ export const FeeReportsTab = ({
                     />
                     <YAxis
                       tick={{ fontSize: 10 }}
-                      tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
-                      width={45}
+                      tickFormatter={(v) => Number(v).toLocaleString()}
+                      width={70}
                     />
                     <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
                     <Legend
@@ -1652,7 +1651,7 @@ export const FeeReportsTab = ({
                           <XAxis
                             type="number"
                             tick={{ fontSize: 10 }}
-                            tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
+                            tickFormatter={(v) => Number(v).toLocaleString()}
                           />
                           <YAxis
                             dataKey="name"

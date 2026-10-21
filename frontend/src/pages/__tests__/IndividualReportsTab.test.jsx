@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 
 describe("IndividualReportsTab and Print Branding Tests", () => {
-  it("formats print template with Concordia branding logo, Beaconhouse tagline, and calligraphy title", () => {
+  it("formats print template with Concordia branding logo and calligraphy title", () => {
     const logoDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     const printDate = "Oct 13, 2026";
     const studentName = "Muhammad Ali";
@@ -17,7 +17,6 @@ describe("IndividualReportsTab and Print Branding Tests", () => {
           <img src="${logoDataUrl}" class="brand-logo" alt="Concordia College Peshawar Logo" />
           <div class="header-title-block">
             <h1>Concordia College Peshawar</h1>
-            <div class="tagline">A Project of Beaconhouse</div>
           </div>
         </div>
         <div class="meta-box">
@@ -34,7 +33,6 @@ describe("IndividualReportsTab and Print Branding Tests", () => {
     // Verify logo and branding text
     expect(printHtml).toContain(logoDataUrl);
     expect(printHtml).toContain("Concordia College Peshawar");
-    expect(printHtml).toContain("A Project of Beaconhouse");
 
     // Verify calligraphy report title
     expect(printHtml).toContain("center-calligraphy-title");

@@ -62,7 +62,10 @@ export const ChallanDetailsDialog = ({
   const { data: templateData, isLoading: isTemplateLoading } = useQuery({
     queryKey: ["feeChallanTemplate", templateType],
     queryFn: async () => {
-      const t = await getDefaultFeeChallanTemplate(templateType);
+      let t = await getDefaultFeeChallanTemplate(templateType);
+      if (!t?.htmlContent && templateType !== "INSTALLMENT") {
+        t = await getDefaultFeeChallanTemplate("INSTALLMENT");
+      }
       if (t?.htmlContent) setCachedTemplate(templateType, t.htmlContent);
       return t;
     },
@@ -207,9 +210,10 @@ export const ChallanDetailsDialog = ({
 
     try {
       const challanWithRate = { ...currentChallan, lateFeeRatePerDay: currentChallan.lateFeeRatePerDay || lateFeeRatePerDay };
+      const resolvedTpl = templateData?.htmlContent || getCachedTemplate(templateType) || getCachedTemplate("INSTALLMENT");
       const baseHtml = generateChallanHtml(
         challanWithRate,
-        templateData?.htmlContent || getCachedTemplate(templateType),
+        resolvedTpl,
         { feeHeads, feeChallans, classes, programs, academicSessions, lateFeeRatePerDay }
       );
       const finalHtml = applyPaidChallanPrintTreatment(baseHtml, currentChallan, feeChallans);
@@ -278,8 +282,9 @@ export const ChallanDetailsDialog = ({
           )
       ));
 
+  const extraBaseVal = Number(currentChallan.headsAmount || getSelectedHeadsTotal(currentChallan) || currentChallan.amount || 0);
   const grossBill = isExtra
-    ? Math.max(0, (currentChallan.amount || 0) + lateFeeFineVal + extraFineVal)
+    ? Math.max(0, extraBaseVal + arrearsVal + lateFeeFineVal + extraFineVal - Math.abs(discountVal))
     : Math.max(0, baseAmount + headsVal + arrearsVal + extraFineVal + absentiesFineVal + lateFeeFineVal - Math.abs(discountVal));
 
   const totalDue = isSettled
@@ -580,15 +585,15 @@ export const ChallanDetailsDialog = ({
                       </TableRow>
                     )}
 
-                    {/* Arrears Component with Detailed Breakdown (hidden for extra challans) */}
-                    {!isExtra && (() => {
+                    {/* Arrears Component with Detailed Breakdown */}
+                    {(() => {
                       const totalArr = Number(currentChallan.arrearsAmount != null
                         ? currentChallan.arrearsAmount
                         : (currentChallan.snapshotArrearsAmount != null
                             ? currentChallan.snapshotArrearsAmount
                             : (Array.isArray(currentChallan.arrearAllocations) && currentChallan.arrearAllocations.length > 0
                                 ? currentChallan.arrearAllocations.reduce((s, a) => s + (Number(a.amountCarriedForward) || 0), 0)
-                                : getRecursiveArrears(currentChallan)
+                                : (!isExtra ? getRecursiveArrears(currentChallan) : 0)
                               )
                           ));
                       if (totalArr <= 0) return null;
@@ -600,7 +605,7 @@ export const ChallanDetailsDialog = ({
                                 <History className="w-3 h-3" />
                                 Previous Arrears (Total)
                               </div>
-                              <p className="text-[10px] opacity-70">Accumulated from previous unpaid installments</p>
+                              <p className="text-[10px] opacity-70">Accumulated from previous unpaid {isExtra ? 'extra challans' : 'installments'}</p>
                             </TableCell>
                             <TableCell className="text-sm px-3 text-right font-bold py-2">
                               {formatAmount(totalArr)}
@@ -1142,7 +1147,7 @@ export const ChallanDetailsDialog = ({
           </div>
 
           {/* HTML Preview */}
-          {isTemplateLoading && !getCachedTemplate(templateType) ? (
+          {isTemplateLoading && !getCachedTemplate(templateType) && !getCachedTemplate("INSTALLMENT") ? (
             <div className="w-full border rounded-xl p-8 bg-white flex justify-center items-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
@@ -1152,7 +1157,7 @@ export const ChallanDetailsDialog = ({
               dangerouslySetInnerHTML={{
                 __html: generateChallanHtml(
                   { ...currentChallan, lateFeeRatePerDay: currentChallan.lateFeeRatePerDay || lateFeeRatePerDay },
-                  templateData?.htmlContent || getCachedTemplate(templateType),
+                  templateData?.htmlContent || getCachedTemplate(templateType) || getCachedTemplate("INSTALLMENT"),
                   { feeHeads, feeChallans, classes, programs, academicSessions, lateFeeRatePerDay }
                 )
               }}

@@ -183,7 +183,22 @@ export const normalizeChallan = (c) => {
     if (headsAmount === 0 && Number(c.amount || 0) > 0) {
       headsAmount = Number(c.amount || 0);
     }
-    arrearsAmount = 0;
+
+    let dynamicAllocSum = 0;
+    let hasAllocSum = false;
+    if (Array.isArray(c.arrearAllocations) && c.arrearAllocations.length > 0) {
+      hasAllocSum = true;
+      dynamicAllocSum = c.arrearAllocations.reduce((s, a) => {
+        const src = a.sourceChallanId;
+        if (src && typeof src === 'object') {
+          const srcNet = Number(src.netPayable != null ? src.netPayable : (src.totalAmount != null ? src.totalAmount : src.grossAmount || 0));
+          const srcPaid = Number(src.paidAmount || 0);
+          return s + Math.max(0, srcNet - srcPaid);
+        }
+        return s + (Number(a.amountCarriedForward) || 0);
+      }, 0);
+    }
+    arrearsAmount = Number(hasAllocSum ? dynamicAllocSum : (c.arrearsAmount || 0));
   } else {
     basePayable = Number(c.basePayable ?? c.snapshotBaseAmount ?? c.amount ?? 0);
     headsAmount = Number(c.headsAmount ?? getSelectedHeadsTotal(c));
@@ -206,7 +221,7 @@ export const normalizeChallan = (c) => {
 
   const baseGross = basePayable + headsAmount + arrearsAmount;
   const grossAmount = isExtra
-    ? (headsAmount + lateFeeFine)
+    ? (headsAmount + arrearsAmount + lateFeeFine)
     : (lateFeeFine > 0 ? (baseGross + lateFeeFine) : Number(c.grossAmount || baseGross));
 
   const calculatedNet = Math.max(0, grossAmount - discount - advanceApplied);
@@ -1050,22 +1065,36 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     challanCategoryType = 'HOSTEL';
   }
 
-  const templateContent = (typeof manualTemplate === 'string' ? manualTemplate : manualTemplate?.htmlContent) ||
+  let templateContent = (typeof manualTemplate === 'string' ? manualTemplate : manualTemplate?.htmlContent) ||
     (typeof options.template === 'string' ? options.template : options.template?.htmlContent) ||
     (typeof options.defaultChallanTemplate === 'string' ? options.defaultChallanTemplate : options.defaultChallanTemplate?.htmlContent) ||
     (() => {
       const found = challanTemplates.find(t => t.type === challanCategoryType && t.isDefault) ||
                     challanTemplates.find(t => t.type === challanCategoryType) ||
+                    (challanCategoryType !== 'INSTALLMENT' && (
+                      challanTemplates.find(t => t.type === 'INSTALLMENT' && t.isDefault) ||
+                      challanTemplates.find(t => t.type === 'INSTALLMENT')
+                    )) ||
                     challanTemplates.find(t => t.isDefault) ||
                     challanTemplates[0];
       return found?.htmlContent;
     })() ||
-    cachedTemplates[challanCategoryType];
+    cachedTemplates[challanCategoryType] ||
+    (challanCategoryType !== 'INSTALLMENT' ? (cachedTemplates['INSTALLMENT'] || getCachedTemplate('INSTALLMENT')) : null);
 
   if (!templateContent) {
     if (!cachedTemplates[challanCategoryType]) {
       loadAndCacheTemplate(challanCategoryType);
     }
+    if (challanCategoryType !== 'INSTALLMENT') {
+      if (!cachedTemplates['INSTALLMENT']) {
+        loadAndCacheTemplate('INSTALLMENT');
+      }
+      templateContent = cachedTemplates['INSTALLMENT'] || getCachedTemplate('INSTALLMENT');
+    }
+  }
+
+  if (!templateContent) {
     return `
       <div style="padding:40px; text-align:center; border: 2px dashed #94a3b8; border-radius: 12px; background: #f8fafc; color: #64748b;">
         <h3 style="margin-bottom: 8px; font-weight: 600;">No Template Configured</h3>
@@ -1842,9 +1871,22 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     return `<td>${paid > 0 ? paid.toFixed(0) : '0'}</td>`;
   }).join('');
 
-  html = html.replace(/\{\{paymentHistoryMonths\}\}/g, histMonths);
-  html = html.replace(/\{\{paymentHistoryTotals\}\}/g, histTotals);
-  html = html.replace(/\{\{paymentHistoryPaid\}\}/g, histPaid);
+  if (isExtraChallan || options?.excludePaymentHistory) {
+    html = html.replace(/<div[^>]*class=["'][^"']*payment-history-title[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
+    html = html.replace(/<table[^>]*class=["'][^"']*payment-history-table[^"']*["'][^>]*>[\s\S]*?<\/table>/gi, '');
+    html = html.replace(/<table[^>]*>[\s\S]*?\{\{paymentHistoryMonths\}\}[\s\S]*?<\/table>/gi, '');
+    html = html.replace(/<div[^>]*class=["'][^"']*(?:payment-history|paymentHistory|history-section)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
+    html = html.replace(/<tr[^>]*>[\s\S]*?\{\{paymentHistoryMonths\}\}[\s\S]*?<\/tr>/gi, '');
+    html = html.replace(/<tr[^>]*>[\s\S]*?\{\{paymentHistoryTotals\}\}[\s\S]*?<\/tr>/gi, '');
+    html = html.replace(/<tr[^>]*>[\s\S]*?\{\{paymentHistoryPaid\}\}[\s\S]*?<\/tr>/gi, '');
+    html = html.replace(/\{\{paymentHistoryMonths\}\}/g, '');
+    html = html.replace(/\{\{paymentHistoryTotals\}\}/g, '');
+    html = html.replace(/\{\{paymentHistoryPaid\}\}/g, '');
+  } else {
+    html = html.replace(/\{\{paymentHistoryMonths\}\}/g, histMonths);
+    html = html.replace(/\{\{paymentHistoryTotals\}\}/g, histTotals);
+    html = html.replace(/\{\{paymentHistoryPaid\}\}/g, histPaid);
+  }
 
   html = html.replace(/<th([^>]*)>\s*Particulars\s*<\/th>/gi, (match, attrs = "") => {
     const compactStyle = "padding:4px 6px;line-height:1.1;";

@@ -673,7 +673,7 @@ export const AdmissionConversionReportDialog = ({
                   <img src="${logoDataUrl}" class="brand-logo" alt="Logo" />
                   <div class="header-title-block">
                     <h1>Concordia College Peshawar</h1>
-                    <div class="tagline">A Project of Beaconhouse • Admissions &amp; Front Office</div>
+                    <div class="tagline">Admissions &amp; Front Office</div>
                   </div>
                 </div>
                 <div class="meta-box">

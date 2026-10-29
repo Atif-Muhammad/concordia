@@ -1,4 +1,6 @@
 import React, { useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getNewFeeSettings } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -35,6 +37,13 @@ export const StudentAttendanceTab = ({
     academicSessions = [],
 }) => {
     // Active session detection and pre-selection
+    const { data: feeSettings } = useQuery({
+        queryKey: ['newFeeSettings'],
+        queryFn: getNewFeeSettings,
+        staleTime: 5 * 60 * 1000,
+    });
+    const absenteeRate = Number(feeSettings?.absenteeFinePerDay ?? feeSettings?.absenteeFinePerSubject ?? 50);
+
     const activeSession = useMemo(() => {
         return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;
     }, [academicSessions]);
@@ -452,8 +461,8 @@ export const StudentAttendanceTab = ({
                             <Card>
                                 <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Absent Fine (Est.)</p>
-                                    <p className="text-2xl font-bold text-rose-600">PKR {(studentStats.absentCount * 50).toLocaleString()}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">Absentee fine</p>
+                                    <p className="text-2xl font-bold text-rose-600">PKR {(studentStats.absentCount * absenteeRate).toLocaleString()}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">PKR {absenteeRate}/day absent fine</p>
                                 </CardContent>
                             </Card>
                             <Card>

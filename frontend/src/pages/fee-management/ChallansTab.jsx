@@ -1176,12 +1176,20 @@ export const ChallansTab = ({
       }
     };
 
-    addCandidateHeads(challan.challanHeads);
-    addCandidateHeads(challan.selectedHeads);
-    addCandidateHeads(challan.heads);
-    addCandidateHeads(challan.installment?.challanHeads);
-    addCandidateHeads(challan.installment?.heads);
-    addCandidateHeads(challan.installment?.selectedHeads);
+    const candidateSource = (Array.isArray(challan.challanHeads) && challan.challanHeads.length > 0)
+      ? challan.challanHeads
+      : (Array.isArray(challan.heads) && challan.heads.length > 0)
+        ? challan.heads
+        : (Array.isArray(challan.selectedHeads) && challan.selectedHeads.length > 0)
+          ? challan.selectedHeads
+          : (Array.isArray(challan.installment?.challanHeads) && challan.installment.challanHeads.length > 0)
+            ? challan.installment.challanHeads
+            : (Array.isArray(challan.installment?.heads) && challan.installment.heads.length > 0)
+              ? challan.installment.heads
+              : (Array.isArray(challan.installment?.selectedHeads) && challan.installment.selectedHeads.length > 0)
+                ? challan.installment.selectedHeads
+                : [];
+    addCandidateHeads(candidateSource);
 
     if (rawCandidateHeads.length === 0 && Array.isArray(fetchedPlan)) {
       const matchingInst = fetchedPlan.find(inst =>
@@ -1190,9 +1198,14 @@ export const ChallansTab = ({
         (challan.month && inst.month && String(challan.month).trim().toLowerCase() === String(inst.month).trim().toLowerCase())
       );
       if (matchingInst) {
-        addCandidateHeads(matchingInst.challanHeads);
-        addCandidateHeads(matchingInst.heads);
-        addCandidateHeads(matchingInst.selectedHeads);
+        const instSource = (Array.isArray(matchingInst.challanHeads) && matchingInst.challanHeads.length > 0)
+          ? matchingInst.challanHeads
+          : (Array.isArray(matchingInst.heads) && matchingInst.heads.length > 0)
+            ? matchingInst.heads
+            : (Array.isArray(matchingInst.selectedHeads) && matchingInst.selectedHeads.length > 0)
+              ? matchingInst.selectedHeads
+              : [];
+        addCandidateHeads(instSource);
       }
     }
 
@@ -1212,7 +1225,10 @@ export const ChallansTab = ({
       if (catalogMatch) {
         matchedHeadIds.add(extractId(catalogMatch.id || catalogMatch._id));
       } else if (typeof item === 'object' && item.name && item.amount) {
-        customHeadsList.push({ name: item.name, amount: Number(item.amount) || 0 });
+        const isDailyAbsentee = /^Absentee Fine \(\d+ day/i.test(item.name);
+        if (!isDailyAbsentee) {
+          customHeadsList.push({ name: item.name, amount: Number(item.amount) || 0 });
+        }
       }
     });
 
@@ -1252,11 +1268,11 @@ export const ChallansTab = ({
   };
 
   const handleSubmitChallan = () => {
-    if (editingChallan && (
-      ['PAID', 'SETTLED', 'VOID'].includes((editingChallan.status || '').toUpperCase()) ||
-      Boolean(editingChallan.paidDate) ||
-      (Number(editingChallan.paidAmount || 0) > 0 && Number(editingChallan.paidAmount || 0) >= Number(editingChallan.netPayable || editingChallan.totalAmount || 0))
-    )) {
+    const isFullyPaid = editingChallan && (
+      ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((editingChallan.status || '').toUpperCase()) ||
+      (Number(editingChallan.paidAmount || 0) + Number(editingChallan.advanceApplied || 0) >= Number(editingChallan.netPayable || editingChallan.totalAmount || 0) && Number(editingChallan.totalAmount || editingChallan.netPayable || 0) > 0)
+    );
+    if (isFullyPaid) {
       toast({ title: "Challan is locked (PAID or SETTLED) and cannot be modified", variant: "destructive" });
       return;
     }
@@ -1304,17 +1320,48 @@ export const ChallansTab = ({
       });
     }
 
+    // Preserve automated daily absentee fine if not already present
+    const existingAbsenteeHead = (editingChallan?.challanHeads || []).find(h => /^Absentee Fine \(\d+ day/i.test(h.name || ''));
+    if (existingAbsenteeHead && !allFeeHeadDetails.some(h => /^Absentee Fine \(\d+ day/i.test(h.name || ''))) {
+      allFeeHeadDetails.push({
+        name: existingAbsenteeHead.name,
+        amount: Math.round(Number(existingAbsenteeHead.amount) || 0),
+        category: 'custom',
+        type: 'additional',
+        isCustom: true,
+        isSelected: true,
+      });
+    }
+
     const effectiveRate = Number(
       editingChallan?.installment?.lateFeeRatePerDay ??
       editingChallan?.lateFeeRatePerDay ??
       lateFeeRatePerDay ??
       0
     );
-    const computedFine = (challanForm.dueDate && effectiveRate > 0)
+    const hasDirectPayment = Number(editingChallan?.paidAmount || 0) > 0;
+    const existingFine = Math.round(Number(editingChallan?.lateFeeAmount ?? editingChallan?.fineAmount ?? editingChallan?.snapshotLateFee ?? additionalToStore ?? 0));
+    const computedFine = (!hasDirectPayment && challanForm.dueDate && effectiveRate > 0)
       ? calculateLateFee(challanForm.dueDate, effectiveRate)
-      : additionalToStore;
+      : existingFine;
 
     if (editingChallan) {
+      const headsTotal = allFeeHeadDetails.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+      const arrearsVal = Math.round(parseFloat(challanForm.arrearsAmount) || 0);
+      const advApplied = Number(editingChallan?.advanceApplied || 0);
+      const calculatedGross = tuitionToStore + headsTotal + arrearsVal + computedFine;
+      const calculatedNet = Math.max(0, calculatedGross - discountToStore - advApplied);
+      const directPaid = Number(editingChallan?.paidAmount || 0);
+
+      if (directPaid > 0 && calculatedNet < directPaid) {
+        toast({
+          title: "Invalid Amount",
+          description: `Total amount (PKR ${calculatedNet.toLocaleString()}) cannot be less than already paid amount (PKR ${directPaid.toLocaleString()})`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       updateChallanMutation.mutate({
         id: editingChallan.id,
         data: {
@@ -1925,9 +1972,10 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-medium text-red-600 hidden xl:table-cell">
                         {(() => {
+                          const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
                           const isLocked = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
                             Boolean(challan.paidDate) ||
-                            (Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0));
+                            hasDirectPayment;
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??
@@ -1944,6 +1992,9 @@ export const ChallansTab = ({
                               PKR {formatAmount(effectiveFine)}
                               {!isLocked && autoFine > 0 && effectiveFine > existingFine && (
                                 <span className="ml-1 text-[10px] text-red-500 font-normal italic">(Overdue)</span>
+                              )}
+                              {hasDirectPayment && effectiveFine > 0 && (
+                                <span className="ml-1 text-[10px] text-amber-600 font-normal italic">(Frozen)</span>
                               )}
                             </span>
                           );
@@ -1964,9 +2015,10 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="text-xs sm:text-sm px-2 sm:px-3 font-bold bg-slate-50/50 whitespace-nowrap min-w-[105px]">
                         {(() => {
+                          const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
                           const isLocked = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
                             Boolean(challan.paidDate) ||
-                            (Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0));
+                            hasDirectPayment;
                           const existingFine = Number(challan.snapshotLateFee ?? challan.lateFeeAmount ?? challan.lateFeeFine ?? 0);
                           const effectiveRate = Number(
                             challan.installment?.lateFeeRatePerDay ??
@@ -2318,8 +2370,7 @@ export const ChallansTab = ({
 
                               {canUpdate &&
                                 !['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) &&
-                                !challan.paidDate &&
-                                !(Number(challan.paidAmount || 0) > 0 && Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0)) && (
+                                !(Number(challan.paidAmount || 0) + Number(challan.advanceApplied || 0) >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0) && (
                                 <DropdownMenuItem
                                   className="cursor-pointer gap-2"
                                   onClick={() => handleEditChallan(challan)}
@@ -2824,7 +2875,7 @@ export const ChallansTab = ({
                                   {arrearsAmount > 0 ? `+${formatAmount(arrearsAmount)}` : "—"}
                                 </span>
                               </div>
-                              <div className="flex flex-col items-center min-w-0 overflow-hidden" title={`Absent: ${absenteeFine > 0 ? `+${formatAmount(absenteeFine)}` : '0'}`}>
+                              <div className="flex flex-col items-center min-w-0 overflow-hidden" title={`Absent: ${absenteeFine > 0 ? `+${formatAmount(absenteeFine)} (${absenteeCount} ${absenteeCount === 1 ? 'day' : 'days'})` : '0'}`}>
                                 <span className="text-[7px] sm:text-[8.5px] uppercase font-semibold tracking-tighter sm:tracking-wider text-muted-foreground truncate max-w-full text-center">
                                   Absent
                                 </span>
@@ -2935,7 +2986,7 @@ export const ChallansTab = ({
                           {res.challanNumber || '-'}
                           {Number(res.challan?.absenteeFineAmount || 0) > 0 && (
                             <span className="block text-[9px] text-rose-600 font-sans">
-                              incl. PKR {formatAmount(res.challan.absenteeFineAmount)} absent fine ({res.challan.absenteeCount})
+                              incl. PKR {formatAmount(res.challan.absenteeFineAmount)} absent fine ({res.challan.absenteeCount} {res.challan.absenteeCount === 1 ? 'day' : 'days'})
                             </span>
                           )}
                         </TableCell>
@@ -3009,9 +3060,12 @@ export const ChallansTab = ({
                 <Input
                   type="number"
                   value={challanForm.amount}
-                  onChange={(e) => setChallanForm({ ...challanForm, amount: e.target.value })}
-                  className="h-8 text-sm"
+                  disabled
+                  className="bg-muted/50 h-8 text-sm"
                 />
+                <p className="text-[10px] text-muted-foreground">
+                  Locked: Base tuition cannot be updated
+                </p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Discount / Scholarship</Label>
@@ -3118,9 +3172,11 @@ export const ChallansTab = ({
                 lateFeeRatePerDay ??
                 0
               );
-              const lateVal = (challanForm.dueDate && effectiveRate > 0)
+              const hasDirectPayment = Number(editingChallan?.paidAmount || 0) > 0;
+              const existingFine = Math.round(Number(editingChallan?.lateFeeAmount ?? editingChallan?.fineAmount ?? editingChallan?.snapshotLateFee ?? challanForm.fineAmount ?? 0));
+              const lateVal = (!hasDirectPayment && challanForm.dueDate && effectiveRate > 0)
                 ? calculateLateFee(challanForm.dueDate, effectiveRate)
-                : Math.round(Number(challanForm.fineAmount) || 0);
+                : existingFine;
               const advApplied = Number(editingChallan?.advanceApplied || 0);
               const grossVal = baseVal + headsTotal + arrearsVal + lateVal;
               const netVal = Math.max(0, grossVal - discVal - advApplied);
@@ -3145,9 +3201,14 @@ export const ChallansTab = ({
                   )}
                   {lateVal > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Late Fee Fine (Overdue):</span>
+                      <span>Late Fee Fine {hasDirectPayment ? "(Frozen)" : "(Overdue)"}:</span>
                       <span className="font-medium text-rose-600">+PKR {lateVal.toLocaleString()}</span>
                     </div>
+                  )}
+                  {hasDirectPayment && lateVal > 0 && (
+                    <p className="text-[10px] text-amber-600 italic">
+                      Late fee increment stopped due to received payment
+                    </p>
                   )}
                   {discVal > 0 && (
                     <div className="flex justify-between text-muted-foreground">

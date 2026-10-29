@@ -635,7 +635,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                                     <TooltipContent>Record Payment</TooltipContent>
                                   </Tooltip>
                                 )}
-                                {c.status !== 'PAID' && c.status !== 'SUPERSEDED' && c.status !== 'SETTLED' && !isSettled && canUpdate && (
+                                {c.status !== 'PAID' && c.status !== 'SUPERSEDED' && c.status !== 'SETTLED' && !isSettled && !(totalSettledOrPaid >= total && total > 0) && canUpdate && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button
@@ -1744,10 +1744,14 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
             const arrears = Number(editHostelChallanForm.arrearsAmount || editingHostelChallan.arrearsAmount || 0);
             const discount = Number(editHostelChallanForm.discount || 0);
             const fine = Number(editingHostelChallan.fineAmount || 0);
-            const newLateFee = editHostelChallanForm.dueDate ? calculateHostelLateFee(editHostelChallanForm.dueDate, hostelLateFee) : (editingHostelChallan.lateFeeFine || 0);
+            const paid = Number(editingHostelChallan.paidAmount || 0);
+            const hasDirectPayment = paid > 0;
+            const existingLateFee = Number(editingHostelChallan.lateFeeFine || 0);
+            const newLateFee = hasDirectPayment
+              ? existingLateFee
+              : (editHostelChallanForm.dueDate ? calculateHostelLateFee(editHostelChallanForm.dueDate, hostelLateFee) : existingLateFee);
 
             const computedTotal = Math.max(0, baseFee + editHeadsTotal + arrears + fine + newLateFee - discount);
-            const paid = Number(editingHostelChallan.paidAmount || 0);
             const balance = Math.max(0, computedTotal - paid);
 
             return (
@@ -1821,9 +1825,14 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                   )}
                   {newLateFee > 0 && (
                     <div className="flex justify-between text-amber-600 font-medium">
-                      <span>Late Fee (Overdue):</span>
+                      <span>Late Fee {hasDirectPayment ? "(Frozen)" : "(Overdue)"}:</span>
                       <span>+ PKR {newLateFee.toLocaleString()}</span>
                     </div>
+                  )}
+                  {hasDirectPayment && newLateFee > 0 && (
+                    <p className="text-[10px] text-amber-600 italic">
+                      Late fee increment stopped due to received payment
+                    </p>
                   )}
                   <div className="border-t pt-1 flex justify-between font-bold text-sm text-foreground">
                     <span>Total Amount:</span>
@@ -1879,10 +1888,16 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                         type="number"
                         min={0}
                         placeholder="0"
-                        className="h-8 text-xs mt-1"
+                        disabled={paid > 0}
+                        className={`h-8 text-xs mt-1 ${paid > 0 ? "bg-muted/50 cursor-not-allowed" : ""}`}
                         value={editHostelChallanForm.discount}
                         onChange={(e) => setEditHostelChallanForm((f) => ({ ...f, discount: e.target.value }))}
                       />
+                      {paid > 0 && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Locked: Payment has already been received
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1958,6 +1973,23 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                     disabled={updateChallanMutation.isPending}
                     onClick={() => {
                       const challanId = editingHostelChallan.id || editingHostelChallan._id;
+                      if (paid > 0 && computedTotal < paid) {
+                        toast({
+                          title: "Invalid Amount",
+                          description: `Total amount (PKR ${computedTotal.toLocaleString()}) cannot be less than already paid amount (PKR ${paid.toLocaleString()})`,
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      if (paid > 0 && editHostelChallanForm.discount !== "" && Number(editHostelChallanForm.discount) !== Number(editingHostelChallan.discount || 0)) {
+                        toast({
+                          title: "Cannot Modify Discount",
+                          description: "Discount cannot be modified on a challan that has already received payment",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
                       const validHeadsToSave = (editHostelChallanForm.heads || [])
                         .filter((h) => h.headName && h.amount)
                         .map((h) => ({ headName: h.headName, amount: Number(h.amount) }));
@@ -1967,7 +1999,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
                         remarks: editHostelChallanForm.remarks || undefined,
                         hostelFee: editHostelChallanForm.hostelFee !== "" ? Number(editHostelChallanForm.hostelFee) : undefined,
                         arrearsAmount: editHostelChallanForm.arrearsAmount !== "" ? Number(editHostelChallanForm.arrearsAmount) : undefined,
-                        ...(newLateFee > 0 ? { lateFeeFine: newLateFee } : {}),
+                        lateFeeFine: newLateFee,
                         heads: validHeadsToSave,
                       };
 

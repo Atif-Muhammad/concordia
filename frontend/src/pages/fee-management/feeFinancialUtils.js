@@ -141,9 +141,10 @@ export const normalizeChallan = (c) => {
   let basePayable = 0;
   let headsAmount = 0;
   let arrearsAmount = 0;
+  const hasDirectPayment = Number(c.paidAmount || 0) > 0;
   const isSettledOrVoid = ['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes((c.status || '').toUpperCase()) ||
     Boolean(c.paidDate) ||
-    (Number(c.paidAmount || 0) > 0 && Number(c.paidAmount || 0) >= Number(c.netPayable || c.totalAmount || 0));
+    hasDirectPayment;
   const existingFine = Number(c.lateFeeAmount ?? c.snapshotLateFee ?? c.lateFeeFine ?? c.fineAmount ?? 0);
   const rateCandidate = Number(c.lateFeeRatePerDay || inst.lateFeeRatePerDay || 0);
   const autoFine = (!isSettledOrVoid && c.dueDate && rateCandidate > 0)

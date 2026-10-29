@@ -266,6 +266,7 @@ export const calculateHostelLateFee = (dueDate, hostelLateFee = 0) => {
 export const getEffectiveLateFee = (challan, hostelLateFee = 0) => {
   if ((challan.lateFeeFine || 0) > 0) return challan.lateFeeFine;
   if (challan.status === 'PAID' || challan.status === 'VOID') return 0;
+  if (toHostelAmount(challan.paidAmount) > 0) return toHostelAmount(challan.lateFeeFine);
   return calculateHostelLateFee(challan.dueDate, hostelLateFee);
 };
 

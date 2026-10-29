@@ -1529,11 +1529,28 @@ class HostelService {
     const challan = await HostelChallan.findById(id);
     if (!challan) throw new Error('Challan not found');
 
+    const currentPaid = Number(challan.paidAmount || 0);
+    const isLocked = ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
+      (currentPaid + Number(challan.advanceApplied || 0) >= Number(challan.totalAmount || 0) && Number(challan.totalAmount || 0) > 0);
+    if (isLocked) {
+      throw new Error('Challan is locked (PAID, SETTLED, or SUPERSEDED) and cannot be updated');
+    }
+
     const payload = data || {};
+
+    if (currentPaid > 0 && payload.discount !== undefined && Number(payload.discount) !== Number(challan.discount || 0)) {
+      throw new Error('Cannot add or modify discount on a challan that has already received direct payment');
+    }
+
     if (payload.dueDate) challan.dueDate = payload.dueDate;
     if (payload.remarks !== undefined) challan.remarks = payload.remarks;
     if (payload.fineAmount !== undefined) challan.fineAmount = Number(payload.fineAmount);
-    if (payload.lateFeeFine !== undefined) challan.lateFeeFine = Number(payload.lateFeeFine);
+    // Stop incrementing late fee fine when partial paid (direct)
+    if (currentPaid > 0) {
+      challan.lateFeeFine = Number(challan.lateFeeFine || 0);
+    } else if (payload.lateFeeFine !== undefined) {
+      challan.lateFeeFine = Number(payload.lateFeeFine);
+    }
     if (payload.arrearsAmount !== undefined) challan.arrearsAmount = Number(payload.arrearsAmount);
     if (payload.discount !== undefined) challan.discount = Number(payload.discount);
     if (payload.hostelFee !== undefined) challan.hostelFee = Number(payload.hostelFee);
@@ -1546,6 +1563,11 @@ class HostelService {
     const baseAmount = (challan.hostelFee || 0) + headsTotal;
     const grossAmount = baseAmount + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) + (challan.arrearsAmount || 0) - (challan.discount || 0);
     const netAmount = Math.max(0, grossAmount - (challan.advanceApplied || 0));
+
+    if (currentPaid > 0 && netAmount < currentPaid) {
+      throw new Error(`Total amount (PKR ${netAmount}) cannot be less than already paid amount (PKR ${currentPaid})`);
+    }
+
     challan.amount = netAmount;
     challan.totalAmount = netAmount;
 

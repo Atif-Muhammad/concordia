@@ -516,6 +516,30 @@ export const ExtraChallansTab = ({
     ];
 
     const totalAmount = extraHeadsPayload.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+    const paid = Number(editingChallan.paidAmount || 0);
+    const hasDirectPayment = paid > 0;
+    const existingLateFee = Number(editingChallan.lateFeeFine || 0);
+    const autoLateFee = hasDirectPayment ? existingLateFee : calculateLateFee(editForm.dueDate, extraChallanLateFee);
+    const disc = Math.max(0, parseFloat(editForm.discount) || 0);
+    const netDue = Math.max(0, totalAmount + autoLateFee - disc);
+
+    if (paid > 0 && netDue < paid) {
+      toast({
+        title: "Invalid Amount",
+        description: `Total amount (PKR ${netDue.toLocaleString()}) cannot be less than already paid amount (PKR ${paid.toLocaleString()})`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (paid > 0 && disc !== Math.max(0, parseFloat(editingChallan.discount) || 0)) {
+      toast({
+        title: "Cannot Modify Discount",
+        description: "Discount cannot be modified on a challan that has already received payment",
+        variant: "destructive",
+      });
+      return;
+    }
 
     updateExtraChallanMutation.mutate({
       id: editingChallan._id || editingChallan.id,
@@ -524,7 +548,8 @@ export const ExtraChallansTab = ({
         remarks: editForm.remarks,
         heads: extraHeadsPayload,
         amount: totalAmount,
-        discount: Math.max(0, parseFloat(editForm.discount) || 0),
+        discount: disc,
+        lateFeeFine: autoLateFee,
       },
     });
   };
@@ -665,7 +690,8 @@ export const ExtraChallansTab = ({
                     </TableCell>
                     <TableCell className="hidden xl:table-cell text-sm px-3 py-2 font-medium text-red-600">
                       {(() => {
-                        const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+                        const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
+                        const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status) || hasDirectPayment;
                         const existingFine = Number(challan.lateFeeFine || 0);
                         const autoFine = (!isSettledOrVoid && challan.dueDate)
                           ? calculateLateFee(challan.dueDate, extraChallanLateFee)
@@ -674,8 +700,11 @@ export const ExtraChallansTab = ({
                         return (
                           <span>
                             PKR {formatAmount(effectiveFine)}
-                            {autoFine > 0 && existingFine === 0 && (
+                            {!isSettledOrVoid && autoFine > 0 && effectiveFine > existingFine && (
                               <span className="ml-1 text-[10px] text-red-500 font-normal italic">(Overdue)</span>
+                            )}
+                            {hasDirectPayment && effectiveFine > 0 && (
+                              <span className="ml-1 text-[10px] text-amber-600 font-normal italic">(Frozen)</span>
                             )}
                           </span>
                         );
@@ -684,7 +713,8 @@ export const ExtraChallansTab = ({
                     <TableCell className="hidden xl:table-cell text-sm px-3 py-2 font-medium text-green-600">PKR {formatAmount(challan.discount || 0)}</TableCell>
                     <TableCell className="text-xs sm:text-sm px-3 py-2 font-bold font-mono text-right bg-slate-50 sm:bg-transparent">
                       {(() => {
-                        const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status);
+                        const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
+                        const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status) || hasDirectPayment;
                         const existingFine = Number(challan.lateFeeFine || 0);
                         const autoFine = (!isSettledOrVoid && challan.dueDate)
                           ? calculateLateFee(challan.dueDate, extraChallanLateFee)
@@ -753,7 +783,7 @@ export const ExtraChallansTab = ({
                             <TooltipContent>Record Payment</TooltipContent>
                           </Tooltip>
                         )}
-                        {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED" && challan.status !== "SUPERSEDED") ? (
+                        {canUpdate && ((challan.status !== "PAID" && challan.status !== "SETTLED" && challan.status !== "SUPERSEDED" && !(Number(challan.paidAmount || 0) >= Number(challan.totalAmount || 0) && Number(challan.totalAmount || 0) > 0)) ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button size="sm" variant="ghost" onClick={(e) => {
@@ -773,7 +803,7 @@ export const ExtraChallansTab = ({
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {challan.status === "PAID" ? "Paid challans cannot be edited" : (challan.status === "SUPERSEDED" ? "Superseded challans cannot be edited" : "Fully settled challans cannot be edited")}
+                              {challan.status === "PAID" || (Number(challan.paidAmount || 0) >= Number(challan.totalAmount || 0) && Number(challan.totalAmount || 0) > 0) ? "Paid challans cannot be edited" : (challan.status === "SUPERSEDED" ? "Superseded challans cannot be edited" : "Fully settled challans cannot be edited")}
                             </TooltipContent>
                           </Tooltip>
                         ))}
@@ -1651,9 +1681,15 @@ export const ExtraChallansTab = ({
                     min="0"
                     placeholder="0"
                     value={editForm.discount}
+                    disabled={Number(editingChallan?.paidAmount || 0) > 0}
                     onChange={(e) => setEditForm({ ...editForm, discount: e.target.value })}
-                    className="h-8 text-xs font-medium"
+                    className={`h-8 text-xs font-medium ${Number(editingChallan?.paidAmount || 0) > 0 ? "bg-muted/50 cursor-not-allowed" : ""}`}
                   />
+                  {Number(editingChallan?.paidAmount || 0) > 0 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Locked: Payment has already been received
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
@@ -1674,9 +1710,13 @@ export const ExtraChallansTab = ({
                   .reduce((s, h) => s + (Number(h.amount) || 0), 0);
                 const cstCharges = editForm.customHeads.reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
                 const total = stdCharges + cstCharges;
-                const autoLateFee = calculateLateFee(editForm.dueDate, extraChallanLateFee);
+                const paid = Number(editingChallan?.paidAmount || 0);
+                const hasDirectPayment = paid > 0;
+                const existingLateFee = Number(editingChallan?.lateFeeFine || 0);
+                const autoLateFee = hasDirectPayment ? existingLateFee : calculateLateFee(editForm.dueDate, extraChallanLateFee);
                 const disc = Math.max(0, parseFloat(editForm.discount) || 0);
                 const netDue = Math.max(0, total + autoLateFee - disc);
+                const balance = Math.max(0, netDue - paid);
 
                 return (
                   <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 mt-2">
@@ -1690,12 +1730,27 @@ export const ExtraChallansTab = ({
                     )}
                     {autoLateFee > 0 && (
                       <div className="flex justify-between text-xs text-red-600 font-medium">
-                        <span>Late Fee Fine:</span><span>+ PKR {autoLateFee.toLocaleString()}</span>
+                        <span>Late Fee Fine {hasDirectPayment ? "(Frozen)" : ""}:</span><span>+ PKR {autoLateFee.toLocaleString()}</span>
                       </div>
+                    )}
+                    {hasDirectPayment && autoLateFee > 0 && (
+                      <p className="text-[10px] text-amber-600 italic">
+                        Late fee increment stopped due to received payment
+                      </p>
                     )}
                     <div className="flex justify-between font-bold border-t border-orange-300 mt-1 pt-1 text-orange-800">
                       <span>Total Due:</span><span>PKR {netDue.toLocaleString()}</span>
                     </div>
+                    {paid > 0 && (
+                      <>
+                        <div className="flex justify-between text-xs text-green-700 font-medium mt-1">
+                          <span>Paid Amount:</span><span>PKR {paid.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-xs text-orange-950 mt-0.5">
+                          <span>Remaining Balance:</span><span>PKR {balance.toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })()}

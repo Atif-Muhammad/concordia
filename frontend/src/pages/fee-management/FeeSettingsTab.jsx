@@ -21,6 +21,7 @@ export const FeeSettingsTab = ({
   // Form State
   const [lateFeeRatePerDay, setLateFeeRatePerDay] = useState(0);
   const [extraChallanLateFee, setExtraChallanLateFee] = useState(0);
+  const [absenteeFinePerDay, setAbsenteeFinePerDay] = useState(50);
 
   const { data: newFeeSettings, isLoading } = useQuery({
     queryKey: ['newFeeSettings'],
@@ -41,6 +42,12 @@ export const FeeSettingsTab = ({
 
       if (s.extraChallanLateFee !== undefined) {
         setExtraChallanLateFee(Number(s.extraChallanLateFee) || 0);
+      }
+
+      if (s.absenteeFinePerDay !== undefined) {
+        setAbsenteeFinePerDay(Number(s.absenteeFinePerDay) || 0);
+      } else if (s.absenteeFinePerSubject !== undefined) {
+        setAbsenteeFinePerDay(Number(s.absenteeFinePerSubject) || 0);
       }
     }
   }, [newFeeSettings, propFeeSettings, instituteSettings]);
@@ -71,6 +78,7 @@ export const FeeSettingsTab = ({
     updateNewFeeSettingsMutation.mutate({
       lateFeeRatePerDay: Number(lateFeeRatePerDay) || 0,
       extraChallanLateFee: Number(extraChallanLateFee) || 0,
+      absenteeFinePerDay: Number(absenteeFinePerDay) || 0,
     });
   };
 
@@ -177,6 +185,31 @@ export const FeeSettingsTab = ({
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 Charged per overdue day on non-tuition extra challans (Prospectus, Lab charges, Allied dues). Dynamically reflected in the Extra Challans table and payment dialogue.
+              </p>
+            </div>
+
+            <div className="space-y-1.5 pt-3 border-t">
+              <Label htmlFor="absenteeFinePerDay" className="text-xs font-semibold text-foreground">
+                Student Absentee Fine Rate (PKR / Day)
+              </Label>
+              <div className="flex gap-2 items-center">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-2 text-xs font-medium text-muted-foreground">PKR</span>
+                  <Input
+                    id="absenteeFinePerDay"
+                    type="number"
+                    min="0"
+                    step="1"
+                    className="pl-11 h-9 text-xs font-medium"
+                    value={absenteeFinePerDay}
+                    onChange={(e) => setAbsenteeFinePerDay(parseFloat(e.target.value) || 0)}
+                    placeholder="e.g. 50"
+                    disabled={!canUpdate || isSaving}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Charged per absent day recorded in student day-wise attendance for the prior month. Automatically added as an absentee fine line item during monthly challan generation.
               </p>
             </div>
 

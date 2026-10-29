@@ -265,6 +265,7 @@ FeePaymentReceiptSchema.set('toObject', { virtuals: true });
 const FeeSettingsSchema = new mongoose.Schema({
   lateFeeRatePerDay: { type: Number, default: 0 },
   lateFeeFinePerDay: { type: Number, default: 0 },
+  absenteeFinePerDay: { type: Number, default: 50 },
   absenteeFinePerSubject: { type: Number, default: 50 },
   extraChallanLateFee: { type: Number, default: 0 },
   challanPrefix: { type: String, default: 'CH-' },

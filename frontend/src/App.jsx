@@ -253,6 +253,8 @@ function App() {
               />
               {/* Teacher profile redirect to dashboard */}
               <Route path="/teacher/profile" element={<Navigate to="/teacher/dashboard" replace />} />
+              {/* Teacher student attendance redirect to dashboard (attendance managed centrally) */}
+              <Route path="/teacher/attendance" element={<Navigate to="/teacher/dashboard" replace />} />
               {/* Legacy /boarding URL redirect to /hostel */}
               <Route path="/boarding" element={<Navigate to="/hostel" replace />} />
               <Route path="/boarding/*" element={<Navigate to="/hostel" replace />} />

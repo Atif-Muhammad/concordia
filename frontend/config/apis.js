@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "https://beams.hayatfoundation.org.pk/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "https://beams.hayatfoundation.org.pk/api";
 
 // Attach token as fallback header in case cookies are blocked
 axios.interceptors.request.use((config) => {
@@ -770,9 +770,18 @@ export const getTeacherClasses = async (teacherId) => {
   }
 };
 
-export const fetchStudentAttendance = async (classId, sectionId, subjectId, date, sessionId) => {
+export const fetchStudentAttendance = async (classId, sectionId, subjectIdOrDate, dateOrSessionId, sessionId) => {
   try {
-    let url = `${base_url}/attendance/student/fetch?classId=${classId}&sectionId=${sectionId || ''}&subjectId=${subjectId}&date=${date}`;
+    let effectiveDate = dateOrSessionId;
+    let effectiveSession = sessionId;
+    let effectiveSubject = subjectIdOrDate;
+    if (typeof subjectIdOrDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(subjectIdOrDate)) {
+      effectiveDate = subjectIdOrDate;
+      effectiveSession = dateOrSessionId;
+      effectiveSubject = undefined;
+    }
+    let url = `${base_url}/attendance/student/fetch?classId=${classId}&sectionId=${sectionId || ''}&date=${effectiveDate}`;
+    if (effectiveSubject) url += `&subjectId=${effectiveSubject}`;
     if (sessionId) url += `&sessionId=${sessionId}`;
     const response = await axios.get(url, { withCredentials: true });
     return response.data;
@@ -809,7 +818,7 @@ export const updateStudentAttendance = async (data) => {
 export const deleteStudentAttendanceRecord = async ({ studentId, classId, sectionId, subjectId, date, attendanceId }) => {
   try {
     const response = await axios.delete(`${base_url}/attendance/student/record`, {
-      params: { studentId, classId, sectionId, subjectId, date, attendanceId },
+      params: { studentId, classId, sectionId, ...(subjectId ? { subjectId } : {}), date, attendanceId },
       withCredentials: true,
     });
     return response.data;
@@ -2001,7 +2010,7 @@ export const updateAttendance = async (classId, sectionId, subjectId, date, payl
     const params = new URLSearchParams({ classId, date });
 
     if (sectionId) params.append("sectionId", sectionId);
-    if (subjectId) params.append("subjectId", subjectId);
+    if (subjectId && subjectId !== "*" && subjectId !== "all") params.append("subjectId", subjectId);
 
     const { data } = await axios.patch(
       `${base_url}/teacher/update/class/students/attendance?${params.toString()}`,
@@ -5657,7 +5666,7 @@ export const generateStudentAttendance = async (classId, sectionId, subjectId, d
     const params = new URLSearchParams({ attenFor: "student", date });
     if (classId) params.append("classId", classId);
     if (sectionId && sectionId !== "*") params.append("sectionId", sectionId);
-    if (subjectId) params.append("subjectId", subjectId);
+    if (subjectId && subjectId !== "*" && subjectId !== "all") params.append("subjectId", subjectId);
     if (sessionId) params.append("sessionId", sessionId);
     const response = await axios.post(
       `${base_url}/attendance/generate?${params.toString()}`,

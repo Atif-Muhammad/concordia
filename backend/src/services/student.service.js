@@ -1013,19 +1013,26 @@ class StudentService {
       .populate('sectionId')
       .populate('subjectId')
       .populate('sessionId')
-      .sort({ date: -1 });
+      .sort({ date: 1 });
 
-    return records.map(r => {
-      const obj = r.toObject ? r.toObject() : { ...r };
-      return {
-        ...obj,
-        id: (r._id || r.id)?.toString(),
-        class: r.classId,
-        section: r.sectionId,
-        subject: r.subjectId,
-        session: r.sessionId,
-      };
-    });
+    const seenDates = new Set();
+    const deduplicated = [];
+    for (const r of records) {
+      const dKey = (r.date || '').slice(0, 10);
+      if (!seenDates.has(dKey)) {
+        seenDates.add(dKey);
+        const obj = r.toObject ? r.toObject() : { ...r };
+        deduplicated.push({
+          ...obj,
+          id: (r._id || r.id)?.toString(),
+          class: r.classId,
+          section: r.sectionId,
+          subject: r.subjectId,
+          session: r.sessionId,
+        });
+      }
+    }
+    return deduplicated;
   }
 
   async getResults(studentId) {

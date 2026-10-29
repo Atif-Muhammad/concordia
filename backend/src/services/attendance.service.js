@@ -71,7 +71,6 @@ class AttendanceService {
       date,
       role: 'STUDENT',
       ...(allowSections && sectionId && sectionId !== '*' && sectionId !== 'all' ? { sectionId } : {}),
-      ...(subjectId ? { subjectId } : {}),
       ...(effectiveSessionId ? {
         $or: [
           { sessionId: effectiveSessionId },
@@ -171,7 +170,7 @@ class AttendanceService {
   }
 
   async updateStudentAttendance(data, user) {
-    const { rows, students, date, classId, sectionId, subjectId, sessionId, teacherId, userId, staffId } = data;
+    const { rows, students, date, classId, sectionId, sessionId, teacherId, userId, staffId } = data;
     const studentList = students || rows || [];
 
     let classDoc = null;
@@ -193,7 +192,6 @@ class AttendanceService {
         classId,
         role: 'STUDENT',
         ...(effectiveSectionId ? { sectionId: effectiveSectionId } : { sectionId: null }),
-        ...(subjectId ? { subjectId } : {}),
         ...(sessionId ? { sessionId } : {})
       };
       return Attendance.findOneAndUpdate(
@@ -221,8 +219,8 @@ class AttendanceService {
       studentId,
       classId,
       date,
-      ...(sectionId ? { sectionId } : {}),
-      ...(subjectId ? { subjectId } : {})
+      role: 'STUDENT',
+      ...(sectionId ? { sectionId } : {})
     });
   }
 
@@ -871,37 +869,7 @@ class AttendanceService {
 
     if (!students || students.length === 0) return [];
 
-    const studentIds = students.map(s => s._id);
-
     const classIds = [...new Set(students.map(s => String(s.classId?._id || s.classId?.id || s.classId || '')).filter(Boolean))];
-
-    // Build classId -> map of subjects (keyed by subjectId) using academicsService
-    const classSubjectsMap = new Map();
-    for (const cId of classIds) {
-      const subMap = new Map();
-      try {
-        const sessionParam = studentId ? null : (effectiveSessionId || null);
-        const secParam = sectionId && sectionId !== '*' && sectionId !== 'all' ? sectionId : undefined;
-        let subList = await academicsService.getSubjectsForClassWithAssignments(cId, sessionParam, secParam);
-        if (!subList || subList.length === 0) {
-          subList = await academicsService.getSubjectsForClassWithAssignments(cId, null, null);
-        }
-        (subList || []).forEach(sub => {
-          const sId = String(sub.id || sub._id || sub.subjectId || '');
-          const sName = sub.name || sub.code || '';
-          if (sId && sName && sName.toLowerCase() !== 'general') {
-            subMap.set(sId, {
-              subjectId: sId,
-              subjectName: sName,
-              code: sub.code || ''
-            });
-          }
-        });
-      } catch (err) {
-        console.error('Error fetching subjects for class:', cId, err);
-      }
-      classSubjectsMap.set(cId, subMap);
-    }
 
     const holidays = await Holiday.find({
       $or: [
@@ -937,11 +905,10 @@ class AttendanceService {
 
     const attFilter = {
       studentId: { $in: allStudentIds },
-      date: { $gte: start, $lte: end }
+      date: { $gte: start, $lte: end },
+      role: 'STUDENT'
     };
 
-    // When querying an individual student, do NOT restrict by session (all attendance belongs to this student).
-    // For class reports, allow matching sessionId OR records where sessionId was omitted (null / undefined).
     if (!studentId && effectiveSessionId) {
       attFilter.$or = [
         { sessionId: effectiveSessionId },
@@ -950,111 +917,94 @@ class AttendanceService {
       ];
     }
 
-    const attendanceRecords = await Attendance.find(attFilter).populate('subjectId', '_id name code');
+    const attendanceRecords = await Attendance.find(attFilter).sort({ date: 1 });
 
-    const recordMap = new Map();
+    const studentRecordsMap = new Map();
     attendanceRecords.forEach(r => {
       const sId = String(r.studentId);
-      if (!recordMap.has(sId)) recordMap.set(sId, new Map());
-      const subMap = recordMap.get(sId);
-      const subId = r.subjectId?._id ? String(r.subjectId._id) : (r.subjectId ? String(r.subjectId) : null);
-      const subName = r.subjectId?.name || r.subjectId?.code || null;
-
-      const key = subId || 'unassigned';
-      if (!subMap.has(key)) {
-        subMap.set(key, {
-          subjectId: subId || 'unassigned',
-          subjectName: subName || '',
-          attendance: []
+      if (!studentRecordsMap.has(sId)) studentRecordsMap.set(sId, new Map());
+      const dMap = studentRecordsMap.get(sId);
+      const dKey = (r.date || '').slice(0, 10);
+      if (!dKey) return;
+      if (!dMap.has(dKey)) {
+        dMap.set(dKey, {
+          date: dKey,
+          status: String(r.status || 'present').toLowerCase(),
+          notes: r.notes || ''
         });
+      } else {
+        const currSt = String(r.status || '').toLowerCase();
+        if (['present', 'late', 'leave', 'half_day', 'hd'].includes(currSt)) {
+          dMap.set(dKey, {
+            date: dKey,
+            status: currSt,
+            notes: r.notes || dMap.get(dKey).notes || ''
+          });
+        }
       }
-      subMap.get(key).attendance.push({
-        date: r.date,
-        status: String(r.status || 'present').toLowerCase(),
-        notes: r.notes || ''
-      });
     });
 
     return students.map(s => {
       const sId = String(s._id || s.id);
       const cIdStr = String(s.classId?._id || s.classId?.id || s.classId || '');
-      const classMappedSubs = classSubjectsMap.get(cIdStr) || new Map();
-      const recordedSubMap = recordMap.get(sId) || new Map();
+      const dMap = studentRecordsMap.get(sId) || new Map();
 
-      const finalSubjectsMap = new Map();
-      classMappedSubs.forEach((subInfo, subId) => {
-        finalSubjectsMap.set(subId, {
-          subjectId: subId,
-          subjectName: subInfo.subjectName,
-          code: subInfo.code,
-          attendance: []
-        });
-      });
-
-      recordedSubMap.forEach((recEntry, subKey) => {
-        if (finalSubjectsMap.has(subKey)) {
-          finalSubjectsMap.get(subKey).attendance = recEntry.attendance;
-        } else if (subKey !== 'unassigned') {
-          finalSubjectsMap.set(subKey, {
-            subjectId: subKey,
-            subjectName: recEntry.subjectName || 'Subject',
-            attendance: recEntry.attendance
-          });
+      holidayDateMap.forEach((holidayTitle, dKey) => {
+        let isHolidayForThisClass = false;
+        let dateStr = dKey;
+        if (dKey.includes('_')) {
+          const [skipClassId, sDate] = dKey.split('_');
+          if (skipClassId === cIdStr) {
+            isHolidayForThisClass = true;
+            dateStr = sDate;
+          }
         } else {
-          if (finalSubjectsMap.size === 0) {
-            const classDisplayName = s.classId?.name ? `${s.classId.name} Attendance` : 'Class Attendance';
-            finalSubjectsMap.set('class_attendance', {
-              subjectId: 'class_attendance',
-              subjectName: classDisplayName,
-              attendance: recEntry.attendance
-            });
-          } else {
-            // Merge general / class attendance date-by-date into all subjects where subject-specific attendance was not logged
-            finalSubjectsMap.forEach(sub => {
-              recEntry.attendance.forEach(attItem => {
-                const alreadyExists = sub.attendance.some(existing => existing.date === attItem.date);
-                if (!alreadyExists) {
-                  sub.attendance.push({ ...attItem });
-                }
-              });
+          isHolidayForThisClass = true;
+        }
+
+        if (isHolidayForThisClass && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && dateStr >= start && dateStr <= end) {
+          if (!dMap.has(dateStr)) {
+            dMap.set(dateStr, {
+              date: dateStr,
+              status: 'holiday',
+              notes: holidayTitle
             });
           }
         }
       });
 
-      // Sort attendance entries by date for consistent display
-      finalSubjectsMap.forEach(sub => {
-        sub.attendance.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      const studentDailyAttendance = Array.from(dMap.values()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+      let presentCount = 0;
+      let absentCount = 0;
+      let leaveCount = 0;
+      let lateCount = 0;
+      let holidayCount = 0;
+
+      studentDailyAttendance.forEach(a => {
+        const st = String(a.status || '').toLowerCase();
+        if (st === 'present') presentCount++;
+        else if (st === 'absent') absentCount++;
+        else if (st === 'leave' || st === 'short_leave') leaveCount++;
+        else if (st === 'late' || st === 'half_day' || st === 'hd') {
+          lateCount++;
+          presentCount++;
+        } else if (st === 'holiday') holidayCount++;
       });
 
-      if (finalSubjectsMap.size === 0) {
-        const classDisplayName = s.classId?.name ? `${s.classId.name} Attendance` : 'Class Attendance';
-        finalSubjectsMap.set('class_attendance', {
-          subjectId: 'class_attendance',
-          subjectName: classDisplayName,
-          attendance: []
-        });
-      }
+      const effectiveDays = presentCount + absentCount + leaveCount;
+      const totalDays = effectiveDays;
+      const attendanceRate = effectiveDays > 0 ? Number(((presentCount / effectiveDays) * 100).toFixed(1)) : 0;
 
-      holidayDateMap.forEach((holidayTitle, dKey) => {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dKey) && dKey >= start && dKey <= end) {
-          finalSubjectsMap.forEach(subObj => {
-            const existing = subObj.attendance.find(a => a.date === dKey);
-            if (!existing) {
-              subObj.attendance.push({
-                date: dKey,
-                status: 'holiday',
-                notes: holidayTitle
-              });
-            } else if (!existing.status || existing.status === 'not_marked') {
-              existing.status = 'holiday';
-              existing.notes = holidayTitle;
-            }
-          });
-        }
-      });
-
-      const subjects = Array.from(finalSubjectsMap.values());
+      const stats = {
+        totalDays,
+        present: presentCount,
+        absent: absentCount,
+        leave: leaveCount,
+        late: lateCount,
+        holiday: holidayCount,
+        attendanceRate
+      };
 
       return {
         id: sId,
@@ -1067,7 +1017,16 @@ class AttendanceService {
         class: s.classId ? { id: s.classId._id?.toString(), _id: s.classId._id, name: s.classId.name } : null,
         section: s.sectionId ? { id: s.sectionId._id?.toString(), _id: s.sectionId._id, name: s.sectionId.name } : null,
         program: s.programId ? { id: s.programId._id?.toString(), _id: s.programId._id, name: s.programId.name } : null,
-        subjects
+        attendance: studentDailyAttendance,
+        stats,
+        subjects: [
+          {
+            subjectId: 'daily',
+            subjectName: 'Daily Attendance',
+            code: 'DAILY',
+            attendance: studentDailyAttendance
+          }
+        ]
       };
     });
   }
@@ -1108,28 +1067,11 @@ class AttendanceService {
       studentsByClassSec.set(cKey, studentsByClassSec.get(cKey) + 1);
     });
 
-    // Query SubjectClassMappings for mapped subjects count
-    const scmFilter = { classId: { $in: classIds } };
-    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
-      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
-    }
-    const scms = await SubjectClassMapping.find(scmFilter);
-    const scmByClass = new Map();
-    scms.forEach(scm => {
-      const cId = String(scm.classId);
-      const sIds = (scm.subjects?.map(s => s.subjectId).filter(Boolean) || scm.subjectIds || []).map(String);
-      if (!scmByClass.has(cId)) {
-        scmByClass.set(cId, sIds);
-      } else if (sessionId && scm.sessionId && String(scm.sessionId) === String(sessionId)) {
-        scmByClass.set(cId, sIds);
-      }
-    });
-
-    // Attendance records for date
+    // Attendance records for date (day-wise)
     const dateRegex = new RegExp(`^${targetDate}`);
     const attRecords = await Attendance.find(
       { classId: { $in: classIds }, date: { $regex: dateRegex }, role: 'STUDENT' },
-      '_id studentId classId sectionId subjectId'
+      '_id studentId classId sectionId status'
     );
 
     // Approved leaves for date
@@ -1143,15 +1085,14 @@ class AttendanceService {
     }, 'studentId');
     const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
 
-    // Map marked student count per class/section/subject
+    // Map marked student count per class/section
     const markedMap = new Map();
     attRecords.forEach(r => {
-      if (r.studentId && r.subjectId) {
+      if (r.studentId) {
         const cId = String(r.classId);
         const secId = r.sectionId ? String(r.sectionId) : 'none';
-        const subId = String(r.subjectId);
-        const k1 = `${cId}__${secId}__${subId}`;
-        const k2 = `${cId}__all__${subId}`;
+        const k1 = `${cId}__${secId}`;
+        const k2 = `${cId}__all`;
         if (!markedMap.has(k1)) markedMap.set(k1, new Set());
         markedMap.get(k1).add(String(r.studentId));
         if (!markedMap.has(k2)) markedMap.set(k2, new Set());
@@ -1168,8 +1109,6 @@ class AttendanceService {
       const pId = c.programId?._id || c.programId;
       const allowSections = c.allowSections !== false;
       const classSecs = sectionsByClass.get(cId) || [];
-      const subjectIds = scmByClass.get(cId) || [];
-      const totalSubjects = subjectIds.length;
 
       if (allowSections && classSecs.length > 0) {
         for (const sec of classSecs) {
@@ -1187,9 +1126,11 @@ class AttendanceService {
               programCode: pCode,
               displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
               totalStudents: 0,
-              totalSubjects,
+              totalSubjects: 1,
               markedSubjects: 0,
               missingSubjects: 0,
+              markedStudents: 0,
+              missingStudents: 0,
               status: 'NO_STUDENTS',
               isComplete: false,
               isMissing: false,
@@ -1198,46 +1139,15 @@ class AttendanceService {
             continue;
           }
 
-          if (totalSubjects === 0) {
-            units.push({
-              classId: c._id,
-              className: c.name,
-              sectionId: sec._id,
-              sectionName: sec.name,
-              programId: pId,
-              programName: pName,
-              programCode: pCode,
-              displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
-              totalStudents,
-              totalSubjects: 0,
-              markedSubjects: 0,
-              missingSubjects: 0,
-              status: 'NO_SUBJECTS',
-              isComplete: false,
-              isMissing: false,
-              isNoStudents: false
-            });
-            continue;
-          }
+          const markedSet = markedMap.get(`${cId}__${secId}`) || new Set();
+          let markedCount = markedSet.size;
+          leaveStudentIds.forEach(lId => {
+            if (!markedSet.has(lId)) markedCount++;
+          });
 
-          let markedSubjectsCount = 0;
-          let missingSubjectsCount = 0;
-
-          for (const subId of subjectIds) {
-            const markedSet = markedMap.get(`${cId}__${secId}__${subId}`) || new Set();
-            let markedCount = markedSet.size;
-            leaveStudentIds.forEach(lId => {
-              if (!markedSet.has(lId)) markedCount++;
-            });
-
-            if (markedCount >= totalStudents) {
-              markedSubjectsCount++;
-            } else {
-              missingSubjectsCount++;
-            }
-          }
-
-          const isComplete = totalSubjects > 0 && missingSubjectsCount === 0;
+          const isComplete = markedCount >= totalStudents;
+          const markedStudents = Math.min(totalStudents, markedCount);
+          const missingStudents = Math.max(0, totalStudents - markedStudents);
 
           units.push({
             classId: c._id,
@@ -1249,9 +1159,11 @@ class AttendanceService {
             programCode: pCode,
             displayName: `${pName ? pName + ' - ' : ''}${c.name} - ${sec.name}`,
             totalStudents,
-            totalSubjects,
-            markedSubjects: markedSubjectsCount,
-            missingSubjects: missingSubjectsCount,
+            totalSubjects: 1,
+            markedSubjects: isComplete ? 1 : 0,
+            missingSubjects: isComplete ? 0 : 1,
+            markedStudents,
+            missingStudents,
             status: isComplete ? 'COMPLETE' : 'MISSING',
             isComplete,
             isMissing: !isComplete,
@@ -1272,9 +1184,11 @@ class AttendanceService {
             programCode: pCode,
             displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
             totalStudents: 0,
-            totalSubjects,
+            totalSubjects: 1,
             markedSubjects: 0,
             missingSubjects: 0,
+            markedStudents: 0,
+            missingStudents: 0,
             status: 'NO_STUDENTS',
             isComplete: false,
             isMissing: false,
@@ -1283,46 +1197,15 @@ class AttendanceService {
           continue;
         }
 
-        if (totalSubjects === 0) {
-          units.push({
-            classId: c._id,
-            className: c.name,
-            sectionId: null,
-            sectionName: null,
-            programId: pId,
-            programName: pName,
-            programCode: pCode,
-            displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
-            totalStudents,
-            totalSubjects: 0,
-            markedSubjects: 0,
-            missingSubjects: 0,
-            status: 'NO_SUBJECTS',
-            isComplete: false,
-            isMissing: false,
-            isNoStudents: false
-          });
-          continue;
-        }
+        const markedSet = markedMap.get(`${cId}__all`) || new Set();
+        let markedCount = markedSet.size;
+        leaveStudentIds.forEach(lId => {
+          if (!markedSet.has(lId)) markedCount++;
+        });
 
-        let markedSubjectsCount = 0;
-        let missingSubjectsCount = 0;
-
-        for (const subId of subjectIds) {
-          const markedSet = markedMap.get(`${cId}__all__${subId}`) || new Set();
-          let markedCount = markedSet.size;
-          leaveStudentIds.forEach(lId => {
-            if (!markedSet.has(lId)) markedCount++;
-          });
-
-          if (markedCount >= totalStudents) {
-            markedSubjectsCount++;
-          } else {
-            missingSubjectsCount++;
-          }
-        }
-
-        const isComplete = totalSubjects > 0 && missingSubjectsCount === 0;
+        const isComplete = markedCount >= totalStudents;
+        const markedStudents = Math.min(totalStudents, markedCount);
+        const missingStudents = Math.max(0, totalStudents - markedStudents);
 
         units.push({
           classId: c._id,
@@ -1334,9 +1217,11 @@ class AttendanceService {
           programCode: pCode,
           displayName: `${pName ? pName + ' - ' : ''}${c.name}`,
           totalStudents,
-          totalSubjects,
-          markedSubjects: markedSubjectsCount,
-          missingSubjects: missingSubjectsCount,
+          totalSubjects: 1,
+          markedSubjects: isComplete ? 1 : 0,
+          missingSubjects: isComplete ? 0 : 1,
+          markedStudents,
+          missingStudents,
           status: isComplete ? 'COMPLETE' : 'MISSING',
           isComplete,
           isMissing: !isComplete,
@@ -1345,7 +1230,7 @@ class AttendanceService {
       }
     }
 
-    const activeUnits = units.filter(u => u.status !== 'NO_STUDENTS' && u.status !== 'NO_SUBJECTS');
+    const activeUnits = units.filter(u => u.status !== 'NO_STUDENTS');
     const completeCount = activeUnits.filter(u => u.isComplete).length;
     const missingCount = activeUnits.filter(u => u.isMissing).length;
     const noStudentsCount = units.filter(u => u.isNoStudents).length;
@@ -1362,7 +1247,7 @@ class AttendanceService {
     };
   }
 
-  // Missing Attendance Summary: Level 2 (Subject-wise Grid)
+  // Missing Attendance Summary: Level 2 (Backward-compatible single daily wrapper)
   async getMissingAttendanceSubjectsSummary({ classId, sectionId, date, sessionId }) {
     const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
     const classDoc = await Class.findById(classId).populate('programId', 'name code');
@@ -1377,7 +1262,6 @@ class AttendanceService {
       sectionDoc = await Section.findById(effectiveSectionId);
     }
 
-    // Active students count for class/section
     const studentQuery = { classId, status: { $in: ['ACTIVE', 'Active'] } };
     if (effectiveSectionId) {
       studentQuery.sectionId = effectiveSectionId;
@@ -1389,66 +1273,6 @@ class AttendanceService {
     const totalStudents = students.length;
     const studentIds = students.map(s => s._id);
 
-    // Linked subjects via SubjectClassMapping
-    const scmFilter = { classId };
-    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
-      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
-    }
-    const scm = await SubjectClassMapping.findOne(scmFilter)
-      .populate('subjects.subjectId')
-      .populate('subjectIds');
-
-    const subjectsList = [];
-    if (scm && Array.isArray(scm.subjects) && scm.subjects.length > 0) {
-      for (const entry of scm.subjects) {
-        const sub = entry.subjectId;
-        if (!sub) continue;
-        const subId = String(sub._id || sub.id || sub);
-        subjectsList.push({
-          id: subId,
-          name: typeof sub === 'object' && sub.name ? sub.name : '',
-          code: typeof sub === 'object' && sub.code ? sub.code : '',
-          creditHours: entry.creditHours ?? null
-        });
-      }
-    } else if (scm && Array.isArray(scm.subjectIds) && scm.subjectIds.length > 0) {
-      for (const sub of scm.subjectIds) {
-        if (!sub) continue;
-        const subId = String(sub._id || sub.id || sub);
-        subjectsList.push({
-          id: subId,
-          name: typeof sub === 'object' && sub.name ? sub.name : '',
-          code: typeof sub === 'object' && sub.code ? sub.code : '',
-          creditHours: null
-        });
-      }
-    }
-
-    // Fill missing subject names from Subject collection
-    const missingNameIds = subjectsList.filter(s => !s.name).map(s => s.id);
-    if (missingNameIds.length > 0) {
-      const dbSubjects = await Subject.find({ _id: { $in: missingNameIds } });
-      const subMap = new Map(dbSubjects.map(s => [String(s._id), s]));
-      subjectsList.forEach(s => {
-        if (!s.name && subMap.has(s.id)) {
-          const found = subMap.get(s.id);
-          s.name = found.name || '';
-          s.code = found.code || s.code || '';
-        }
-      });
-    }
-
-    // Pre-fetch TeacherMappings for this class and section
-    const tmConditions = [{ classId }];
-    if (effectiveSectionId) {
-      tmConditions.push({ $or: [{ sectionId: effectiveSectionId }, { sectionId: null }, { sectionId: { $exists: false } }] });
-    }
-    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
-      tmConditions.push({ $or: [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }] });
-    }
-    const teacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name staffId');
-
-    // Pre-fetch attendance for date
     const dateRegex = new RegExp(`^${targetDate}`);
     const attQuery = {
       classId,
@@ -1457,9 +1281,8 @@ class AttendanceService {
       studentId: { $in: studentIds }
     };
     if (effectiveSectionId) attQuery.sectionId = effectiveSectionId;
-    const attendanceRecords = await Attendance.find(attQuery, '_id studentId subjectId');
+    const attendanceRecords = await Attendance.find(attQuery, '_id studentId');
 
-    // Approved leaves for date
     const approvedLeaves = await Leave.find({
       studentId: { $in: studentIds },
       applicantType: 'STUDENT',
@@ -1469,58 +1292,33 @@ class AttendanceService {
     }, 'studentId');
     const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
 
-    const subjects = subjectsList.map(sub => {
-      const subId = String(sub.id);
+    const markedStudentIds = new Set(attendanceRecords.map(r => String(r.studentId)));
+    leaveStudentIds.forEach(id => markedStudentIds.add(id));
 
-      // PIN-POINT ACCURATE TEACHER FOR THIS EXACT SUBJECT
-      const subjectTeachers = teacherMappings
-        .filter(tm => tm.mappingType === 'SUBJECT' && String(tm.subjectId?._id || tm.subjectId) === subId && tm.teacherId?.name)
-        .map(tm => tm.teacherId.name);
+    const markedStudents = Math.min(totalStudents, markedStudentIds.size);
+    const missingStudents = Math.max(0, totalStudents - markedStudents);
+    const isComplete = totalStudents > 0 && markedStudents >= totalStudents;
 
-      const teacherName = subjectTeachers.length > 0 ? subjectTeachers.join(', ') : 'Not Assigned';
-
-      if (totalStudents === 0) {
-        return {
-          subjectId: sub.id,
-          subjectName: sub.name,
-          subjectCode: sub.code,
-          creditHours: sub.creditHours,
-          teacherName,
-          totalStudents: 0,
-          markedStudents: 0,
-          missingStudents: 0,
-          status: 'NO_STUDENTS',
-          isComplete: false,
-          isNoStudents: true
-        };
-      }
-
-      const subAttRecords = attendanceRecords.filter(r => String(r.subjectId) === subId);
-      const markedStudentIds = new Set(subAttRecords.map(r => String(r.studentId)));
-      leaveStudentIds.forEach(id => markedStudentIds.add(id));
-
-      const markedStudents = Math.min(totalStudents, markedStudentIds.size);
-      const missingStudents = Math.max(0, totalStudents - markedStudents);
-      const isComplete = markedStudents >= totalStudents;
-
-      return {
-        subjectId: sub.id,
-        subjectName: sub.name,
-        subjectCode: sub.code,
-        creditHours: sub.creditHours,
-        teacherName,
+    const subjects = [
+      {
+        subjectId: 'daily',
+        id: 'daily',
+        subjectName: 'Daily Attendance',
+        name: 'Daily Attendance',
+        subjectCode: 'DAILY',
+        code: 'DAILY',
+        creditHours: null,
+        teacherName: 'Administration',
         totalStudents,
         markedStudents,
         missingStudents,
-        status: isComplete ? 'COMPLETE' : 'MISSING',
+        status: totalStudents === 0 ? 'NO_STUDENTS' : (isComplete ? 'COMPLETE' : 'MISSING'),
         isComplete,
-        isNoStudents: false
-      };
-    });
+        isNoStudents: totalStudents === 0
+      }
+    ];
 
     const isNoStudents = totalStudents === 0;
-    const completeCount = subjects.filter(s => s.isComplete).length;
-    const missingCount = subjects.filter(s => !s.isComplete && !s.isNoStudents).length;
 
     return {
       class: { id: classDoc._id, name: classDoc.name },
@@ -1530,16 +1328,16 @@ class AttendanceService {
       totalStudents,
       isNoStudents,
       summary: {
-        totalSubjects: subjects.length,
-        completeSubjects: isNoStudents ? 0 : completeCount,
-        missingSubjects: isNoStudents ? 0 : missingCount,
-        noStudentsSubjects: isNoStudents ? subjects.length : 0,
+        totalSubjects: 1,
+        completeSubjects: isComplete ? 1 : 0,
+        missingSubjects: isComplete ? 0 : 1,
+        noStudentsSubjects: isNoStudents ? 1 : 0,
       },
       subjects
     };
   }
 
-  // Missing Attendance Summary: Level 3 (Student Attendance Table)
+  // Missing Attendance Summary: Level 3 (Student Attendance Table - day-wise)
   async getMissingAttendanceStudentsSummary({ classId, sectionId, subjectId, date, sessionId }) {
     const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
     const classDoc = await Class.findById(classId).populate('programId', 'name code');
@@ -1554,9 +1352,11 @@ class AttendanceService {
       sectionDoc = await Section.findById(effectiveSectionId);
     }
 
-    const subjectDoc = await Subject.findById(subjectId);
-    if (!subjectDoc) {
-      throw new Error('Subject not found');
+    let subjectDoc = null;
+    if (subjectId && subjectId !== 'daily' && subjectId !== 'general') {
+      try {
+        subjectDoc = await Subject.findById(subjectId);
+      } catch (e) {}
     }
 
     // Active students in this class/section
@@ -1570,11 +1370,10 @@ class AttendanceService {
     const students = await Student.find(studentQuery).sort({ rollNumber: 1 });
     const studentIds = students.map(s => s._id);
 
-    // Attendance query with regex date
+    // Attendance query for day-wise
     const dateRegex = new RegExp(`^${targetDate}`);
     const attQuery = {
       classId,
-      subjectId,
       date: { $regex: dateRegex },
       role: 'STUDENT',
       studentId: { $in: studentIds }
@@ -1601,16 +1400,6 @@ class AttendanceService {
     const leaveMap = new Map();
     approvedLeaves.forEach(l => leaveMap.set(String(l.studentId), l));
 
-    // Lookup responsible teacher for this subject
-    const tmConditions = [{ classId, mappingType: 'SUBJECT', subjectId }];
-    if (effectiveSectionId) {
-      tmConditions.push({ $or: [{ sectionId: effectiveSectionId }, { sectionId: null }, { sectionId: { $exists: false } }] });
-    }
-    const subjectTeacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name');
-    const assignedTeacherName = (subjectTeacherMappings.length > 0 && subjectTeacherMappings[0].teacherId?.name)
-      ? subjectTeacherMappings.map(t => t.teacherId.name).filter(Boolean).join(', ')
-      : 'Not Assigned';
-
     const studentRows = students.map(s => {
       const sId = String(s._id);
       const rec = attMap.get(sId);
@@ -1624,8 +1413,6 @@ class AttendanceService {
           markedByName = rec.staffId.name;
         } else if (rec.markedBy?.name) {
           markedByName = rec.markedBy.name;
-        } else if (assignedTeacherName !== 'Not Assigned') {
-          markedByName = assignedTeacherName;
         }
 
         return {
@@ -1672,7 +1459,7 @@ class AttendanceService {
     const totalStudents = students.length;
     const markedCount = studentRows.filter(s => !s.isMissing).length;
     const missingCount = studentRows.filter(s => s.isMissing).length;
-    const presentCount = studentRows.filter(s => String(s.status).toUpperCase() === 'PRESENT').length;
+    const presentCount = studentRows.filter(s => ['PRESENT', 'LATE', 'HALF_DAY', 'HD'].includes(String(s.status).toUpperCase())).length;
     const absentCount = studentRows.filter(s => String(s.status).toUpperCase() === 'ABSENT').length;
     const leaveCount = studentRows.filter(s => String(s.status).toUpperCase() === 'LEAVE').length;
 
@@ -1680,8 +1467,8 @@ class AttendanceService {
       class: { id: classDoc._id, name: classDoc.name },
       section: sectionDoc ? { id: sectionDoc._id, name: sectionDoc.name } : null,
       program: classDoc.programId ? { id: classDoc.programId._id, name: classDoc.programId.name, code: classDoc.programId.code } : null,
-      subject: { id: subjectDoc._id, name: subjectDoc.name, code: subjectDoc.code },
-      assignedTeacher: assignedTeacherName,
+      subject: subjectDoc ? { id: subjectDoc._id, name: subjectDoc.name, code: subjectDoc.code } : { id: 'daily', name: 'Daily Attendance', code: 'DAILY' },
+      assignedTeacher: 'Class Administration',
       date: targetDate,
       summary: {
         totalStudents,
@@ -1695,11 +1482,10 @@ class AttendanceService {
     };
   }
 
-  // Missing Attendance Summary: Export / Print Report
+  // Missing Attendance Summary: Export / Print Report (Day-wise)
   async getMissingAttendanceExportReport({ programId, classId, sectionId, date, sessionId }) {
     const targetDate = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // Determine session label
     let sessionName = 'All Sessions';
     if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
       try {
@@ -1708,7 +1494,6 @@ class AttendanceService {
       } catch (e) {}
     }
 
-    // Determine program label
     let programFilterLabel = 'All Programs';
     if (programId && programId !== '*' && programId !== 'all') {
       try {
@@ -1717,7 +1502,6 @@ class AttendanceService {
       } catch (e) {}
     }
 
-    // Determine which classes to query
     const classQuery = {};
     if (classId && classId !== '*' && classId !== 'all') {
       classQuery._id = classId;
@@ -1728,7 +1512,6 @@ class AttendanceService {
     const classes = await Class.find(classQuery).populate('programId', 'name code').sort({ name: 1 });
     const classIds = classes.map(c => c._id);
 
-    // Fetch all sections for these classes
     const sectionQuery = { classId: { $in: classIds } };
     if (sectionId && sectionId !== '*' && sectionId !== 'all') {
       sectionQuery._id = sectionId;
@@ -1741,7 +1524,6 @@ class AttendanceService {
       sectionsByClass.get(cId).push(s);
     });
 
-    // Query active students
     const studentQuery = { classId: { $in: classIds }, status: { $in: ['ACTIVE', 'Active'] } };
     if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
       studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
@@ -1749,7 +1531,6 @@ class AttendanceService {
     const allStudents = await Student.find(studentQuery, '_id classId sectionId');
     const allStudentIds = allStudents.map(s => s._id);
 
-    // Group students by class and section
     const studentsByClassSec = new Map();
     allStudents.forEach(s => {
       const cId = String(s.classId);
@@ -1763,82 +1544,14 @@ class AttendanceService {
       studentsByClassSec.get(allKey).push(String(s._id));
     });
 
-    // Query SubjectClassMappings for mapped subjects
-    const scmFilter = { classId: { $in: classIds } };
-    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
-      scmFilter.$or = [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }];
-    }
-    const scms = await SubjectClassMapping.find(scmFilter).populate('subjects.subjectId').populate('subjectIds');
-
-    // Extract subjects per class
-    const subjectsByClass = new Map();
-    const allSubjectIds = new Set();
-    scms.forEach(scm => {
-      const cId = String(scm.classId);
-      const list = [];
-      if (Array.isArray(scm.subjects) && scm.subjects.length > 0) {
-        scm.subjects.forEach(entry => {
-          const sub = entry.subjectId;
-          if (sub) {
-            const sId = String(sub._id || sub.id || sub);
-            allSubjectIds.add(sId);
-            list.push({
-              id: sId,
-              name: typeof sub === 'object' && sub.name ? sub.name : '',
-              code: typeof sub === 'object' && sub.code ? sub.code : '',
-            });
-          }
-        });
-      } else if (Array.isArray(scm.subjectIds) && scm.subjectIds.length > 0) {
-        scm.subjectIds.forEach(sub => {
-          if (sub) {
-            const sId = String(sub._id || sub.id || sub);
-            allSubjectIds.add(sId);
-            list.push({
-              id: sId,
-              name: typeof sub === 'object' && sub.name ? sub.name : '',
-              code: typeof sub === 'object' && sub.code ? sub.code : '',
-            });
-          }
-        });
-      }
-      if (!subjectsByClass.has(cId) || (sessionId && scm.sessionId && String(scm.sessionId) === String(sessionId))) {
-        subjectsByClass.set(cId, list);
-      }
-    });
-
-    // Resolve any missing subject names from Subject collection
-    if (allSubjectIds.size > 0) {
-      const dbSubjects = await Subject.find({ _id: { $in: Array.from(allSubjectIds) } }).lean();
-      const subMap = new Map(dbSubjects.map(s => [String(s._id), s]));
-      subjectsByClass.forEach(list => {
-        list.forEach(s => {
-          if (!s.name && subMap.has(s.id)) {
-            const found = subMap.get(s.id);
-            s.name = found.name || '';
-            s.code = found.code || s.code || '';
-          }
-        });
-      });
-    }
-
-    // Query TeacherMappings
-    const tmConditions = [{ classId: { $in: classIds }, mappingType: 'SUBJECT' }];
-    if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
-      tmConditions.push({ $or: [{ sessionId }, { sessionId: null }, { sessionId: { $exists: false } }] });
-    }
-    const teacherMappings = await TeacherMapping.find({ $and: tmConditions }).populate('teacherId', 'name staffId');
-
-    // Query attendance records for date
     const dateRegex = new RegExp(`^${targetDate}`);
     const attRecords = await Attendance.find({
       classId: { $in: classIds },
       date: { $regex: dateRegex },
       role: 'STUDENT',
       studentId: { $in: allStudentIds }
-    }, '_id studentId classId sectionId subjectId status');
+    }, '_id studentId classId sectionId status');
 
-    // Query approved leaves for date
     const approvedLeaves = await Leave.find({
       studentId: { $in: allStudentIds },
       applicantType: 'STUDENT',
@@ -1848,18 +1561,15 @@ class AttendanceService {
     }, 'studentId');
     const leaveStudentIds = new Set(approvedLeaves.map(l => String(l.studentId)));
 
-    // Index attendance records by `${classId}__${sectionId || 'none'}__${subjectId}`
-    // and also `${classId}__all__${subjectId}`
     const attMap = new Map();
     attRecords.forEach(r => {
       const cId = String(r.classId);
       const secId = r.sectionId ? String(r.sectionId) : 'none';
-      const subId = String(r.subjectId);
       const stId = String(r.studentId);
       const status = String(r.status || '').toUpperCase();
 
-      const k1 = `${cId}__${secId}__${subId}`;
-      const k2 = `${cId}__all__${subId}`;
+      const k1 = `${cId}__${secId}`;
+      const k2 = `${cId}__all`;
 
       [k1, k2].forEach(k => {
         if (!attMap.has(k)) attMap.set(k, []);
@@ -1869,41 +1579,13 @@ class AttendanceService {
 
     const rows = [];
 
-    // Helper to resolve teacher name for class, section, subject
-    const getTeacherName = (cId, secId, subId) => {
-      // 1. Try exact section match
-      if (secId) {
-        const secMatch = teacherMappings.filter(tm =>
-          String(tm.classId) === cId &&
-          String(tm.sectionId?._id || tm.sectionId) === secId &&
-          String(tm.subjectId?._id || tm.subjectId) === subId &&
-          tm.teacherId?.name
-        );
-        if (secMatch.length > 0) return secMatch.map(t => t.teacherId.name).join(', ');
-      }
-
-      // 2. Class-wide match
-      const classMatch = teacherMappings.filter(tm =>
-        String(tm.classId) === cId &&
-        (!tm.sectionId || String(tm.sectionId) === 'null') &&
-        String(tm.subjectId?._id || tm.subjectId) === subId &&
-        tm.teacherId?.name
-      );
-      if (classMatch.length > 0) return classMatch.map(t => t.teacherId.name).join(', ');
-
-      return 'Not Assigned';
-    };
-
-    // Iterate through classes and their units (sections or whole class)
     for (const c of classes) {
       const cId = String(c._id);
       const progName = c.programId?.name || programFilterLabel || 'General Program';
       const className = c.name;
       const classSections = sectionsByClass.get(cId) || [];
       const hasSections = c.allowSections !== false && classSections.length > 0;
-      const subjects = subjectsByClass.get(cId) || [];
 
-      // Determine units for this class
       const units = [];
       if (hasSections) {
         classSections.forEach(sec => {
@@ -1928,75 +1610,70 @@ class AttendanceService {
         const studentIdSet = new Set(studentIdList);
         const totalStudents = studentIdList.length;
 
-        for (const sub of subjects) {
-          const subId = String(sub.id);
-          const teacherName = getTeacherName(cId, secId, subId);
-
-          if (totalStudents === 0) {
-            rows.push({
-              programName: progName,
-              className,
-              sectionName: secName,
-              subjectName: sub.name || 'Subject',
-              subjectCode: sub.code || '',
-              responsibleTeacher: teacherName,
-              unmarkedCount: 0,
-              presentCount: 0,
-              leaveCount: 0,
-              absentCount: 0,
-              totalStudents: 0
-            });
-            continue;
-          }
-
-          const k = secId ? `${cId}__${secId}__${subId}` : `${cId}__all__${subId}`;
-          const records = (attMap.get(k) || []).filter(r => studentIdSet.has(r.studentId));
-
-          const markedIds = new Set();
-          let presentCount = 0;
-          let absentCount = 0;
-          let leaveCount = 0;
-
-          records.forEach(r => {
-            markedIds.add(r.studentId);
-            if (['PRESENT', 'LATE', 'HALF_DAY', 'HD'].includes(r.status)) {
-              presentCount++;
-            } else if (r.status === 'ABSENT') {
-              absentCount++;
-            } else if (r.status === 'LEAVE') {
-              leaveCount++;
-            }
-          });
-
-          // Add approved leaves for students without attendance record
-          studentIdList.forEach(stId => {
-            if (!markedIds.has(stId) && leaveStudentIds.has(stId)) {
-              markedIds.add(stId);
-              leaveCount++;
-            }
-          });
-
-          const unmarkedCount = Math.max(0, totalStudents - markedIds.size);
-
+        if (totalStudents === 0) {
           rows.push({
             programName: progName,
             className,
             sectionName: secName,
-            subjectName: sub.name || 'Subject',
-            subjectCode: sub.code || '',
-            responsibleTeacher: teacherName,
-            unmarkedCount,
-            presentCount,
-            leaveCount,
-            absentCount,
-            totalStudents
+            subjectName: 'Daily Attendance',
+            subjectCode: 'DAILY',
+            responsibleTeacher: 'Administration',
+            unmarkedCount: 0,
+            presentCount: 0,
+            leaveCount: 0,
+            absentCount: 0,
+            totalStudents: 0
           });
+          continue;
         }
+
+        const k = secId ? `${cId}__${secId}` : `${cId}__all`;
+        const records = (attMap.get(k) || []).filter(r => studentIdSet.has(r.studentId));
+
+        const markedIds = new Set();
+        let presentCount = 0;
+        let absentCount = 0;
+        let leaveCount = 0;
+
+        records.forEach(r => {
+          markedIds.add(r.studentId);
+          if (['PRESENT', 'LATE', 'HALF_DAY', 'HD'].includes(r.status)) {
+            presentCount++;
+          } else if (r.status === 'ABSENT') {
+            absentCount++;
+          } else if (r.status === 'LEAVE') {
+            leaveCount++;
+          }
+        });
+
+        studentIdList.forEach(stId => {
+          if (!markedIds.has(stId) && leaveStudentIds.has(stId)) {
+            markedIds.add(stId);
+            leaveCount++;
+          }
+        });
+
+        const unmarkedCount = Math.max(0, totalStudents - markedIds.size);
+
+        rows.push({
+          programName: progName,
+          className,
+          sectionName: secName,
+          subjectName: 'Daily Attendance',
+          subjectCode: 'DAILY',
+          responsibleTeacher: 'Administration',
+          unmarkedCount,
+          presentCount,
+          leaveCount,
+          absentCount,
+          totalStudents
+        });
       }
     }
 
-    // Compute totals
     const totals = {
+      totalUnits: rows.length,
+      totalClasses: rows.length,
       totalSubjects: rows.length,
       totalStudents: rows.reduce((sum, r) => sum + r.totalStudents, 0),
       unmarkedCount: rows.reduce((sum, r) => sum + r.unmarkedCount, 0),

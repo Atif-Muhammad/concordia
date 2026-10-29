@@ -42,7 +42,6 @@ import {
   getProgramNames,
   getClasses,
   getSections,
-  getSubjectsForClassWithAssignments,
   fetchStudentAttendance,
   updateStudentAttendance,
   deleteStudentAttendanceRecord,
@@ -82,7 +81,6 @@ export default function MarkAttendanceTab() {
   const [selectedProgramId, setSelectedProgramId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [fetchedStudents, setFetchedStudents] = useState([]);
   const [hasLoadedStudents, setHasLoadedStudents] = useState(false);
   const [attendanceChanges, setAttendanceChanges] = useState({});
@@ -204,20 +202,11 @@ export default function MarkAttendanceTab() {
 
   const isSectionApplicable = selectedClass ? selectedClass.allowSections !== false : true;
 
-  const { data: subjects = [], refetch: refetchSubjects } = useQuery({
-    queryKey: ["classSubjects", selectedClassId, selectedSectionId],
-    queryFn: () => {
-      const sectionParam = isSectionApplicable && selectedSectionId && selectedSectionId !== "*" ? selectedSectionId : undefined;
-      return getSubjectsForClassWithAssignments(selectedClassId, activeSessionId, sectionParam);
-    },
-    enabled: false
-  });
-
   const { data: attendanceData, refetch: refetchAttendance, isFetching, error: attendanceError } = useQuery({
-    queryKey: ["studentAttendance", selectedClassId, selectedSectionId, selectedSubjectId, markDate, activeSessionId],
+    queryKey: ["studentAttendance", selectedClassId, selectedSectionId, markDate, activeSessionId],
     queryFn: () => {
       const sectionParam = isSectionApplicable && selectedSectionId && selectedSectionId !== "*" ? selectedSectionId : "";
-      return fetchStudentAttendance(selectedClassId, sectionParam, selectedSubjectId, markDate, activeSessionId);
+      return fetchStudentAttendance(selectedClassId, sectionParam, markDate, activeSessionId);
     },
     enabled: false
   });
@@ -310,64 +299,10 @@ export default function MarkAttendanceTab() {
     return sectionsData.filter(s => extractId(s.classId || s.class) === selectedClassId);
   }, [selectedClassId, isSectionApplicable, isTeacherScoped, teacherClassMappings, selectedClass, sectionsData]);
 
-  const filteredSubjects = useMemo(() => {
-    if (!isTeacherScoped) {
-      return subjects.map(scm => ({ id: extractId(scm.subject), name: scm.subject?.name || scm.name }));
-    }
-
-    const currentTeacherStaffId = extractId(currentUser?.refId || currentUser?.staffDbId || currentUser?.id || currentUser?._id);
-
-    // 1. Direct from teacherClassMappings for the selected class & section
-    const matchingClassMappings = teacherClassMappings.filter(
-      m => extractId(m.classId || m.class) === selectedClassId &&
-           (!selectedSectionId || selectedSectionId === '*' || !m.sectionId || extractId(m.sectionId || m.section) === selectedSectionId)
-    );
-    const teacherAssignedSubjects = [];
-    matchingClassMappings.forEach(m => {
-      const addSub = (s) => {
-        if (!s) return;
-        const sId = extractId(s._id || s.id || s);
-        if (sId && !teacherAssignedSubjects.some(existing => existing.id === sId)) {
-          teacherAssignedSubjects.push({ id: sId, name: s.name || s.subjectName || "Subject" });
-        }
-      };
-      if (Array.isArray(m.subjects)) {
-        m.subjects.forEach(addSub);
-      }
-      if (m.subjectId || m.subject) {
-        addSub(m.subjectId || m.subject);
-      }
-    });
-
-    if (teacherAssignedSubjects.length > 0) {
-      return teacherAssignedSubjects;
-    }
-
-    // 2. From getSubjectsForClassWithAssignments
-    if (subjects.length > 0) {
-      const fromClassSubjects = subjects.filter(scm => {
-        const teacherList = scm.subject?.teachers || scm.teachers || [];
-        return teacherList.some(t => {
-          const tId = extractId(t.teacherId || t.id || t._id || t);
-          return tId === currentTeacherStaffId;
-        });
-      }).map(scm => ({ id: extractId(scm.subject), name: scm.subject?.name || scm.name }));
-
-      if (fromClassSubjects.length > 0) return fromClassSubjects;
-    }
-
-    return [];
-  }, [subjects, isTeacherScoped, currentUser, teacherClassMappings, selectedClassId, selectedSectionId]);
-
-  const selectedClassHasWideTeacherMapping = isTeacherScoped && teacherClassMappings.some(
-    mapping => extractId(mapping.classId || mapping.class) === selectedClassId && !(mapping.sectionId || mapping.section)
-  );
-
   const handleProgramChange = (val) => {
     setSelectedProgramId(val);
     setSelectedClassId("");
     setSelectedSectionId("");
-    setSelectedSubjectId("");
     setFetchedStudents([]);
     setHasLoadedStudents(false);
     setAttendanceChanges({});
@@ -378,7 +313,6 @@ export default function MarkAttendanceTab() {
     const cls = classesData.find(c => extractId(c) === val) || teacherClasses.find(c => extractId(c) === val);
     const allowSec = cls ? cls.allowSections !== false : true;
     setSelectedSectionId(allowSec ? "*" : "");
-    setSelectedSubjectId("");
     setFetchedStudents([]);
     setHasLoadedStudents(false);
     setAttendanceChanges({});
@@ -386,7 +320,6 @@ export default function MarkAttendanceTab() {
 
   const handleSectionChange = (val) => {
     setSelectedSectionId(val);
-    setSelectedSubjectId("");
     setFetchedStudents([]);
     setHasLoadedStudents(false);
     setAttendanceChanges({});
@@ -394,14 +327,18 @@ export default function MarkAttendanceTab() {
 
   useEffect(() => {
     if (selectedClassId) {
-      setSelectedSubjectId("");
       setFetchedStudents([]);
       setHasLoadedStudents(false);
       setAttendanceChanges({});
-      refetchSubjects();
       refetchSkips();
     }
-  }, [selectedClassId, selectedSectionId, activeSessionId, refetchSubjects]);
+  }, [selectedClassId, selectedSectionId, activeSessionId]);
+
+  const selectedClassHasWideTeacherMapping = useMemo(() => {
+    return isTeacherScoped && teacherClassMappings.some(
+      mapping => extractId(mapping.classId || mapping.class) === selectedClassId && !(mapping.sectionId || mapping.section)
+    );
+  }, [isTeacherScoped, teacherClassMappings, selectedClassId]);
 
   useEffect(() => {
     if (!isTeacherScoped || !selectedClassId || selectedClassHasWideTeacherMapping || !isSectionApplicable) return;
@@ -410,16 +347,6 @@ export default function MarkAttendanceTab() {
       setSelectedSectionId(allowedIds[0]);
     }
   }, [isTeacherScoped, selectedClassId, selectedSectionId, selectedClassHasWideTeacherMapping, isSectionApplicable, availableSections]);
-
-  useEffect(() => {
-    if (filteredSubjects.length === 1) {
-      if (selectedSubjectId !== filteredSubjects[0].id) {
-        setSelectedSubjectId(filteredSubjects[0].id);
-      }
-    } else if (selectedSubjectId && !filteredSubjects.some(s => s.id === selectedSubjectId)) {
-      setSelectedSubjectId("");
-    }
-  }, [filteredSubjects, selectedSubjectId]);
 
   const handleStatusChange = async (student, status) => {
     if (isDateHoliday) {
@@ -446,7 +373,6 @@ export default function MarkAttendanceTab() {
             studentId,
             classId: selectedClassId,
             sectionId,
-            subjectId: selectedSubjectId,
             date: markDate,
             attendanceId: att.id,
           });
@@ -493,7 +419,6 @@ export default function MarkAttendanceTab() {
     const missing = [];
     if (!selectedProgramId) missing.push("Program");
     if (!selectedClassId) missing.push("Class");
-    if (!selectedSubjectId) missing.push("Subject");
     if (!markDate) missing.push("Date");
     if (missing.length > 0) {
       toast({ title: `Select ${missing.join(", ")} before loading students`, variant: "destructive" });
@@ -550,7 +475,6 @@ export default function MarkAttendanceTab() {
     const payload = {
       classId: selectedClassId,
       sectionId: sectionParam,
-      subjectId: selectedSubjectId,
       sessionId: activeSessionId,
       date: markDate,
       teacherId: isTeacherScoped ? (currentUser?.id || null) : null,
@@ -614,7 +538,7 @@ export default function MarkAttendanceTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className={`transition-all duration-300 ease-out overflow-hidden ${showMarkFilters ? "max-h-[360px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 pb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pb-4">
               <div className="space-y-2">
                 <Label>Date</Label>
                 <Input
@@ -668,7 +592,7 @@ export default function MarkAttendanceTab() {
                     <SelectValue
                       placeholder={
                         !selectedClassId
-                          ? "Select class first"
+                           ? "Select class first"
                           : !isSectionApplicable
                           ? "Not Applicable"
                           : "Select section"
@@ -687,34 +611,13 @@ export default function MarkAttendanceTab() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label>Subject</Label>
-                <Select
-                  value={selectedSubjectId}
-                  onValueChange={(val) => {
-                    setSelectedSubjectId(val);
-                    setFetchedStudents([]);
-                    setHasLoadedStudents(false);
-                    setAttendanceChanges({});
-                  }}
-                  disabled={!selectedClassId}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
-                  <SelectContent>
-                    {filteredSubjects.map(sub => (
-                      <SelectItem key={extractId(sub)} value={extractId(sub)}>{sub.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t pt-4">
             <Button
               onClick={handleLoadStudents}
-              disabled={isFetching || !selectedProgramId || !selectedClassId || !selectedSubjectId}
+              disabled={isFetching || !selectedProgramId || !selectedClassId}
               className="w-full sm:w-auto"
             >
               {isFetching ? "Loading Students..." : "Load Students"}

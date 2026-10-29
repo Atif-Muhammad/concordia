@@ -48,16 +48,6 @@ const toLocalDateKey = (d) => {
   return `${year}-${month}-${day}`;
 };
 
-const cleanSubjectName = (name) => {
-  if (!name) return "";
-  let clean = String(name).trim();
-  if (/^[A-Z0-9_-]+\s*-\s*(.+)$/i.test(clean)) {
-    clean = clean.replace(/^[A-Z0-9_-]+\s*-\s*/i, "");
-  }
-  clean = clean.replace(/\s*\([^)]*\)\s*$/, "").trim();
-  return clean || name;
-};
-
 const getInitials = (name) => {
   if (!name) return "ST";
   const parts = name.trim().split(/\s+/);
@@ -65,17 +55,6 @@ const getInitials = (name) => {
   return name.slice(0, 2).toUpperCase();
 };
 
-const SUBJECT_COLORS = [
-  "#2563eb", // blue
-  "#ea580c", // orange
-  "#16a34a", // green
-  "#9333ea", // purple
-  "#0d9488", // teal
-  "#4f46e5", // indigo
-  "#e11d48", // rose
-  "#d97706", // amber
-  "#0284c7", // light blue
-];
 
 const CircularProgressRing = ({ percentage = 0, size = 68, strokeWidth = 6 }) => {
   const radius = (size - strokeWidth) / 2;
@@ -304,7 +283,7 @@ export default function IndividualReportsTab({
     enabled: Boolean(currentStudentId && startDate && endDate),
   });
 
-  const studentReport = reportData[0] || (selectedStudent?.subjects?.length ? selectedStudent : null);
+  const studentReport = reportData[0] || (selectedStudent?.attendance?.length || selectedStudent?.subjects?.length ? selectedStudent : null);
 
   // Student details derived from selectedStudent or studentReport
   const studentName =
@@ -337,45 +316,41 @@ export default function IndividualReportsTab({
     selectedStudent?.parentOrGuardianName ||
     "—";
 
-  // Subjects and attendance calculations
-  const subjects = useMemo(() => {
-    return (studentReport?.subjects || []).filter(
-      (s) => s.subjectName && s.subjectName.toLowerCase() !== "general"
-    );
+  // Attendance records for the student
+  const attendanceList = useMemo(() => {
+    return studentReport?.attendance || studentReport?.subjects?.[0]?.attendance || [];
   }, [studentReport]);
 
   // Distinct marked class dates in range (Excluding 'no marked' and holiday dates)
   const dateList = useMemo(() => {
-    if (!startDate || !endDate || !subjects.length) return [];
+    if (!startDate || !endDate || !attendanceList.length) return [];
     const markedDates = new Set();
 
-    subjects.forEach((sub) => {
-      (sub.attendance || []).forEach((item) => {
-        const st = String(item.status || "").toLowerCase();
-        // Exclude holidays and unmarked
-        if (
-          st === "present" ||
-          st === "absent" ||
-          st === "leave" ||
-          st === "short_leave" ||
-          st === "half_day" ||
-          st === "hd"
-        ) {
-          const k = typeof item.date === "string" ? item.date.slice(0, 10) : toLocalDateKey(new Date(item.date));
-          if (k >= startDate && k <= endDate) {
-            markedDates.add(k);
-          }
+    attendanceList.forEach((item) => {
+      const st = String(item.status || "").toLowerCase();
+      if (
+        st === "present" ||
+        st === "absent" ||
+        st === "leave" ||
+        st === "short_leave" ||
+        st === "half_day" ||
+        st === "hd" ||
+        st === "late"
+      ) {
+        const k = typeof item.date === "string" ? item.date.slice(0, 10) : toLocalDateKey(new Date(item.date));
+        if (k >= startDate && k <= endDate) {
+          markedDates.add(k);
         }
-      });
+      }
     });
 
     return Array.from(markedDates).sort();
-  }, [subjects, startDate, endDate]);
+  }, [attendanceList, startDate, endDate]);
 
   // Overall Statistics Calculation
   const stats = useMemo(() => {
     if (!startDate || !endDate) {
-      return { totalDays: 0, presentCount: 0, absentCount: 0, leaveCount: 0, holidayCount: 0, totalClasses: 0, percentage: 0 };
+      return { totalDays: 0, presentCount: 0, absentCount: 0, leaveCount: 0, holidayCount: 0, totalClasses: 0, effectiveClasses: 0, percentage: 0 };
     }
 
     let presentCount = 0;
@@ -383,14 +358,12 @@ export default function IndividualReportsTab({
     let leaveCount = 0;
     let holidayCount = 0;
 
-    subjects.forEach((sub) => {
-      (sub.attendance || []).forEach((item) => {
-        const st = String(item.status || "").toLowerCase();
-        if (st === "present") presentCount++;
-        else if (st === "absent") absentCount++;
-        else if (st === "leave" || st === "short_leave") leaveCount++;
-        else if (st === "holiday") holidayCount++;
-      });
+    attendanceList.forEach((item) => {
+      const st = String(item.status || "").toLowerCase();
+      if (st === "present" || st === "short_leave" || st === "half_day" || st === "hd" || st === "late") presentCount++;
+      else if (st === "absent") absentCount++;
+      else if (st === "leave") leaveCount++;
+      else if (st === "holiday") holidayCount++;
     });
 
     const totalDays = dateList.length;
@@ -399,7 +372,21 @@ export default function IndividualReportsTab({
     const percentage = effectiveClasses > 0 ? Number(((presentCount / effectiveClasses) * 100).toFixed(1)) : 0;
 
     return { totalDays, presentCount, absentCount, leaveCount, holidayCount, totalClasses, effectiveClasses, percentage };
-  }, [subjects, startDate, endDate, dateList]);
+  }, [attendanceList, startDate, endDate, dateList]);
+
+  // Sorted daily attendance records for the detailed log table (ascending chronological order)
+  const sortedDailyAttendance = useMemo(() => {
+    return [...attendanceList]
+      .filter((item) => {
+        const k = typeof item.date === "string" ? item.date.slice(0, 10) : toLocalDateKey(new Date(item.date));
+        return k >= startDate && k <= endDate;
+      })
+      .sort((a, b) => {
+        const da = typeof a.date === "string" ? a.date.slice(0, 10) : toLocalDateKey(new Date(a.date));
+        const db = typeof b.date === "string" ? b.date.slice(0, 10) : toLocalDateKey(new Date(b.date));
+        return da.localeCompare(db);
+      });
+  }, [attendanceList, startDate, endDate]);
 
   // Format date range display
   const dateRangeDisplay = useMemo(() => {
@@ -549,44 +536,43 @@ export default function IndividualReportsTab({
           </div>
         </div>
 
-        <table>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 10px;">
           <thead>
-            <tr>
-              <th class="left" style="width: 140px;">Subject</th>
-              ${dateList.slice(0, 31).map((d) => {
-                const dt = new Date(`${d}T00:00:00`);
-                return `<th>${dt.getDate()}<br/><span style="font-size: 8px; font-weight: normal;">${dt.toLocaleDateString("en-US", { weekday: "narrow" })}</span></th>`;
-              }).join("")}
-              <th style="width: 45px;">P</th>
-              <th style="width: 45px;">A</th>
-              <th style="width: 45px;">Total</th>
+            <tr style="background: #f1f5f9;">
+              <th style="padding: 4px 8px; text-align: left; border: 1px solid #cbd5e1; width: 40px;">#</th>
+              <th style="padding: 4px 8px; text-align: left; border: 1px solid #cbd5e1; width: 130px;">Date</th>
+              <th style="padding: 4px 8px; text-align: left; border: 1px solid #cbd5e1; width: 100px;">Day</th>
+              <th style="padding: 4px 8px; text-align: center; border: 1px solid #cbd5e1; width: 90px;">Status</th>
+              <th style="padding: 4px 8px; text-align: left; border: 1px solid #cbd5e1;">Remarks / Notes</th>
             </tr>
           </thead>
           <tbody>
-            ${subjects.map((sub) => {
-              const attMap = {};
-              (sub.attendance || []).forEach((a) => {
-                const k = typeof a.date === "string" ? a.date.slice(0, 10) : toLocalDateKey(new Date(a.date));
-                attMap[k] = String(a.status || "").toLowerCase();
-              });
-              const pCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "present").length;
-              const aCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "absent").length;
-              const tot = (sub.attendance || []).length;
-
+            ${sortedDailyAttendance.length === 0 ? `
+              <tr>
+                <td colspan="5" style="padding: 12px; text-align: center; color: #94a3b8; border: 1px solid #cbd5e1;">
+                  No attendance records found for this period.
+                </td>
+              </tr>
+            ` : sortedDailyAttendance.map((item, idx) => {
+              const dt = new Date(`${typeof item.date === "string" ? item.date.slice(0, 10) : toLocalDateKey(new Date(item.date))}T00:00:00`);
+              const dateStr = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+              const dayStr = dt.toLocaleDateString("en-US", { weekday: "long" });
+              const st = String(item.status || "").toLowerCase();
+              const badgeClass = st === "present" || st === "short_leave" || st === "half_day" || st === "hd" || st === "late"
+                ? "badge-p"
+                : st === "absent"
+                ? "badge-a"
+                : st === "leave"
+                ? "badge-l"
+                : "badge-h";
+              const label = (st || "—").toUpperCase();
               return `
-                <tr>
-                  <td class="left" style="padding: 2.5px 6px;"><strong>${cleanSubjectName(sub.subjectName)}</strong></td>
-                  ${dateList.slice(0, 31).map((d) => {
-                    const st = attMap[d];
-                    if (st === "present") return `<td style="padding: 1px 0;"><span class="badge-p">P</span></td>`;
-                    if (st === "absent") return `<td style="padding: 1px 0;"><span class="badge-a">A</span></td>`;
-                    if (st === "leave" || st === "short_leave") return `<td style="padding: 1px 0;"><span class="badge-l">L</span></td>`;
-                    if (st === "holiday") return `<td style="padding: 1px 0;"><span class="badge-h">H</span></td>`;
-                    return `<td style="color: #cbd5e1; padding: 1px 0;">-</td>`;
-                  }).join("")}
-                  <td style="padding: 2.5px 2px;"><strong>${pCount}</strong></td>
-                  <td style="color: #dc2626; padding: 2.5px 2px;"><strong>${aCount}</strong></td>
-                  <td style="padding: 2.5px 2px;"><strong>${pCount}/${tot}</strong></td>
+                <tr style="background: ${idx % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+                  <td style="padding: 3px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${idx + 1}</td>
+                  <td style="padding: 3px 8px; border: 1px solid #cbd5e1; font-weight: 600;">${dateStr}</td>
+                  <td style="padding: 3px 8px; border: 1px solid #cbd5e1; color: #475569;">${dayStr}</td>
+                  <td style="padding: 3px 8px; border: 1px solid #cbd5e1; text-align: center;"><span class="${badgeClass}">${label}</span></td>
+                  <td style="padding: 3px 8px; border: 1px solid #cbd5e1; color: #64748b;">${item.remarks || item.note || item.notes || "—"}</td>
                 </tr>
               `;
             }).join("")}
@@ -853,7 +839,7 @@ export default function IndividualReportsTab({
                   <CircularProgressRing percentage={stats.percentage} size={50} strokeWidth={5} />
                   <div>
                     <div className="text-[11px] font-bold text-foreground leading-tight">Total Attendance</div>
-                    <div className="text-[10px] text-muted-foreground">(All Subjects)</div>
+                    <div className="text-[10px] text-muted-foreground">Attendance Rate</div>
                     <div className="text-[11px] font-semibold text-emerald-600 font-mono mt-0.5">
                       {stats.presentCount} / {stats.effectiveClasses}
                     </div>
@@ -864,211 +850,121 @@ export default function IndividualReportsTab({
           </Card>
 
           {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              3. FULL-WIDTH ATTENDANCE DETAILS & SUBJECT-WISE SUMMARY
+              3. DAILY ATTENDANCE HISTORY LOG
               ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-          <div className="w-full space-y-5">
-            {/* Card 1: Subject-wise Attendance Summary */}
-              <Card className="border border-border/80 shadow-xs rounded-xl overflow-hidden bg-card">
-                <CardHeader className="p-4 pb-2 border-b border-border/60">
+          <div className="w-full">
+            <Card className="border border-border/80 shadow-xs rounded-xl overflow-hidden bg-card">
+              <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between gap-3">
+                <div>
                   <CardTitle className="text-sm font-bold text-foreground">
-                    Subject-wise Attendance
+                    Daily Attendance Log
                   </CardTitle>
-                </CardHeader>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Individual student attendance history for the selected date range
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-background">
+                  <CalendarIcon className="w-3 h-3 text-muted-foreground" />
+                  <span>{dateRangeDisplay}</span>
+                </Badge>
+              </CardHeader>
 
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-muted/40 border-b border-border text-muted-foreground text-[11px]">
-                            <th className="py-2.5 px-3 text-left font-semibold">Subject</th>
-                            <th className="py-2.5 px-3 text-center font-semibold">Total Classes</th>
-                            <th className="py-2.5 px-3 text-center font-semibold">Present</th>
-                            <th className="py-2.5 px-3 text-center font-semibold">Absent</th>
-                            <th className="py-2.5 px-3 text-center font-semibold">Leave</th>
-                            <th className="py-2.5 px-3 text-center font-semibold">Holiday</th>
-                            <th className="py-2.5 px-3 text-left font-semibold min-w-[140px]">Attendance Count</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/60">
-                          {subjects.length === 0 ? (
-                            <tr>
-                              <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
-                                No subjects mapped for this class.
+              <CardContent className="p-0">
+                <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 z-10 bg-muted/50 backdrop-blur-xs">
+                      <tr className="border-b border-border text-muted-foreground text-[11px]">
+                        <th className="py-2.5 px-4 text-left font-semibold w-16">#</th>
+                        <th className="py-2.5 px-4 text-left font-semibold w-36">Date</th>
+                        <th className="py-2.5 px-4 text-left font-semibold w-32">Day</th>
+                        <th className="py-2.5 px-4 text-center font-semibold w-28">Status</th>
+                        <th className="py-2.5 px-4 text-left font-semibold">Remarks / Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {sortedDailyAttendance.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-10 text-center text-xs text-muted-foreground">
+                            No attendance records found for this student in the selected period.
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedDailyAttendance.map((item, idx) => {
+                          const dt = new Date(`${typeof item.date === "string" ? item.date.slice(0, 10) : toLocalDateKey(new Date(item.date))}T00:00:00`);
+                          const dateStr = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                          const dayStr = dt.toLocaleDateString("en-US", { weekday: "long" });
+                          const st = String(item.status || "").toLowerCase();
+
+                          let badgeElement = null;
+                          if (st === "present" || st === "short_leave" || st === "half_day" || st === "hd" || st === "late") {
+                            badgeElement = (
+                              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 hover:bg-emerald-100">
+                                Present
+                              </Badge>
+                            );
+                          } else if (st === "absent") {
+                            badgeElement = (
+                              <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border-rose-200 hover:bg-rose-100">
+                                Absent
+                              </Badge>
+                            );
+                          } else if (st === "leave") {
+                            badgeElement = (
+                              <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 hover:bg-amber-100">
+                                Leave
+                              </Badge>
+                            );
+                          } else if (st === "holiday") {
+                            badgeElement = (
+                              <Badge className="bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-200 hover:bg-slate-100">
+                                Holiday
+                              </Badge>
+                            );
+                          } else {
+                            badgeElement = (
+                              <span className="text-muted-foreground font-mono text-xs">-</span>
+                            );
+                          }
+
+                          return (
+                            <tr key={item._id || item.id || idx} className="hover:bg-muted/20 transition-colors">
+                              <td className="py-2.5 px-4 font-mono text-muted-foreground text-[11px]">{idx + 1}</td>
+                              <td className="py-2.5 px-4 font-semibold text-foreground">{dateStr}</td>
+                              <td className="py-2.5 px-4 text-muted-foreground">{dayStr}</td>
+                              <td className="py-2.5 px-4 text-center">{badgeElement}</td>
+                              <td className="py-2.5 px-4 text-muted-foreground">
+                                {item.remarks || item.note || item.notes || "—"}
                               </td>
                             </tr>
-                          ) : (
-                            subjects.map((sub, idx) => {
-                              const pCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "present").length;
-                              const aCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "absent").length;
-                              const lCount = (sub.attendance || []).filter((a) => {
-                                const st = String(a.status || "").toLowerCase();
-                                return st === "leave" || st === "short_leave";
-                              }).length;
-                              const hCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "holiday").length;
-                              const totalClasses = (sub.attendance || []).length;
-                              const effClasses = pCount + aCount + lCount;
-                              const pct = effClasses > 0 ? (pCount / effClasses) * 100 : 0;
-                              const dotColor = SUBJECT_COLORS[idx % SUBJECT_COLORS.length];
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-                              return (
-                                <tr key={sub.subjectId || idx} className="hover:bg-muted/20 transition-colors">
-                                  <td className="py-2.5 px-3 font-medium text-foreground">
-                                    <div className="flex items-center gap-2">
-                                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-                                      <span>{sub.subjectName}</span>
-                                    </div>
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-mono font-medium">{totalClasses}</td>
-                                  <td className="py-2.5 px-3 text-center font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                                    {pCount}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-mono font-semibold text-rose-600 dark:text-rose-400">
-                                    {aCount}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-mono font-medium text-amber-600 dark:text-amber-400">
-                                    {lCount}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{hCount}</td>
-                                  <td className="py-2.5 px-3">
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 bg-muted h-2 rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-emerald-600 dark:bg-emerald-500 rounded-full transition-all"
-                                          style={{ width: `${Math.min(100, pct)}%` }}
-                                        />
-                                      </div>
-                                      <span className="font-mono text-[11px] font-semibold text-foreground shrink-0 w-8 text-right">
-                                        {pCount}/{totalClasses}
-                                      </span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                </CardContent>
-              </Card>
-
-              {/* Card 2: Attendance Details (Subject-wise) Matrix Table (Matching Image 1 bottom-left) */}
-              <Card className="border border-border/80 shadow-xs rounded-xl overflow-hidden bg-card">
-                <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between gap-3">
-                  <CardTitle className="text-sm font-bold text-foreground">
-                    Attendance Details (Subject-wise)
-                  </CardTitle>
-                  <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-background">
-                    <CalendarIcon className="w-3 h-3 text-muted-foreground" />
-                    <span>{dateRangeDisplay}</span>
-                  </Badge>
-                </CardHeader>
-
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                    <table className="w-full text-[11px] border-collapse border border-border min-w-[650px]">
-                      <thead className="sticky top-0 z-10 bg-muted/50 backdrop-blur-xs">
-                        <tr className="text-muted-foreground text-[10px]">
-                          <th className="py-1 px-2.5 text-left font-bold text-foreground border border-border sticky left-0 bg-muted/95 backdrop-blur-xs z-20 w-32 sm:w-40 whitespace-nowrap text-[11px]">
-                            Subject
-                          </th>
-                          {dateList.map((d) => {
-                            const dt = new Date(`${d}T00:00:00`);
-                            const monthDay = dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                            const weekDay = dt.toLocaleDateString("en-US", { weekday: "short" });
-                            return (
-                              <th key={d} className="py-1 px-0.5 text-center font-semibold border border-border min-w-[28px]">
-                                <div className="text-[10px] text-foreground font-bold leading-tight">{monthDay}</div>
-                                <div className="text-[8.5px] text-muted-foreground uppercase font-medium leading-none">{weekDay}</div>
-                              </th>
-                            );
-                          })}
-                          <th className="py-1 px-2 text-center font-bold text-foreground border border-border w-16 text-[11px]">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {subjects.length === 0 ? (
-                          <tr>
-                            <td colSpan={dateList.length + 2} className="py-4 text-center text-muted-foreground text-xs border border-border">
-                              No attendance data recorded.
-                            </td>
-                          </tr>
-                        ) : (
-                          subjects.map((sub, idx) => {
-                            const cleanName = cleanSubjectName(sub.subjectName);
-                            const attMap = {};
-                            (sub.attendance || []).forEach((a) => {
-                              const k = typeof a.date === "string" ? a.date.slice(0, 10) : toLocalDateKey(new Date(a.date));
-                              attMap[k] = String(a.status || "").toLowerCase();
-                            });
-                            const pCount = (sub.attendance || []).filter((a) => String(a.status || "").toLowerCase() === "present").length;
-                            const tot = (sub.attendance || []).length;
-                            const dotColor = SUBJECT_COLORS[idx % SUBJECT_COLORS.length];
-
-                            return (
-                              <tr key={sub.subjectId || idx} className="hover:bg-muted/30 transition-colors">
-                                <td className="py-1 px-2.5 font-medium text-foreground text-[11px] border border-border sticky left-0 bg-card z-10 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-                                    <span>{cleanName}</span>
-                                  </div>
-                                </td>
-                                {dateList.map((d) => {
-                                  const st = attMap[d];
-                                  return (
-                                    <td key={d} className="py-0.5 px-0.5 text-center border border-border">
-                                      {st === "present" && (
-                                        <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-emerald-600 text-white font-bold text-[9px] shadow-2xs">
-                                          P
-                                        </span>
-                                      )}
-                                      {st === "absent" && (
-                                        <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-rose-600 text-white font-bold text-[9px] shadow-2xs">
-                                          A
-                                        </span>
-                                      )}
-                                      {(st === "leave" || st === "short_leave") && (
-                                        <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-amber-500 text-white font-bold text-[9px] shadow-2xs">
-                                          L
-                                        </span>
-                                      )}
-                                      {st === "holiday" && (
-                                        <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-slate-500 text-white font-bold text-[8.5px] shadow-2xs">
-                                          H
-                                        </span>
-                                      )}
-                                      {!st && <span className="text-muted-foreground/30 font-bold text-[10px]">-</span>}
-                                    </td>
-                                  );
-                                })}
-                                <td className="py-1 px-2 text-center font-mono font-bold text-foreground text-[11px] border border-border">
-                                  {pCount}/{tot}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
+                {/* Footer stats summary */}
+                <div className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Present: <strong className="text-foreground">{stats.presentCount}</strong>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
+                      Absent: <strong className="text-foreground">{stats.absentCount}</strong>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      Leave: <strong className="text-foreground">{stats.leaveCount}</strong>
+                    </span>
                   </div>
-
-                  {/* Legend matching Image 1 */}
-                  <div className="p-3 border-t border-border/60 bg-muted/10 flex items-center gap-4 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                      <span className="text-muted-foreground">Present</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                      <span className="text-muted-foreground">Absent</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                      <span className="text-muted-foreground">Leave</span>
-                    </div>
+                  <div>
+                    Total Records: <strong className="text-foreground">{sortedDailyAttendance.length}</strong>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </>
       )}

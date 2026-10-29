@@ -32,23 +32,12 @@ import {
   getSections,
   getAcademicSessions,
   getAttendanceReport,
-  getSubjectsForClassWithAssignments,
 } from "../../../config/apis";
 
 const extractId = (val) => {
   if (!val) return "";
   if (typeof val === "object") return String(val._id || val.id || "");
   return String(val);
-};
-
-const cleanSubjectName = (name) => {
-  if (!name) return "";
-  let clean = String(name).trim();
-  if (/^[A-Z0-9_-]+\s*-\s*(.+)$/i.test(clean)) {
-    clean = clean.replace(/^[A-Z0-9_-]+\s*-\s*/i, "");
-  }
-  clean = clean.replace(/\s*\([^)]*\)\s*$/, "").trim();
-  return clean || name;
 };
 
 /**
@@ -179,7 +168,6 @@ export default function MostAbsentReportTab({ onBack }) {
   const [selectedProgramIds, setSelectedProgramIds] = useState([]);
   const [selectedClassIds, setSelectedClassIds] = useState([]);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
-  const [selectedSubjectIds, setSelectedSubjectIds] = useState([]);
   const [minAbsenceFilter, setMinAbsenceFilter] = useState("all");
 
   // Fetch Academic Sessions
@@ -336,14 +324,6 @@ export default function MostAbsentReportTab({ onBack }) {
     }
   };
 
-  // Fetch subjects if single class selected, or dynamically collect from reports
-  const singleClassId = selectedClassIds.length === 1 ? selectedClassIds[0] : null;
-  const { data: classSubjects = [] } = useQuery({
-    queryKey: ["classSubjectsMostAbsent", singleClassId, reportSessionId],
-    queryFn: () => getSubjectsForClassWithAssignments(singleClassId, reportSessionId),
-    enabled: Boolean(singleClassId),
-  });
-
   // Query is ready once a Session is selected and at least one Program is chosen (or if user selects classes)
   const isFilterReady = Boolean(
     reportSessionId &&
@@ -390,29 +370,6 @@ export default function MostAbsentReportTab({ onBack }) {
     enabled: isFilterReady,
   });
 
-  // Dynamic Subject Options list
-  const subjectOptions = useMemo(() => {
-    const map = new Map();
-    classSubjects.forEach((s) => {
-      const sId = extractId(s);
-      const sName = cleanSubjectName(s.name || s.subjectName || s.code);
-      if (sId && sName && sName.toLowerCase() !== "general") {
-        map.set(sId, { value: sId, label: sName });
-      }
-    });
-
-    (rawReportData || []).forEach((st) => {
-      (st.subjects || []).forEach((sub) => {
-        const sId = extractId(sub.subjectId || sub.id);
-        const sName = cleanSubjectName(sub.subjectName);
-        if (sId && sName && sName.toLowerCase() !== "general" && !map.has(sId)) {
-          map.set(sId, { value: sId, label: sName });
-        }
-      });
-    });
-
-    return Array.from(map.values());
-  }, [classSubjects, rawReportData]);
 
   // Process and rank students by most absences
   const processedStudents = useMemo(() => {
@@ -442,28 +399,18 @@ export default function MostAbsentReportTab({ onBack }) {
         let leave = 0;
         let holiday = 0;
 
-        const subjectsToConsider =
-          selectedSubjectIds.length === 0
-            ? (student.subjects || []).filter(
-                (s) => s.subjectName && s.subjectName.toLowerCase() !== "general"
-              )
-            : (student.subjects || []).filter((s) =>
-                selectedSubjectIds.includes(String(s.subjectId || s.id))
-              );
-
-        subjectsToConsider.forEach((sub) => {
-          (sub.attendance || []).forEach((att) => {
-            const st = String(att.status || "").toLowerCase();
-            if (st === "present" || st === "short_leave" || st === "half_day" || st === "hd") {
-              present++;
-            } else if (st === "absent") {
-              absent++;
-            } else if (st === "leave") {
-              leave++;
-            } else if (st === "holiday") {
-              holiday++;
-            }
-          });
+        const attList = student.attendance || student.subjects?.[0]?.attendance || [];
+        attList.forEach((att) => {
+          const st = String(att.status || "").toLowerCase();
+          if (st === "present" || st === "short_leave" || st === "half_day" || st === "hd" || st === "late") {
+            present++;
+          } else if (st === "absent") {
+            absent++;
+          } else if (st === "leave") {
+            leave++;
+          } else if (st === "holiday") {
+            holiday++;
+          }
         });
 
         const totalClasses = present + absent + leave + holiday;
@@ -508,7 +455,6 @@ export default function MostAbsentReportTab({ onBack }) {
     availableClasses.length,
     selectedSectionIds,
     availableSections.length,
-    selectedSubjectIds,
   ]);
 
   // Threshold filter
@@ -523,7 +469,6 @@ export default function MostAbsentReportTab({ onBack }) {
     setSelectedProgramIds([]);
     setSelectedClassIds([]);
     setSelectedSectionIds([]);
-    setSelectedSubjectIds([]);
     setMinAbsenceFilter("all");
   };
 
@@ -574,14 +519,6 @@ export default function MostAbsentReportTab({ onBack }) {
         : availableSections
             .filter((s) => selectedSectionIds.includes(extractId(s)))
             .map((s) => s.name)
-            .join(", ");
-
-    const subjectLabels =
-      selectedSubjectIds.length === 0 || selectedSubjectIds.length === subjectOptions.length
-        ? "All Subjects (Cumulative)"
-        : subjectOptions
-            .filter((s) => selectedSubjectIds.includes(s.value))
-            .map((s) => s.label)
             .join(", ");
 
     const rowsHtml = filteredStudents
@@ -685,13 +622,9 @@ export default function MostAbsentReportTab({ onBack }) {
             </div>
           </div>
           <div class="form-row">
-            <div style="flex: 1.5; display: flex; align-items: baseline;">
+            <div style="flex: 2; display: flex; align-items: baseline;">
               <span class="field-label">Class &amp; Section:</span>
               <span class="field-line">${classLabels} – ${sectionLabels}</span>
-            </div>
-            <div style="flex: 1.5; display: flex; align-items: baseline;">
-              <span class="field-label">Subject Scope:</span>
-              <span class="field-line">${subjectLabels}</span>
             </div>
             <div style="flex: 1.5; display: flex; align-items: baseline;">
               <span class="field-label">Audit Criteria:</span>
@@ -794,7 +727,7 @@ export default function MostAbsentReportTab({ onBack }) {
       {/* Filter Controls Bar */}
       <Card className="border-border">
         <CardContent className="p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {/* 1. Academic Session */}
             <div className="space-y-1">
               <Label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
@@ -866,23 +799,6 @@ export default function MostAbsentReportTab({ onBack }) {
                 selected={selectedSectionIds}
                 onChange={setSelectedSectionIds}
                 disabled={sectionOptions.length === 0}
-              />
-            </div>
-
-            {/* 5. Subject (Checkbox Multi-Select) */}
-            <div className="space-y-1">
-              <Label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                <BookOpen className="w-3 h-3 text-primary" />
-                Subject (Optional)
-              </Label>
-              <CheckboxMultiSelect
-                title="Subjects"
-                placeholder="All Subjects (Combined)"
-                allLabel="All Subjects"
-                options={subjectOptions}
-                selected={selectedSubjectIds}
-                onChange={setSelectedSubjectIds}
-                disabled={subjectOptions.length === 0}
               />
             </div>
           </div>

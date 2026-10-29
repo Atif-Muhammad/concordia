@@ -59,17 +59,19 @@ export const StudentAttendanceTab = ({
         const student = reportData[0];
         let presentCount = 0, absentCount = 0, leaveCount = 0, shortLeaveCount = 0;
 
-        if (student && student.subjects) {
-            student.subjects.forEach(subject => {
-                subject.attendance?.forEach(a => {
-                    const status = String(a.status || "").toLowerCase();
-                    if (status === 'present') presentCount++;
-                    else if (status === 'absent') absentCount++;
-                    else if (status === 'leave') leaveCount++;
-                    else if (status === 'short_leave') shortLeaveCount++;
-                });
-            });
-        }
+        const attList = student?.attendance || student?.subjects?.[0]?.attendance || [];
+        attList.forEach(a => {
+            const status = String(a.status || "").toLowerCase();
+            if (status === 'present' || status === 'late' || status === 'half_day' || status === 'hd') {
+                presentCount++;
+            } else if (status === 'absent') {
+                absentCount++;
+            } else if (status === 'leave') {
+                leaveCount++;
+            } else if (status === 'short_leave') {
+                shortLeaveCount++;
+            }
+        });
 
         const totalClasses = presentCount + absentCount + leaveCount + shortLeaveCount;
         const percentage = totalClasses > 0 ? (((presentCount + shortLeaveCount) / totalClasses) * 100).toFixed(1) : 0;
@@ -296,7 +298,7 @@ export const StudentAttendanceTab = ({
 
             <div class="stats-strip">
               <div class="stat-item"><span class="stat-label">Total Days:</span> <span class="stat-val">${studentStats.totalDays}</span></div>
-              <div class="stat-item"><span class="stat-label">Classes Held:</span> <span class="stat-val">${studentStats.totalClasses}</span></div>
+              <div class="stat-item"><span class="stat-label">Days Recorded:</span> <span class="stat-val">${studentStats.totalClasses}</span></div>
               <div class="stat-item"><span class="stat-label">Present:</span> <span class="stat-val" style="color: #166534;">${studentStats.presentCount}</span></div>
               <div class="stat-item"><span class="stat-label">Absent:</span> <span class="stat-val" style="color: #991b1b;">${studentStats.absentCount}</span></div>
               <div class="stat-item"><span class="stat-label">Leave:</span> <span class="stat-val" style="color: #92400e;">${studentStats.leaveCount}</span></div>
@@ -451,7 +453,7 @@ export const StudentAttendanceTab = ({
                                 <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Absent Fine (Est.)</p>
                                     <p className="text-2xl font-bold text-rose-600">PKR {(studentStats.absentCount * 50).toLocaleString()}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">PKR 50/subject absentee</p>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">Absentee fine</p>
                                 </CardContent>
                             </Card>
                             <Card>
@@ -462,7 +464,7 @@ export const StudentAttendanceTab = ({
                             </Card>
                             <Card>
                                 <CardContent className="pt-6">
-                                    <p className="text-sm text-muted-foreground">Recorded Classes</p>
+                                    <p className="text-sm text-muted-foreground">Recorded Days</p>
                                     <p className="text-2xl font-bold">{studentStats.totalClasses}</p>
                                 </CardContent>
                             </Card>
@@ -478,7 +480,7 @@ export const StudentAttendanceTab = ({
                             <CardContent className="pt-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-medium">Status Distribution</p>
-                                    <p className="text-xs text-muted-foreground">Weighted by subject attendance entries</p>
+                                    <p className="text-xs text-muted-foreground">Weighted by daily attendance entries</p>
                                 </div>
                                 <div className="w-full h-4 rounded-full bg-muted overflow-hidden flex">
                                     {studentStats.totalClasses > 0 && (
@@ -499,7 +501,6 @@ export const StudentAttendanceTab = ({
                                     <TableRow>
                                         <TableHead className="sticky left-0 bg-background z-10 border-r">Roll No</TableHead>
                                         <TableHead className="sticky left-20 bg-background z-10 border-r min-w-[200px]">Student Name</TableHead>
-                                        <TableHead className="border-r min-w-[150px]">Subject</TableHead>
                                         {reportDates.map(date => {
                                             const dateObj = new Date(date);
                                             return (
@@ -519,55 +520,47 @@ export const StudentAttendanceTab = ({
                                 </TableHeader>
                                 <TableBody>
                                     {reportData.map(student => {
-                                        const subjects = student.subjects?.length > 0
-                                            ? student.subjects
-                                            : [{ subjectId: 'general', subjectName: 'General', attendance: [] }];
-
-                                        return subjects.map((subject, index) => {
-                                            const isFirstRow = index === 0;
-                                            const attendanceMap = {};
-                                            (subject.attendance || []).forEach(att => {
-                                                const dateKey = typeof att.date === "string" && att.date.length >= 10
-                                                    ? att.date.slice(0, 10)
-                                                    : new Date(att.date).toISOString().slice(0, 10);
-                                                attendanceMap[dateKey] = att.status;
-                                            });
-
-                                            const present = (subject.attendance || []).filter(a => String(a.status || "").toLowerCase() === 'present').length;
-                                            const absent = (subject.attendance || []).filter(a => String(a.status || "").toLowerCase() === 'absent').length;
-                                            const leave = (subject.attendance || []).filter(a => String(a.status || "").toLowerCase() === 'leave').length;
-
-                                            return (
-                                                <TableRow key={`${student.id || student._id}-${subject.subjectId}`} className="hover:bg-muted/30">
-                                                    {isFirstRow && (
-                                                        <>
-                                                            <TableCell rowSpan={subjects.length} className="font-medium sticky left-0 bg-background border-r align-top pt-4">
-                                                                {student.rollNumber}
-                                                            </TableCell>
-                                                            <TableCell rowSpan={subjects.length} className="sticky left-20 bg-background border-r align-top pt-4">
-                                                                {student.name}
-                                                            </TableCell>
-                                                        </>
-                                                    )}
-                                                    <TableCell className="border-r font-medium text-sm">{subject.subjectName}</TableCell>
-                                                    {reportDates.map(date => {
-                                                        const status = attendanceMap[date];
-                                                        return (
-                                                            <TableCell key={date} className="text-center border-r p-2">
-                                                                {String(status || "").toLowerCase() === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
-                                                                {String(status || "").toLowerCase() === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
-                                                                {String(status || "").toLowerCase() === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
-                                                                {String(status || "").toLowerCase() === 'short_leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-blue-50 text-blue-700 font-semibold text-[10px]">SL</span>}
-                                                                {!status && <span className="text-gray-300">-</span>}
-                                                            </TableCell>
-                                                        );
-                                                    })}
-                                                    <TableCell className="text-center font-semibold text-green-700 bg-green-50/50 border-r">{present}</TableCell>
-                                                    <TableCell className="text-center font-semibold text-red-700 bg-red-50/50 border-r">{absent}</TableCell>
-                                                    <TableCell className="text-center font-semibold text-amber-700 bg-amber-50/50">{leave}</TableCell>
-                                                </TableRow>
-                                            );
+                                        const records = student.attendance || student.subjects?.[0]?.attendance || [];
+                                        const attendanceMap = {};
+                                        records.forEach(att => {
+                                            const dateKey = typeof att.date === "string" && att.date.length >= 10
+                                                ? att.date.slice(0, 10)
+                                                : new Date(att.date).toISOString().slice(0, 10);
+                                            attendanceMap[dateKey] = att.status;
                                         });
+
+                                        const present = records.filter(a => ['present', 'late', 'half_day', 'hd'].includes(String(a.status || "").toLowerCase())).length;
+                                        const absent = records.filter(a => String(a.status || "").toLowerCase() === 'absent').length;
+                                        const leave = records.filter(a => ['leave', 'short_leave'].includes(String(a.status || "").toLowerCase())).length;
+
+                                        return (
+                                            <TableRow key={student.id || student._id} className="hover:bg-muted/30">
+                                                <TableCell className="font-medium sticky left-0 bg-background border-r">
+                                                    {student.rollNumber}
+                                                </TableCell>
+                                                <TableCell className="sticky left-20 bg-background border-r">
+                                                    {student.name || `${student.fName || ''} ${student.lName || ''}`.trim()}
+                                                </TableCell>
+                                                {reportDates.map(date => {
+                                                    const status = attendanceMap[date];
+                                                    const st = String(status || "").toLowerCase();
+                                                    return (
+                                                        <TableCell key={date} className="text-center border-r p-2">
+                                                            {st === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
+                                                            {st === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
+                                                            {st === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
+                                                            {st === 'short_leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-blue-50 text-blue-700 font-semibold text-[10px]">SL</span>}
+                                                            {(st === 'late' || st === 'half_day' || st === 'hd') && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-blue-50 text-blue-700 font-semibold text-[10px]">L</span>}
+                                                            {st === 'holiday' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-slate-100 text-slate-700 font-semibold text-xs">H</span>}
+                                                            {!status && <span className="text-gray-300">-</span>}
+                                                        </TableCell>
+                                                    );
+                                                })}
+                                                <TableCell className="text-center font-semibold text-green-700 bg-green-50/50 border-r">{present}</TableCell>
+                                                <TableCell className="text-center font-semibold text-red-700 bg-red-50/50 border-r">{absent}</TableCell>
+                                                <TableCell className="text-center font-semibold text-amber-700 bg-amber-50/50">{leave}</TableCell>
+                                            </TableRow>
+                                        );
                                     })}
                                 </TableBody>
                             </Table>

@@ -396,11 +396,6 @@ export default function TeacherDashboard() {
                     <CalendarDays className="w-3.5 h-3.5 text-primary" /> Leave Applications
                   </Link>
                 </Button>
-                <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium border-primary/40 hover:bg-primary/10 text-foreground">
-                  <Link to="/teacher/attendance">
-                    <Calendar className="w-3.5 h-3.5 text-primary" /> Mark Attendance
-                  </Link>
-                </Button>
                 <Button
                   asChild
                   size="sm"
@@ -734,8 +729,8 @@ export default function TeacherDashboard() {
 
                           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                             <Button asChild size="sm" variant="ghost" className="h-8 px-2.5 text-xs font-medium hover:bg-primary/10 hover:text-primary">
-                              <Link to={attendanceUrl} state={{ classId, sectionId, subjectId: firstSubId }}>
-                                Attendance <ArrowRight className="w-3.5 h-3.5 ml-1 text-primary" />
+                              <Link to="/teacher/students">
+                                Students <ArrowRight className="w-3.5 h-3.5 ml-1 text-primary" />
                               </Link>
                             </Button>
                           </div>

@@ -98,7 +98,6 @@ export const StudentProfileDialog = ({
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [selectedAttendanceScope, setSelectedAttendanceScope] = useState("all");
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState("all");
-  const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("all");
   const [attendanceMonthFilter, setAttendanceMonthFilter] = useState("all");
   const [selectedResultsScope, setSelectedResultsScope] = useState("all");
   const [resultsExamTypeFilter, setResultsExamTypeFilter] = useState("all");
@@ -728,23 +727,6 @@ export const StudentProfileDialog = ({
       .sort((a, b) => b.value.localeCompare(a.value));
   }, [studentAttendance]);
 
-  // Available Subjects for Attendance
-  const availableAttendanceSubjects = useMemo(() => {
-    const map = new Map();
-    (studentAttendance || []).forEach((r) => {
-      const sId = (r.subject?._id || r.subject?.id || r.subjectId)?.toString();
-      const sName =
-        r.subject?.name ||
-        (typeof r.subject === "string" && r.subject.length > 0 ? r.subject : "");
-      if (sId && sName && !map.has(sId)) {
-        map.set(sId, sName);
-      } else if (sName && !map.has(sName)) {
-        map.set(sName, sName);
-      }
-    });
-    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
-  }, [studentAttendance]);
-
   // Filtered Attendance List
   const filteredAttendance = useMemo(() => {
     let list = Array.isArray(studentAttendance) ? studentAttendance : [];
@@ -774,19 +756,6 @@ export const StudentProfileDialog = ({
       );
     }
 
-    // Filter by subject
-    if (attendanceSubjectFilter !== "all") {
-      list = list.filter((r) => {
-        const sId = (r.subject?._id || r.subject?.id || r.subjectId)?.toString();
-        const sName =
-          r.subject?.name || (typeof r.subject === "string" ? r.subject : "");
-        return (
-          sId === attendanceSubjectFilter ||
-          sName.toLowerCase() === attendanceSubjectFilter.toLowerCase()
-        );
-      });
-    }
-
     // Filter by month (YYYY-MM)
     if (attendanceMonthFilter !== "all") {
       list = list.filter((r) => {
@@ -798,12 +767,15 @@ export const StudentProfileDialog = ({
       });
     }
 
-    return list;
+    return [...list].sort((a, b) => {
+      const da = typeof a.date === "string" ? a.date.slice(0, 10) : "";
+      const db = typeof b.date === "string" ? b.date.slice(0, 10) : "";
+      return da.localeCompare(db);
+    });
   }, [
     studentAttendance,
     selectedAttendanceScope,
     attendanceStatusFilter,
-    attendanceSubjectFilter,
     attendanceMonthFilter,
     academicTimelineOptions,
   ]);
@@ -824,41 +796,6 @@ export const StudentProfileDialog = ({
     });
     const rate = total > 0 ? Math.round((present / total) * 100) : 0;
     return { total, present, absent, late, leave, rate };
-  }, [filteredAttendance]);
-
-  // Subject-wise Breakdown
-  const subjectWiseAttendance = useMemo(() => {
-    const groups = {};
-    filteredAttendance.forEach((r) => {
-      const sName =
-        r.subject?.name ||
-        (typeof r.subject === "string" && r.subject.length > 0
-          ? r.subject
-          : "General / Homeroom");
-      if (!groups[sName]) {
-        groups[sName] = {
-          subject: sName,
-          total: 0,
-          present: 0,
-          absent: 0,
-          late: 0,
-          leave: 0,
-        };
-      }
-      groups[sName].total++;
-      const st = (r.status || "").toUpperCase();
-      if (st === "PRESENT") groups[sName].present++;
-      else if (st === "ABSENT") groups[sName].absent++;
-      else if (st === "LATE") groups[sName].late++;
-      else if (st === "LEAVE" || st === "HD" || st === "SHORT_LEAVE")
-        groups[sName].leave++;
-    });
-    return Object.values(groups)
-      .map((g) => ({
-        ...g,
-        rate: g.total > 0 ? Math.round((g.present / g.total) * 100) : 0,
-      }))
-      .sort((a, b) => b.total - a.total);
   }, [filteredAttendance]);
 
   // Monthly Breakdown
@@ -948,52 +885,10 @@ export const StudentProfileDialog = ({
     const activeScopeObj = academicTimelineOptions.find((o) => o.key === selectedAttendanceScope);
     const scopeText = activeScopeObj?.label || "All Academic Sessions";
 
-    let subjectRowsHtml = "";
-    if (subjectWiseAttendance.length > 0) {
-      subjectRowsHtml = `
-        <div style="margin-top: 16px;">
-          <h3 style="font-size: 13px; text-transform: uppercase; font-weight: 700; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin-bottom: 8px;">Subject-wise Summary</h3>
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11px;">
-            <thead>
-              <tr style="background-color: #f1f5f9;">
-                <th style="padding: 6px; text-align: left; border: 1px solid #cbd5e1;">Subject</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Held</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Present</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Absent</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Late</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Leave</th>
-                <th style="padding: 6px; text-align: center; border: 1px solid #cbd5e1;">Rate %</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${subjectWiseAttendance
-                .map(
-                  (s) => `
-                <tr>
-                  <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: 600;">${s.subject}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0;">${s.total}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; color: #16a34a; font-weight: 600;">${s.present}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; color: #dc2626; font-weight: 600;">${s.absent}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; color: #d97706;">${s.late}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; color: #2563eb;">${s.leave}</td>
-                  <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; font-weight: bold; ${
-                    s.rate >= 75 ? "color: #16a34a;" : s.rate >= 60 ? "color: #d97706;" : "color: #dc2626;"
-                  }">${s.rate}%</td>
-                </tr>
-              `
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      `;
-    }
-
     const logRowsHtml = filteredAttendance
       .map((r, idx) => {
         const dStr = safeFormatDate(r.date, "dd MMM yyyy");
         const dayStr = r.date ? format(new Date(r.date), "EEEE") : "";
-        const sName = r.subject?.name || (typeof r.subject === "string" ? r.subject : "—");
         const cName = r.class?.name || "—";
         const st = (r.status || "").toUpperCase();
         const stColor =
@@ -1009,7 +904,6 @@ export const StudentProfileDialog = ({
           <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0;">${idx + 1}</td>
           <td style="padding: 6px; border: 1px solid #e2e8f0;">${dStr} <span style="color: #64748b; font-size: 10px;">(${dayStr})</span></td>
           <td style="padding: 6px; border: 1px solid #e2e8f0;">${cName}</td>
-          <td style="padding: 6px; border: 1px solid #e2e8f0;">${sName}</td>
           <td style="padding: 6px; text-align: center; border: 1px solid #e2e8f0; font-weight: bold; color: ${stColor};">${st}</td>
           <td style="padding: 6px; border: 1px solid #e2e8f0; font-size: 10px; color: #475569;">${r.notes || r.reason || r.leaveType || "—"}</td>
         </tr>
@@ -1086,8 +980,6 @@ export const StudentProfileDialog = ({
           </div>
         </div>
 
-        ${subjectRowsHtml}
-
         <h3 style="font-size: 13px; text-transform: uppercase; font-weight: 700; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin-bottom: 8px;">Attendance History Log</h3>
         <table>
           <thead>
@@ -1095,13 +987,12 @@ export const StudentProfileDialog = ({
               <th style="width: 25px;">#</th>
               <th>Date & Day</th>
               <th>Class</th>
-              <th>Subject</th>
               <th>Status</th>
               <th>Notes / Remarks</th>
             </tr>
           </thead>
           <tbody>
-            ${logRowsHtml || '<tr><td colspan="6" style="text-align:center; padding: 12px; color:#64748b;">No attendance records found for this scope.</td></tr>'}
+            ${logRowsHtml || '<tr><td colspan="5" style="text-align:center; padding: 12px; color:#64748b;">No attendance records found for this scope.</td></tr>'}
           </tbody>
         </table>
 
@@ -1161,7 +1052,11 @@ export const StudentProfileDialog = ({
       );
     }
 
-    return list;
+    return [...list].sort((a, b) => {
+      const da = typeof a.date === "string" ? a.date.slice(0, 10) : "";
+      const db = typeof b.date === "string" ? b.date.slice(0, 10) : "";
+      return da.localeCompare(db);
+    });
   }, [
     studentResults,
     selectedResultsScope,
@@ -2375,31 +2270,6 @@ export const StudentProfileDialog = ({
                           </Select>
                         </div>
 
-                        {/* Subject Filter (if multiple subjects exist) */}
-                        {availableAttendanceSubjects.length > 1 && (
-                          <div className="w-[160px]">
-                            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
-                              Subject
-                            </Label>
-                            <Select
-                              value={attendanceSubjectFilter}
-                              onValueChange={setAttendanceSubjectFilter}
-                            >
-                              <SelectTrigger className="h-9 bg-background">
-                                <SelectValue placeholder="All Subjects" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">All Subjects</SelectItem>
-                                {availableAttendanceSubjects.map((sub) => (
-                                  <SelectItem key={sub.value} value={sub.value}>
-                                    {sub.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-
                         {/* Month Filter */}
                         {availableAttendanceMonths.length > 1 && (
                           <div className="w-[130px]">
@@ -2429,7 +2299,6 @@ export const StudentProfileDialog = ({
                       {/* Right Action buttons: Reset & Print */}
                       <div className="flex items-center gap-2 self-end">
                         {(attendanceStatusFilter !== "all" ||
-                          attendanceSubjectFilter !== "all" ||
                           attendanceMonthFilter !== "all" ||
                           selectedAttendanceScope !== "all") && (
                           <Button
@@ -2439,7 +2308,6 @@ export const StudentProfileDialog = ({
                             onClick={() => {
                               setSelectedAttendanceScope("all");
                               setAttendanceStatusFilter("all");
-                              setAttendanceSubjectFilter("all");
                               setAttendanceMonthFilter("all");
                             }}
                           >
@@ -2565,73 +2433,6 @@ export const StudentProfileDialog = ({
                   </CardContent>
                 </Card>
 
-                {/* Subject-Wise Attendance Breakdown */}
-                {subjectWiseAttendance.length > 0 && (
-                  <Card className="border shadow-2xs">
-                    <CardHeader className="py-3 px-4 border-b bg-muted/20">
-                      <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                        <BookOpen className="w-4 h-4 text-primary" /> Subject-wise Attendance Breakdown
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40">
-                            <TableHead className="py-2.5 px-4 font-semibold text-xs">Subject</TableHead>
-                            <TableHead className="py-2.5 px-3 font-semibold text-xs text-center">Classes Held</TableHead>
-                            <TableHead className="py-2.5 px-3 font-semibold text-xs text-center text-emerald-600">Present</TableHead>
-                            <TableHead className="py-2.5 px-3 font-semibold text-xs text-center text-rose-600">Absent</TableHead>
-                            <TableHead className="py-2.5 px-3 font-semibold text-xs text-center text-amber-600">Late</TableHead>
-                            <TableHead className="py-2.5 px-3 font-semibold text-xs text-center text-sky-600">Leave</TableHead>
-                            <TableHead className="py-2.5 px-4 font-semibold text-xs text-right">Attendance Rate</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {subjectWiseAttendance.map((sub, idx) => (
-                            <TableRow key={idx} className="hover:bg-muted/30">
-                              <TableCell className="py-2.5 px-4 font-medium text-sm">
-                                {sub.subject}
-                              </TableCell>
-                              <TableCell className="py-2.5 px-3 text-center text-sm font-semibold">{sub.total}</TableCell>
-                              <TableCell className="py-2.5 px-3 text-center text-sm font-semibold text-emerald-600">{sub.present}</TableCell>
-                              <TableCell className="py-2.5 px-3 text-center text-sm font-semibold text-rose-600">{sub.absent}</TableCell>
-                              <TableCell className="py-2.5 px-3 text-center text-sm font-semibold text-amber-600">{sub.late}</TableCell>
-                              <TableCell className="py-2.5 px-3 text-center text-sm font-semibold text-sky-600">{sub.leave}</TableCell>
-                              <TableCell className="py-2.5 px-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <div className="w-16 bg-muted rounded-full h-2 hidden sm:block">
-                                    <div
-                                      className={`h-2 rounded-full ${
-                                        sub.rate >= 75
-                                          ? "bg-emerald-500"
-                                          : sub.rate >= 60
-                                          ? "bg-amber-500"
-                                          : "bg-rose-500"
-                                      }`}
-                                      style={{ width: `${Math.min(sub.rate, 100)}%` }}
-                                    />
-                                  </div>
-                                  <Badge
-                                    className={`font-semibold ${
-                                      sub.rate >= 75
-                                        ? "bg-emerald-600 text-white"
-                                        : sub.rate >= 60
-                                        ? "bg-amber-500 text-white"
-                                        : "bg-rose-600 text-white"
-                                    }`}
-                                  >
-                                    {sub.rate}%
-                                  </Badge>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                )}
-
                 {/* Monthly History Cards */}
                 {monthlyAttendance.length > 0 && (
                   <Card className="border shadow-2xs">
@@ -2704,7 +2505,6 @@ export const StudentProfileDialog = ({
                             <TableHead className="py-2 px-3 text-xs w-[120px]">Date</TableHead>
                             <TableHead className="py-2 px-3 text-xs w-[90px]">Day</TableHead>
                             <TableHead className="py-2 px-3 text-xs">Class / Section</TableHead>
-                            <TableHead className="py-2 px-3 text-xs">Subject</TableHead>
                             <TableHead className="py-2 px-3 text-xs w-[120px] text-center">Status</TableHead>
                             <TableHead className="py-2 px-3 text-xs">Notes / Details</TableHead>
                           </TableRow>
@@ -2715,7 +2515,6 @@ export const StudentProfileDialog = ({
                             const dayName = dObj && !isNaN(dObj.getTime()) ? format(dObj, "EEEE") : "—";
                             const cName = rec.class?.name || (typeof rec.class === "string" ? rec.class : "—");
                             const secName = rec.section?.name || "";
-                            const sName = rec.subject?.name || (typeof rec.subject === "string" ? rec.subject : "—");
                             return (
                               <TableRow key={rec.id || idx} className="hover:bg-muted/30">
                                 <TableCell className="py-2 px-3 text-xs font-semibold">
@@ -2726,9 +2525,6 @@ export const StudentProfileDialog = ({
                                 </TableCell>
                                 <TableCell className="py-2 px-3 text-xs">
                                   {cName}{secName ? ` • ${secName}` : ""}
-                                </TableCell>
-                                <TableCell className="py-2 px-3 text-xs font-medium text-foreground">
-                                  {sName}
                                 </TableCell>
                                 <TableCell className="py-2 px-3 text-center">
                                   {getAttendanceBadge(rec.status)}

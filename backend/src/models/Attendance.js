@@ -27,6 +27,9 @@ const AttendanceSchema = new mongoose.Schema({
   markedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+AttendanceSchema.index({ studentId: 1, date: 1, role: 1 });
+AttendanceSchema.index({ classId: 1, sectionId: 1, date: 1, role: 1 });
+
 AttendanceSchema.virtual('id').get(function () {
   return this._id.toHexString();
 });

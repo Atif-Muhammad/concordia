@@ -1262,9 +1262,7 @@ export default function MissingAttendanceReportTab({ onBack }) {
               <TableHeader className="bg-muted/50">
                 <TableRow>
                   <TableHead className="w-16 font-bold text-xs">#</TableHead>
-                  <TableHead className="font-bold text-xs">Roll Number</TableHead>
-                  <TableHead className="font-bold text-xs">Student Name</TableHead>
-                  <TableHead className="font-bold text-xs">Father Name</TableHead>
+                  <TableHead className="font-bold text-xs min-w-[190px]">Student Info</TableHead>
                   <TableHead className="font-bold text-xs">Status</TableHead>
                   <TableHead className="font-bold text-xs">Recorded At</TableHead>
                   <TableHead className="font-bold text-xs">Marked By</TableHead>
@@ -1277,9 +1275,7 @@ export default function MissingAttendanceReportTab({ onBack }) {
                   Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell><Skeleton className="h-4 w-6" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-40" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
@@ -1290,7 +1286,7 @@ export default function MissingAttendanceReportTab({ onBack }) {
 
                 {!isLoadingStudents && filteredStudents.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground text-xs">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground text-xs">
                       No student records match the active search or status filter.
                     </TableCell>
                   </TableRow>
@@ -1308,14 +1304,20 @@ export default function MissingAttendanceReportTab({ onBack }) {
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {idx + 1}
                       </TableCell>
-                      <TableCell className="font-mono font-semibold text-xs text-foreground">
-                        {st.rollNumber || "—"}
-                      </TableCell>
-                      <TableCell className="font-semibold text-xs text-foreground">
-                        {st.studentName}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {st.fatherName || "—"}
+                      <TableCell className="min-w-[190px]">
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold text-xs text-foreground leading-tight truncate">
+                            {st.studentName}
+                          </span>
+                          <div className="text-[10px] text-muted-foreground leading-tight truncate mt-0.5 flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-foreground/80 bg-muted px-1.5 py-0.5 rounded border border-border/50 text-[9px] shrink-0">
+                              #{st.rollNumber || "—"}
+                            </span>
+                            <span className="truncate">
+                              S/D of {st.fatherName || "—"}
+                            </span>
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         {isMissing ? (

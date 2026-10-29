@@ -751,14 +751,14 @@ export default function AttendanceReportsTab({ onBack }) {
 
         return `
           <tr style="background: ${idx % 2 === 0 ? "#ffffff" : "#f8fafc"};">
-            <td style="padding: 3px 4px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: 700; font-size: 9px; color: #0f172a; white-space: nowrap;">
-              ${student.rollNumber || "—"}
-            </td>
-            <td style="padding: 3px 5px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 9px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${studentName}
-            </td>
-            <td style="padding: 3px 5px; border: 1px solid #cbd5e1; font-size: 8.5px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${fatherName}
+            <td style="padding: 2.5px 5px; border: 1px solid #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <div style="font-weight: 700; font-size: 9.5px; color: #0f172a; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${studentName}
+              </div>
+              <div style="font-size: 8px; color: #64748b; line-height: 1.15; margin-top: 1.5px; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                <span style="font-family: monospace; font-weight: 700; font-size: 8px; color: #1e293b; background: #f1f5f9; padding: 0.5px 3px; border: 1px solid #cbd5e1; border-radius: 2px;">#${student.rollNumber || "—"}</span>
+                <span>S/D of ${fatherName}</span>
+              </div>
             </td>
             ${cellsHtml}
             <td style="padding: 2px 2px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700; font-family: monospace; font-size: 9px; color: #166534;">
@@ -866,9 +866,7 @@ export default function AttendanceReportsTab({ onBack }) {
         <table class="report-table" style="width: 100%; border-collapse: collapse; margin-top: 4px;">
           <thead>
             <tr>
-              <th style="width: 45px; text-align: left; padding: 3px 4px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">Roll #</th>
-              <th style="width: 125px; text-align: left; padding: 3px 5px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">Student Name</th>
-              <th style="width: 110px; text-align: left; padding: 3px 5px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">Father Name</th>
+              <th style="width: 175px; text-align: left; padding: 3px 5px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #475569;">Student Info</th>
               ${dayHeadersHtml}
               <th style="width: 26px; text-align: center; padding: 3px 2px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #166534;">P</th>
               <th style="width: 26px; text-align: center; padding: 3px 2px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 9px; font-weight: 700; color: #dc2626;">A</th>
@@ -1313,14 +1311,8 @@ export default function AttendanceReportsTab({ onBack }) {
               <table className="w-full text-[11px] border-collapse border-b border-border">
                 <thead>
                   <tr className="bg-muted/50 text-muted-foreground text-[10px] border-b border-border sticky top-0 z-30">
-                    <th className="py-2 px-2.5 text-left font-bold text-foreground border-r border-border sticky left-0 bg-muted/95 backdrop-blur-xs z-30 w-16 whitespace-nowrap text-[11px]">
-                      Roll #
-                    </th>
-                    <th className="py-2 px-2.5 text-left font-bold text-foreground border-r border-border sticky left-16 bg-muted/95 backdrop-blur-xs z-30 min-w-[140px] whitespace-nowrap text-[11px]">
-                      Student Name
-                    </th>
-                    <th className="py-2 px-2.5 text-left font-bold text-foreground border-r border-border min-w-[120px] whitespace-nowrap text-[11px]">
-                      Father Name
+                    <th className="py-2 px-2.5 text-left font-bold text-foreground border-r border-border sticky left-0 bg-muted/95 backdrop-blur-xs z-30 min-w-[190px] max-w-[240px] whitespace-nowrap text-[11px]">
+                      Student Info
                     </th>
                     {dateList.map((d) => {
                       const dt = new Date(`${d}T00:00:00`);
@@ -1362,14 +1354,14 @@ export default function AttendanceReportsTab({ onBack }) {
                   {isFetchingReport ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <tr key={`skel-${i}`} className="border-b border-border/70">
-                        <td colSpan={dateList.length + 8} className="p-3">
+                        <td colSpan={dateList.length + 6} className="p-3">
                           <Skeleton className="h-5 w-full" />
                         </td>
                       </tr>
                     ))
                   ) : pagedStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={dateList.length + 8} className="py-12 text-center text-xs text-muted-foreground">
+                      <td colSpan={dateList.length + 6} className="py-12 text-center text-xs text-muted-foreground">
                         {reportData.length === 0
                           ? "No attendance records found for this class and date range."
                           : "No students matching your search query."}
@@ -1402,14 +1394,20 @@ export default function AttendanceReportsTab({ onBack }) {
                           key={sId}
                           className="border-b border-border/70 hover:bg-muted/40 transition-colors"
                         >
-                          <td className="py-1.5 px-2.5 font-mono font-bold text-foreground text-[11px] border-r border-border sticky left-0 bg-card z-10 whitespace-nowrap">
-                            {student.rollNumber || "—"}
-                          </td>
-                          <td className="py-1.5 px-2.5 font-semibold text-foreground text-[11px] border-r border-border sticky left-16 bg-card z-10 whitespace-nowrap truncate max-w-[180px]">
-                            {studentName}
-                          </td>
-                          <td className="py-1.5 px-2.5 text-muted-foreground text-[11px] border-r border-border whitespace-nowrap truncate max-w-[150px]">
-                            {fatherName}
+                          <td className="py-1.5 px-2.5 border-r border-border sticky left-0 bg-card z-10 min-w-[190px] max-w-[240px]">
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-semibold text-foreground text-[11.5px] leading-tight truncate">
+                                {studentName}
+                              </span>
+                              <div className="text-[9.5px] text-muted-foreground leading-tight truncate mt-0.5 flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-foreground/80 bg-muted px-1.5 py-0.5 rounded border border-border/50 text-[9px] shrink-0">
+                                  #{student.rollNumber || "—"}
+                                </span>
+                                <span className="truncate">
+                                  S/D of {fatherName}
+                                </span>
+                              </div>
+                            </div>
                           </td>
 
                           {dateList.map((d) => {

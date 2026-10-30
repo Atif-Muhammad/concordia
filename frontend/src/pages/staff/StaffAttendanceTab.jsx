@@ -111,6 +111,8 @@ export default function StaffAttendanceTab() {
 
     const isAttendanceGenerated = attendanceData.length > 0;
 
+    const getRowStaffId = (r) => String(r?.staff?._id || r?.staff?.id || r?.staffId || "");
+
     const visibleAttendanceRows = useMemo(() => {
         const scoped = attendanceDraftRows.filter((record) => {
             if (attendanceRoleFilter === "all") return true;
@@ -131,17 +133,13 @@ export default function StaffAttendanceTab() {
         };
 
         for (const row of scoped) {
-            const sid = Number(row?.staff?.id ?? row?.staffId);
-            if (!Number.isFinite(sid)) continue;
+            const sid = getRowStaffId(row);
+            if (!sid) continue;
             const prev = byStaff.get(sid);
             if (!prev || score(row) > score(prev)) byStaff.set(sid, row);
         }
 
-        const deduped = Array.from(byStaff.values());
-        const hasAttendance = deduped.some((r) => r?.id || r?.generatedAt || r?.markedAt);
-        return hasAttendance
-            ? deduped.filter((r) => r?.id || r?.generatedAt || r?.markedAt)
-            : deduped;
+        return Array.from(byStaff.values());
     }, [attendanceDraftRows, attendanceRoleFilter]);
 
     const isFutureDate = useMemo(() => {
@@ -155,6 +153,8 @@ export default function StaffAttendanceTab() {
         onSuccess: async () => {
             toast({ title: "Success", description: "Attendance saved successfully" });
             await queryClient.invalidateQueries({ queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter] });
+            await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+            await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
             await refetchAttendance();
         },
         onError: (error) => {
@@ -163,7 +163,7 @@ export default function StaffAttendanceTab() {
     });
 
     const handleAttendanceStatusChange = async (record, val) => {
-        const staffId = record.staff?.id ?? record.staffId;
+        const staffId = getRowStaffId(record);
         if (!staffId) return;
 
         if (val === "UNMARKED") {
@@ -172,7 +172,7 @@ export default function StaffAttendanceTab() {
                     await deleteStaffAttendanceRecord({ staffId, date: attendanceDateStr, attendanceId: record.id });
                     setAttendanceDraftRows((prev) =>
                         prev.map((r) =>
-                            (r.staff?.id ?? r.staffId) === staffId
+                            getRowStaffId(r) === staffId
                                 ? { ...r, id: undefined, status: null, leaveType: null, notes: "", markedAt: null, markedBy: null, admin: null }
                                 : r
                         )
@@ -189,7 +189,7 @@ export default function StaffAttendanceTab() {
 
             setAttendanceDraftRows((prev) =>
                 prev.map((r) =>
-                    (r.staff?.id ?? r.staffId) === staffId
+                    getRowStaffId(r) === staffId
                         ? { ...r, status: null, leaveType: null, notes: "" }
                         : r
                 )
@@ -200,7 +200,7 @@ export default function StaffAttendanceTab() {
         const upperVal = String(val).toUpperCase();
         setAttendanceDraftRows((prev) =>
             prev.map((r) => {
-                if ((r.staff?.id ?? r.staffId) !== staffId) return r;
+                if (getRowStaffId(r) !== staffId) return r;
                 return {
                     ...r,
                     status: upperVal,
@@ -214,7 +214,7 @@ export default function StaffAttendanceTab() {
         const records = attendanceDraftRows
             .filter((r) => r.status)
             .map((r) => ({
-                staffId: r.staff?.id ?? r.staffId,
+                staffId: getRowStaffId(r),
                 status: r.status,
                 leaveType: r.status === "LEAVE" ? (r.leaveType || "CASUAL") : undefined,
                 notes: r.notes || "",
@@ -227,6 +227,7 @@ export default function StaffAttendanceTab() {
 
         saveAttendanceMutation.mutate({
             date: attendanceDateStr,
+            rows: records,
             records,
             role: attendanceRoleFilter !== "all" ? attendanceRoleFilter : undefined,
         });
@@ -260,6 +261,8 @@ export default function StaffAttendanceTab() {
                 autoGenerate: true,
             });
             await queryClient.invalidateQueries({ queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter] });
+            await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+            await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
             await refetchAttendance();
             setConfirmDialog({ type: 'generate', date: attendanceDate });
         } catch (error) {
@@ -271,6 +274,8 @@ export default function StaffAttendanceTab() {
         mutationFn: () => deleteStaffAttendanceByDate(attendanceDateStr, attendanceRoleFilter !== "all" ? attendanceRoleFilter : undefined),
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter] });
+            await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+            await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
             await refetchAttendance();
             setConfirmDialog(null);
             toast({ title: "Attendance generation undone successfully" });
@@ -442,8 +447,9 @@ export default function StaffAttendanceTab() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {visibleAttendanceRows.map((record) => {
+                                {visibleAttendanceRows.map((record, index) => {
                                     const staff = record.staff || {};
+                                    const staffId = getRowStaffId(record);
                                     const isLocked = record.generatedAt && (Date.now() - new Date(record.generatedAt).getTime()) > ATTENDANCE_EDIT_WINDOW_MS;
                                     const auditTitle = record.markedAt
                                         ? `Marked at: ${new Date(record.markedAt).toLocaleString()}${record.admin?.name ? ` by ${record.admin.name}` : ''}`
@@ -452,7 +458,7 @@ export default function StaffAttendanceTab() {
                                             : null;
 
                                     return (
-                                        <TableRow key={staff.id || record.id}>
+                                        <TableRow key={staffId || record.id || index}>
                                             <TableCell className="py-2 px-3 text-sm">
                                                 <div>
                                                     <p className="font-medium">{staff.name || "Unknown"}</p>
@@ -497,7 +503,7 @@ export default function StaffAttendanceTab() {
                                                             onValueChange={(val) =>
                                                                 setAttendanceDraftRows((prev) =>
                                                                     prev.map((r) =>
-                                                                        r.staff?.id === record.staff?.id
+                                                                        getRowStaffId(r) === getRowStaffId(record)
                                                                             ? { ...r, leaveType: String(val).toUpperCase() }
                                                                             : r
                                                                     )
@@ -542,7 +548,7 @@ export default function StaffAttendanceTab() {
                                                     onChange={(e) =>
                                                         setAttendanceDraftRows((prev) =>
                                                             prev.map((r) =>
-                                                                r.staff?.id === record.staff?.id
+                                                                getRowStaffId(r) === getRowStaffId(record)
                                                                     ? { ...r, notes: e.target.value }
                                                                     : r
                                                             )

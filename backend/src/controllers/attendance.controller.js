@@ -134,8 +134,8 @@ class AttendanceController {
 
   async deleteStaffAttendanceByDate(req, res, next) {
     try {
-      const { date } = req.query;
-      await attendanceService.deleteStaffAttendanceByDate(date);
+      const { date, role } = req.query;
+      await attendanceService.deleteStaffAttendanceByDate(date, role);
       res.json({ message: 'Attendance deleted for date' });
     } catch (err) {
       next(err);

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const {
   Attendance,
   Leave,
@@ -511,19 +512,82 @@ class AttendanceService {
   }
 
   async bulkMarkStaffAttendance(data, user) {
-    let { date, rows } = data || {};
+    let { date, role, autoGenerate } = data || {};
+    let rows = data?.rows || data?.records || data?.attendanceRecords;
     if (!rows && data?.staffId) {
       rows = [data];
       date = date || data.date;
     }
+
+    if (autoGenerate && (!rows || rows.length === 0)) {
+      const staffFilter = { status: 'ACTIVE' };
+      if (role === 'teaching') {
+        staffFilter.isTeaching = true;
+        staffFilter.isNonTeaching = false;
+      } else if (role === 'non-teaching') {
+        staffFilter.isTeaching = false;
+        staffFilter.isNonTeaching = true;
+      }
+
+      const allStaff = await Staff.find(staffFilter);
+      const staffIds = allStaff.map(s => s._id);
+
+      const approvedLeaves = await Leave.find({
+        staffId: { $in: staffIds },
+        applicantType: 'STAFF',
+        status: { $regex: /^approved$/i },
+        fromDate: { $lte: date },
+        toDate: { $gte: date }
+      });
+      const leaveMap = new Map();
+      approvedLeaves.forEach(l => leaveMap.set(String(l.staffId), l));
+
+      const holiday = await Holiday.findOne({
+        $or: [
+          { date },
+          { date: { $lte: date }, endDate: { $gte: date } }
+        ]
+      });
+      const holidayTitle = holiday?.title || 'Holiday';
+
+      rows = allStaff.map(st => {
+        const staffIdStr = String(st._id || st.id);
+        const leave = leaveMap.get(staffIdStr);
+        let status = 'PRESENT';
+        let leaveType = undefined;
+        let notes = '';
+
+        if (leave) {
+          status = 'LEAVE';
+          leaveType = (leave.leaveType || 'CASUAL').toUpperCase();
+          notes = leave.reason || 'Approved Leave';
+        } else if (holiday) {
+          status = 'HD';
+          notes = holidayTitle;
+        }
+
+        return {
+          staffId: staffIdStr,
+          status,
+          leaveType,
+          notes
+        };
+      });
+    }
+
     const ops = (rows || []).map(row => {
+      const rawStaffId = row.staffId || row.staff?._id || row.staff?.id;
+      const staffId = mongoose.Types.ObjectId.isValid(rawStaffId)
+        ? new mongoose.Types.ObjectId(rawStaffId)
+        : rawStaffId;
       const query = {
-        staffId: row.staffId,
-        date,
-        role: 'STAFF'
+        staffId,
+        date
       };
       const updateData = {
-        ...query,
+        staffId,
+        date,
+        role: 'STAFF',
         status: row.status,
         leaveType: row.leaveType,
         checkInTime: row.checkInTime || '',
@@ -548,10 +612,29 @@ class AttendanceService {
     if (attendanceId) {
       return Attendance.findByIdAndDelete(attendanceId);
     }
-    return Attendance.findOneAndDelete({ staffId, date });
+    const query = { date };
+    if (staffId) {
+      query.staffId = mongoose.Types.ObjectId.isValid(staffId)
+        ? new mongoose.Types.ObjectId(staffId)
+        : staffId;
+    }
+    return Attendance.findOneAndDelete(query);
   }
 
-  async deleteStaffAttendanceByDate(date) {
+  async deleteStaffAttendanceByDate(date, role = 'all') {
+    if (role === 'teaching' || role === 'non-teaching') {
+      const staffFilter = { status: 'ACTIVE' };
+      if (role === 'teaching') {
+        staffFilter.isTeaching = true;
+        staffFilter.isNonTeaching = false;
+      } else {
+        staffFilter.isTeaching = false;
+        staffFilter.isNonTeaching = true;
+      }
+      const staffList = await Staff.find(staffFilter).select('_id');
+      const staffIds = staffList.map(s => s._id);
+      return Attendance.deleteMany({ date, staffId: { $in: staffIds }, role: { $in: ['STAFF', 'TEACHER'] } });
+    }
     return Attendance.deleteMany({ date, role: { $in: ['STAFF', 'TEACHER'] } });
   }
 

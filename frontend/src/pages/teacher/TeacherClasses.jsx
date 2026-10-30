@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, School, BookOpen, Layers, Search, Filter } from 'lucide-react';
+import { Loader2, School, BookOpen, Layers, Search, Filter, UserCheck } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { userWho, refreshTokens, getTeacherClasses } from '../../../config/apis';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -232,6 +234,7 @@ export default function TeacherClasses() {
                       <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Class & Section</TableHead>
                       <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 hidden sm:table-cell">Section</TableHead>
                       <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3">Assigned Subjects</TableHead>
+                      <TableHead className="text-xs font-semibold py-2 px-2 sm:px-3 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -249,6 +252,8 @@ export default function TeacherClasses() {
                         : cls.subject
                         ? [cls.subject]
                         : [];
+                      const targetClassId = cls.classId?._id || cls.classId?.id || cls.classId || cls.class?._id || cls.class?.id || cls.class;
+                      const targetSectionId = cls.sectionId?._id || cls.sectionId?.id || cls.sectionId || cls.section?._id || cls.section?.id || cls.section;
 
                       return (
                         <TableRow key={cls.id || index} className="hover:bg-muted/30">
@@ -259,8 +264,15 @@ export default function TeacherClasses() {
                             </Badge>
                           </TableCell>
                           <TableCell className="py-2 px-2 sm:px-3">
-                            <div className="font-semibold text-xs sm:text-sm text-foreground">
-                              {className}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-xs sm:text-sm text-foreground">
+                                {className}
+                              </span>
+                              {cls.isClassTeacher && (
+                                <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                  Class Teacher
+                                </Badge>
+                              )}
                               {sectionName && <span className="sm:hidden font-normal text-muted-foreground ml-1">({sectionName})</span>}
                             </div>
                             <div className="md:hidden text-[10px] text-muted-foreground mt-0.5">
@@ -294,6 +306,16 @@ export default function TeacherClasses() {
                                   </Badge>
                                 ))}
                               </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-2 px-2 sm:px-3 text-right">
+                            {cls.isClassTeacher && (
+                              <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 gap-1 font-medium">
+                                <Link to={`/teacher/attendance?classId=${targetClassId}${targetSectionId ? `&sectionId=${targetSectionId}` : ""}`}>
+                                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Mark Attendance</span>
+                                </Link>
+                              </Button>
                             )}
                           </TableCell>
                         </TableRow>

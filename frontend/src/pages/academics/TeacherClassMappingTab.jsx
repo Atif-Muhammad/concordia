@@ -97,6 +97,7 @@ export default function TeacherClassMappingTab() {
   const [tcmSelectedProgramId, setTcmSelectedProgramId] = useState("all");
   const [tcmSelectedClassId, setTcmSelectedClassId] = useState("");
   const [tcmSelectedSectionId, setTcmSelectedSectionId] = useState("");
+  const [tcmIsClassTeacher, setTcmIsClassTeacher] = useState(false);
   const [tcmClassSubjects, setTcmClassSubjects] = useState([]);
   const [tcmClassSubjectsLoading, setTcmClassSubjectsLoading] = useState(false);
   const [tcmSelectedSubjectIds, setTcmSelectedSubjectIds] = useState(new Set());
@@ -307,9 +308,9 @@ export default function TeacherClassMappingTab() {
       );
       setTcmClassSubjects(data || []);
 
-      // Pre-select subjects ONLY when editing an existing mapping
+      // Pre-select subjects and class teacher status if already assigned (union not interrelated)
       const effectiveTeacher = targetTeacherId || resolveId(tcmSelectedStaff);
-      if (effectiveTeacher && editing) {
+      if (effectiveTeacher) {
         const assignedIds = new Set();
         (data || []).forEach((scm) => {
           if (scm.isClassTeacherFallback) return;
@@ -323,9 +324,38 @@ export default function TeacherClassMappingTab() {
             assignedIds.add(subId);
           }
         });
-        if (assignedIds.size > 0) {
-          setTcmSelectedSubjectIds(assignedIds);
+
+        // Check existing mapping in teacherClassMappings for this teacher, class, and section
+        const existingMapping = teacherClassMappings.find((m) => {
+          const mTeacherId = resolveId(m.teacherId);
+          const mClassId = resolveId(m.classId);
+          const mSectionId = resolveId(m.sectionId);
+          const mSessionId = resolveId(m.sessionId);
+
+          if (mTeacherId !== effectiveTeacher || mClassId !== resolveId(classId)) return false;
+          if (effectiveSectionId && mSectionId && mSectionId !== effectiveSectionId) return false;
+          if (effectiveSessionId && mSessionId && mSessionId !== effectiveSessionId) return false;
+          return true;
+        });
+
+        if (existingMapping) {
+          if (Array.isArray(existingMapping.subjects)) {
+            existingMapping.subjects.forEach((s) => {
+              const sId = resolveId(s);
+              if (sId) assignedIds.add(sId);
+            });
+          }
+          if (existingMapping.isClassTeacher) {
+            setTcmIsClassTeacher(true);
+          }
         }
+
+        // Union with previously selected subjects (union not interrelated)
+        setTcmSelectedSubjectIds((prev) => {
+          const union = new Set(prev);
+          assignedIds.forEach((id) => union.add(id));
+          return union;
+        });
       }
     } catch (err) {
       console.error("Failed to load class subjects", err);
@@ -350,6 +380,7 @@ export default function TeacherClassMappingTab() {
     setTcmSelectedProgramId("all");
     setTcmSelectedClassId("");
     setTcmSelectedSectionId("");
+    setTcmIsClassTeacher(false);
     setTcmClassSubjects([]);
     setTcmSelectedSubjectIds(new Set());
     const active = academicSessions.find((s) => s.isActive);
@@ -359,11 +390,13 @@ export default function TeacherClassMappingTab() {
   const openAdd = () => {
     setEditing(null);
     resetAssignDialog();
+    setTcmIsClassTeacher(false);
     setDialogOpen(true);
   };
 
   const openTcmEdit = (mapping) => {
     setEditing(mapping);
+    setTcmIsClassTeacher(Boolean(mapping.isClassTeacher));
     const teacherId = resolveId(mapping.teacherId);
     const teacherObj =
       typeof mapping.teacherId === "object" ? mapping.teacherId : null;
@@ -448,6 +481,7 @@ export default function TeacherClassMappingTab() {
             ? tcmDialogSessionId
             : null,
         subjectIds: Array.from(tcmSelectedSubjectIds),
+        isClassTeacher: tcmIsClassTeacher,
       });
 
       queryClient.invalidateQueries({ queryKey: ["teacherClassMappings"] });
@@ -743,6 +777,7 @@ export default function TeacherClassMappingTab() {
                         setTcmSelectedClassId(v);
                         setTcmSelectedSectionId("");
                         setTcmSelectedSubjectIds(new Set());
+                        setTcmIsClassTeacher(false);
                         loadTcmClassSubjects(
                           v,
                           tcmDialogSessionId,
@@ -782,6 +817,7 @@ export default function TeacherClassMappingTab() {
                         setTcmSelectedSectionId(v);
                         if (!editing) {
                           setTcmSelectedSubjectIds(new Set());
+                          setTcmIsClassTeacher(false);
                         }
                         loadTcmClassSubjects(
                           tcmSelectedClassId,
@@ -822,6 +858,38 @@ export default function TeacherClassMappingTab() {
                     <span>
                       This class is configured as <strong>Single-Section / No Sections</strong>. Teacher assignment applies directly to the entire class.
                     </span>
+                  </div>
+                )}
+
+                {/* 5b. CLASS TEACHER TOGGLE */}
+                {tcmSelectedClassId && (
+                  <div className="flex items-start space-x-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/30 transition-colors">
+                    <Checkbox
+                      id="tcm-is-class-teacher"
+                      checked={tcmIsClassTeacher}
+                      onCheckedChange={(checked) => setTcmIsClassTeacher(Boolean(checked))}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor="tcm-is-class-teacher"
+                        className="text-sm font-semibold cursor-pointer flex items-center gap-2"
+                      >
+                        <span>Assign as Class Teacher</span>
+                        {tcmIsClassTeacher ? (
+                          <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] font-semibold">
+                            Class Teacher Active
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground text-[10px] font-normal">
+                            Subject Teacher Only
+                          </Badge>
+                        )}
+                      </Label>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Designates this teacher as the Class Teacher for this class{classAllowsSections && tcmSelectedSectionId ? " and section" : ""}, allowing them to mark and manage daily student attendance from the Teacher Portal.
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -1133,7 +1201,16 @@ export default function TeacherClassMappingTab() {
                     return (
                       <TableRow key={mId} className="hover:bg-muted/30">
                         <TableCell className="py-3 px-4 font-medium">
-                          {teacher?.name || (typeof m.teacherId === "object" ? m.teacherId.name : "—")}
+                          <div className="flex flex-col gap-1 items-start">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{teacher?.name || (typeof m.teacherId === "object" ? m.teacherId.name : "—")}</span>
+                              {m.isClassTeacher && (
+                                <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                  Class Teacher
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell className="py-3 px-4 text-sm font-medium">
                           {cls?.name || (typeof m.classId === "object" ? m.classId.name : "—")}
@@ -1313,6 +1390,18 @@ export default function TeacherClassMappingTab() {
                         </span>
                       ) : (
                         <span className="text-muted-foreground italic">All Sessions</span>
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Class Teacher Role</Label>
+                    <p className="text-sm font-medium mt-0.5">
+                      {tcmViewItem.isClassTeacher ? (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-semibold text-[11px] px-2 py-0.5">
+                          Assigned Class Teacher
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground italic text-xs">Subject Teacher Only</span>
                       )}
                     </p>
                   </div>

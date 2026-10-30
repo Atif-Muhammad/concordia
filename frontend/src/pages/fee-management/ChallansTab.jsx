@@ -1287,11 +1287,27 @@ export const ChallansTab = ({
     const discountToStore = Math.round(parseFloat(challanForm.discount) || 0);
     const selectedHeadIds = (challanForm.selectedHeads || []).map(extractId);
 
-    if (editingChallan && Number(editingChallan.paidAmount || 0) > 0) {
-      const currentDisc = Math.round(Number(editingChallan.discountAmount || editingChallan.discount || 0));
-      if (discountToStore !== currentDisc) {
-        toast({ title: "Cannot add or modify discount on a challan that has already received direct payment", variant: "destructive" });
-        return;
+    if (editingChallan) {
+      const isEditingScholarship = Boolean(
+        editingChallan.isScholarship100 ||
+        editingChallan.paidBy === '100% Scholarship' ||
+        editingChallan.paymentMode === 'Scholarship' ||
+        editingChallan.studentId?.isScholarship100 ||
+        editingChallan.student?.isScholarship100
+      );
+      if (isEditingScholarship) {
+        const currentDisc = Math.round(Number(editingChallan.discountAmount || editingChallan.discount || 0));
+        if (discountToStore !== currentDisc) {
+          toast({ title: "Discount originating from 100% scholarship is locked and cannot be modified", variant: "destructive" });
+          return;
+        }
+      }
+      if (Number(editingChallan.paidAmount || 0) > 0) {
+        const currentDisc = Math.round(Number(editingChallan.discountAmount || editingChallan.discount || 0));
+        if (discountToStore !== currentDisc) {
+          toast({ title: "Cannot add or modify discount on a challan that has already received direct payment", variant: "destructive" });
+          return;
+        }
       }
     }
 
@@ -1852,6 +1868,13 @@ export const ChallansTab = ({
                 ) : feeChallans.length === 0 ? (
                   <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground italic">No challans found.</TableCell></TableRow>
                 ) : feeChallans.map((challan, idx) => {
+                  const isScholarshipChallan = Boolean(
+                    challan.isScholarship100 ||
+                    challan.paidBy === '100% Scholarship' ||
+                    challan.paymentMode === 'Scholarship' ||
+                    challan.studentId?.isScholarship100 ||
+                    challan.student?.isScholarship100
+                  );
                   return (
                     <TableRow
                       key={challan.id}
@@ -2071,6 +2094,24 @@ export const ChallansTab = ({
                           const netPayable = Number(challan.netPayable || challan.totalAmount || 0);
                           const isOverpaid = excessCreditGenerated > 0 || creditAdjustedTo.length > 0 || (directPaid > netPayable && netPayable > 0);
 
+                          if (isScholarshipChallan) {
+                            return (
+                              <div className="flex flex-col gap-0.5 min-w-[130px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-emerald-700 font-mono text-sm">
+                                    PKR 0
+                                  </span>
+                                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-emerald-300 text-emerald-700 bg-emerald-50">
+                                    100% Scholarship
+                                  </Badge>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground">
+                                  100% Fee Concession
+                                </span>
+                              </div>
+                            );
+                          }
+
                           if (hasArrearsSettlement && effectiveSettledArrears > 0) {
                             return (
                               <div className="flex flex-col gap-0.5 min-w-[130px]">
@@ -2241,12 +2282,18 @@ export const ChallansTab = ({
                       </TableCell>
                       <TableCell className="py-2 px-2 sm:px-3 text-xs sm:text-sm">
                         <div className="flex flex-col gap-1">
-                          <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "secondary" : (challan.status === "VOID" || challan.status === "SUPERSEDED" || challan.status === "SETTLED") ? "outline" : "secondary"}>
-                            {challan.status === "VOID" ? "Voided" : 
-                             (challan.status === "SUPERSEDED" && (challan.settledAmount || challan.settledViaArrearsAmount || 0) > 0) ? "Partially Settled" :
-                             challan.status === "SUPERSEDED" ? "Superseded" : 
-                             challan.status === "SETTLED" ? "Settled" : challan.status}
-                          </Badge>
+                          {isScholarshipChallan ? (
+                            <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium">
+                              100% Scholarship
+                            </Badge>
+                          ) : (
+                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "secondary" : (challan.status === "VOID" || challan.status === "SUPERSEDED" || challan.status === "SETTLED") ? "outline" : "secondary"}>
+                              {challan.status === "VOID" ? "Voided" : 
+                               (challan.status === "SUPERSEDED" && (challan.settledAmount || challan.settledViaArrearsAmount || 0) > 0) ? "Partially Settled" :
+                               challan.status === "SUPERSEDED" ? "Superseded" : 
+                               challan.status === "SETTLED" ? "Settled" : challan.status}
+                            </Badge>
+                          )}
                           {(() => {
                             const settledChallanNum = challan.settledByChallanNo || challan.settledByChallanNumber || (challan.supersededBy?.challanNumber || challan.supersededBy?.challanNo);
                             const advNum = challan.advanceFromChallanNo;
@@ -3074,13 +3121,32 @@ export const ChallansTab = ({
                   value={challanForm.discount}
                   onChange={(e) => setChallanForm({ ...challanForm, discount: e.target.value })}
                   className="h-8 text-sm"
-                  disabled={Boolean(editingChallan && Number(editingChallan.paidAmount || 0) > 0)}
+                  disabled={Boolean(
+                    (editingChallan && Number(editingChallan.paidAmount || 0) > 0) ||
+                    (editingChallan && (
+                      editingChallan.isScholarship100 ||
+                      editingChallan.paidBy === '100% Scholarship' ||
+                      editingChallan.paymentMode === 'Scholarship' ||
+                      editingChallan.studentId?.isScholarship100 ||
+                      editingChallan.student?.isScholarship100
+                    ))
+                  )}
                 />
-                {Boolean(editingChallan && Number(editingChallan.paidAmount || 0) > 0) && (
+                {editingChallan && (
+                  editingChallan.isScholarship100 ||
+                  editingChallan.paidBy === '100% Scholarship' ||
+                  editingChallan.paymentMode === 'Scholarship' ||
+                  editingChallan.studentId?.isScholarship100 ||
+                  editingChallan.student?.isScholarship100
+                ) ? (
+                  <p className="text-[10px] text-emerald-600 font-medium leading-tight">
+                    Locked: 100% Scholarship concession cannot be modified
+                  </p>
+                ) : Boolean(editingChallan && Number(editingChallan.paidAmount || 0) > 0) ? (
                   <p className="text-[10px] text-amber-600 font-medium leading-tight">
                     Locked: Direct payment already recorded
                   </p>
-                )}
+                ) : null}
               </div>
             </div>
 

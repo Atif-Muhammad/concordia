@@ -301,9 +301,10 @@ export const resolveStudentProfileData = ({
         "PENDING"
       ).toUpperCase();
 
+      const isScholarship = Boolean(student.isScholarship100 || inst.discountAmount === planAmount || matchingChallan?.isScholarship100);
       let finalStatus = "PENDING";
-      if (rawStatus === "PAID" || (planAmount > 0 && paidAmount >= planAmount)) {
-        finalStatus = "PAID";
+      if (isScholarship || rawStatus === "PAID" || (planAmount > 0 && paidAmount >= planAmount)) {
+        finalStatus = isScholarship ? "100% SCHOLARSHIP" : "PAID";
       } else if (rawStatus === "SETTLED") {
         finalStatus = "SETTLED";
       } else if (rawStatus === "PARTIAL" || (paidAmount > 0 && paidAmount < planAmount)) {
@@ -327,16 +328,17 @@ export const resolveStudentProfileData = ({
         month: monthLabel || `Installment #${instNumber}`,
         dueDate: formatDateSafe(inst.dueDate),
         planAmount,
-        paidAmount,
-        balance,
+        paidAmount: isScholarship ? planAmount : paidAmount,
+        balance: isScholarship ? 0 : balance,
         status: finalStatus,
       };
     })
     .sort((a, b) => a.installmentNumber - b.installmentNumber);
 
+  const isScholarshipStudent = Boolean(student.isScholarship100);
   const totalPlanAmount = installments.reduce((sum, i) => sum + i.planAmount, 0);
-  const totalPaidAmount = installments.reduce((sum, i) => sum + i.paidAmount, 0);
-  const totalBalance = Math.max(0, totalPlanAmount - totalPaidAmount);
+  const totalPaidAmount = isScholarshipStudent ? totalPlanAmount : installments.reduce((sum, i) => sum + i.paidAmount, 0);
+  const totalBalance = isScholarshipStudent ? 0 : Math.max(0, totalPlanAmount - totalPaidAmount);
 
   return {
     studentId,

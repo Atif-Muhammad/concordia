@@ -140,6 +140,7 @@ const FeeChallanSchema = new mongoose.Schema({
   absenteeFineAmount: { type: Number, default: 0 },
   absenteeMonth: { type: String, default: '' },
   absenteeRate: { type: Number, default: 50 },
+  isScholarship100: { type: Boolean, default: false },
   remarks: { type: String, default: '' },
   walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet' },
   walletName: { type: String }

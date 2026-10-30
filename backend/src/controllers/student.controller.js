@@ -101,6 +101,12 @@ class StudentController {
       if (!body.sectionId || body.sectionId === '' || body.sectionId === 'none') {
         delete body.sectionId;
       }
+      if (body.isScholarship100 !== undefined) {
+        body.isScholarship100 = body.isScholarship100 === 'true' || body.isScholarship100 === true;
+      }
+      if (!body.scholarshipStaffId || body.scholarshipStaffId === '' || body.scholarshipStaffId === 'none') {
+        delete body.scholarshipStaffId;
+      }
 
       const student = await studentService.createStudent(body);
       res.status(201).json(student);
@@ -132,6 +138,13 @@ class StudentController {
       }
       if (!body.sectionId || body.sectionId === '' || body.sectionId === 'none') {
         body.sectionId = null;
+      }
+      if (body.isScholarship100 !== undefined) {
+        body.isScholarship100 = body.isScholarship100 === 'true' || body.isScholarship100 === true;
+      }
+      if (!body.scholarshipStaffId || body.scholarshipStaffId === '' || body.scholarshipStaffId === 'none') {
+        body.scholarshipStaffId = null;
+        body.scholarshipStaffName = '';
       }
 
       const student = await studentService.updateStudent(id, body);

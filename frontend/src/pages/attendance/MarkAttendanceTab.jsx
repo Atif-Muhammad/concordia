@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -65,26 +66,30 @@ const normalizeAttendanceStatus = (status) => String(status || "").toLowerCase()
 const toStudentAttendanceApiStatus = (status) => normalizeAttendanceStatus(status).toUpperCase();
 const ATTENDANCE_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-export default function MarkAttendanceTab() {
+export default function MarkAttendanceTab({ isTeacherPortal = false }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const initialClassId = searchParams.get("classId") || "";
+  const initialSectionId = searchParams.get("sectionId") || "";
+  const initialDate = searchParams.get("date") || "";
 
   const { canCreate, canUpdate, canDelete, isSuperAdmin, currentUser } = usePermissions("Attendance", "mark");
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher" || !!currentUser?.isTeaching;
   const dualRoleStaff = isDualRoleStaff(currentUser);
   const hasAttendancePermission = hasExplicitModuleAccess(currentUser, "Attendance");
   const canUseAllClasses = isSuperAdmin || (!isTeacher && hasAttendancePermission) || (dualRoleStaff && hasAttendancePermission);
-  const isTeacherScoped = isTeacher && !canUseAllClasses;
-  const canMarkAttendance = isTeacher || isSuperAdmin || canCreate || canUpdate;
+  const isTeacherScoped = isTeacherPortal || (isTeacher && !canUseAllClasses);
+  const canMarkAttendance = isTeacherPortal || isTeacher || isSuperAdmin || canCreate || canUpdate;
 
-  const [markDate, setMarkDate] = useState(new Date().toISOString().split("T")[0]);
+  const [markDate, setMarkDate] = useState(initialDate || new Date().toISOString().split("T")[0]);
   const [selectedProgramId, setSelectedProgramId] = useState("");
-  const [selectedClassId, setSelectedClassId] = useState("");
-  const [selectedSectionId, setSelectedSectionId] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState(initialClassId || "");
+  const [selectedSectionId, setSelectedSectionId] = useState(initialSectionId || "");
   const [fetchedStudents, setFetchedStudents] = useState([]);
   const [hasLoadedStudents, setHasLoadedStudents] = useState(false);
   const [attendanceChanges, setAttendanceChanges] = useState({});
-  const [showMarkFilters, setShowMarkFilters] = useState(false);
+  const [showMarkFilters, setShowMarkFilters] = useState(true);
 
   // Undo confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -180,17 +185,21 @@ export default function MarkAttendanceTab() {
   }, [isGlobalHoliday, isClassHoliday, holidays, classSkips, markDate, fetchedStudents]);
 
   const teacherStaffId = currentUser?.refId || currentUser?.staffDbId || currentUser?.id;
-  const { data: rawTeacherClassMappings = [] } = useQuery({
+  const { data: rawTeacherClassMappings = [], isLoading: isClassesLoading } = useQuery({
     queryKey: ["teacherClasses", teacherStaffId],
     queryFn: () => getTeacherClasses(teacherStaffId),
     enabled: isTeacherScoped && !!teacherStaffId
   });
 
   const teacherClassMappings = useMemo(() => {
-    return Array.isArray(rawTeacherClassMappings)
+    const raw = Array.isArray(rawTeacherClassMappings)
       ? rawTeacherClassMappings
       : rawTeacherClassMappings?.data || [];
-  }, [rawTeacherClassMappings]);
+    if (isTeacherScoped) {
+      return raw.filter((m) => Boolean(m.isClassTeacher));
+    }
+    return raw;
+  }, [rawTeacherClassMappings, isTeacherScoped]);
 
   // Selected class object to inspect allowSections
   const selectedClass = useMemo(() => {
@@ -298,6 +307,49 @@ export default function MarkAttendanceTab() {
     }
     return sectionsData.filter(s => extractId(s.classId || s.class) === selectedClassId);
   }, [selectedClassId, isSectionApplicable, isTeacherScoped, teacherClassMappings, selectedClass, sectionsData]);
+
+  // Synchronize URL search params and auto-select single options for teacher
+  useEffect(() => {
+    if (initialDate && markDate !== initialDate) {
+      setMarkDate(initialDate);
+    }
+  }, [initialDate, markDate]);
+
+  useEffect(() => {
+    if (initialClassId && !selectedClassId) {
+      const clsList = isTeacherScoped ? teacherClasses : classesData;
+      const match = clsList.find((c) => extractId(c) === initialClassId);
+      if (match) {
+        setSelectedClassId(initialClassId);
+        const pId = extractId(match.programId || match.program);
+        if (pId) setSelectedProgramId(pId);
+      }
+    }
+  }, [initialClassId, selectedClassId, isTeacherScoped, teacherClasses, classesData]);
+
+  useEffect(() => {
+    if (initialSectionId && selectedClassId && !selectedSectionId) {
+      setSelectedSectionId(initialSectionId);
+    }
+  }, [initialSectionId, selectedClassId, selectedSectionId]);
+
+  // Auto-select program if only one available in teacher mode
+  useEffect(() => {
+    if (isTeacherScoped && availablePrograms.length === 1 && !selectedProgramId) {
+      setSelectedProgramId(extractId(availablePrograms[0]));
+    }
+  }, [isTeacherScoped, availablePrograms, selectedProgramId]);
+
+  // Auto-select class if only one available in selected program for teacher
+  useEffect(() => {
+    if (isTeacherScoped && availableClasses.length === 1 && !selectedClassId) {
+      const singleClass = availableClasses[0];
+      const singleClassId = extractId(singleClass);
+      setSelectedClassId(singleClassId);
+      const allowSec = singleClass ? singleClass.allowSections !== false : true;
+      setSelectedSectionId(allowSec ? "*" : "");
+    }
+  }, [isTeacherScoped, availableClasses, selectedClassId]);
 
   const handleProgramChange = (val) => {
     setSelectedProgramId(val);
@@ -527,6 +579,23 @@ export default function MarkAttendanceTab() {
 
   return (
     <div className="space-y-6">
+      {/* Teacher notice if not assigned as Class Teacher for any class */}
+      {isTeacherScoped && !isClassesLoading && teacherClassMappings.length === 0 && (
+        <Card className="border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 shadow-xs">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                Not Assigned as Class Teacher
+              </p>
+              <p className="text-xs text-amber-800/90 dark:text-amber-300/80 leading-relaxed">
+                Attendance marking in the teacher portal is available for designated Class Teachers. You are currently not assigned as a Class Teacher for any class. Please contact your administrator to assign you as Class Teacher under <strong>Academics &gt; Teacher-Class Assignments</strong>.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Filters Card */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">

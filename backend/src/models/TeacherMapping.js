@@ -6,7 +6,8 @@ const TeacherMappingSchema = new mongoose.Schema({
   sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Section' },
   subjectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject' },
   sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession' },
-  mappingType: { type: String, enum: ['CLASS', 'SUBJECT'], default: 'CLASS' }
+  mappingType: { type: String, enum: ['CLASS', 'SUBJECT'], default: 'CLASS' },
+  isClassTeacher: { type: Boolean, default: false }
 }, { timestamps: true });
 
 TeacherMappingSchema.virtual('id').get(function () {

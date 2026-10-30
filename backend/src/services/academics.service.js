@@ -378,6 +378,7 @@ class AcademicsService {
       const sessId = cm.sessionId ? String(cm.sessionId?._id || cm.sessionId) : 'none';
       const exactKey = `${tId}_${cId}_${sId}_${sessId}`;
       const fallbackKey = `${tId}_${cId}_${sId}_none`;
+      cmObj.isClassTeacher = Boolean(cm.isClassTeacher);
       cmObj.subjects = subjectMap.get(exactKey) || subjectMap.get(fallbackKey) || [];
       return cmObj;
     });
@@ -400,6 +401,7 @@ class AcademicsService {
     const teacherId = data.teacherId?.toString();
     const classId = data.classId?.toString();
     const subjectIds = Array.isArray(data.subjectIds) ? data.subjectIds : [];
+    const isClassTeacher = Boolean(data.isClassTeacher);
     let sessionId = data.sessionId;
     let sectionId = data.sectionId;
 
@@ -441,6 +443,9 @@ class AcademicsService {
         existing.sectionId = sectionId;
         existing.sessionId = sessionId;
         existing.mappingType = 'CLASS';
+        if (data.isClassTeacher !== undefined) {
+          existing.isClassTeacher = isClassTeacher;
+        }
         await existing.save();
         classMapping = existing;
       }
@@ -456,7 +461,15 @@ class AcademicsService {
       };
       classMapping = await TeacherMapping.findOne(classQuery);
       if (!classMapping) {
-        classMapping = await TeacherMapping.create(classQuery);
+        classMapping = await TeacherMapping.create({
+          ...classQuery,
+          isClassTeacher: data.isClassTeacher !== undefined ? isClassTeacher : false,
+        });
+      } else {
+        if (data.isClassTeacher !== undefined) {
+          classMapping.isClassTeacher = isClassTeacher;
+          await classMapping.save();
+        }
       }
     }
 

@@ -13,7 +13,8 @@ const {
   Section,
   AcademicSession,
   InstituteSettings,
-  FrontOfficeInquiry
+  FrontOfficeInquiry,
+  Staff
 } = require('../models');
 
 function getPrefix(pPrefix, cPrefix) {
@@ -232,13 +233,62 @@ class StudentService {
   }
 
   async createStudent(data) {
-    // Generate initial fee challans from installments if defined
+    if (!data.scholarshipStaffId || data.scholarshipStaffId === '' || data.scholarshipStaffId === 'none') {
+      data.scholarshipStaffId = null;
+      data.scholarshipStaffName = '';
+    }
+    if (data.isScholarship100) {
+      data.tuitionFee = 0;
+      if (data.scholarshipStaffId && !data.scholarshipStaffName) {
+        const staff = await Staff.findById(data.scholarshipStaffId).select('name staffId').lean().catch(() => null);
+        if (staff) {
+          data.scholarshipStaffName = staff.name ? `${staff.name} (${staff.staffId})` : staff.name;
+        }
+      }
+      if (Array.isArray(data.installments)) {
+        data.installments = data.installments.map(inst => {
+          const amt = Number(inst.amount ?? inst.basePayable ?? 0);
+          return {
+            ...inst,
+            discount: amt,
+            discountAmount: amt,
+            pendingAmount: 0,
+            status: 'PAID',
+          };
+        });
+      }
+    }
     const student = await Student.create(data);
     return student;
   }
 
   async updateStudent(id, data) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    if (!data.scholarshipStaffId || data.scholarshipStaffId === '' || data.scholarshipStaffId === 'none') {
+      data.scholarshipStaffId = null;
+      data.scholarshipStaffName = '';
+    }
+    if (data.isScholarship100) {
+      data.tuitionFee = 0;
+      if (data.scholarshipStaffId && !data.scholarshipStaffName) {
+        const staff = await Staff.findById(data.scholarshipStaffId).select('name staffId').lean().catch(() => null);
+        if (staff) {
+          data.scholarshipStaffName = staff.name ? `${staff.name} (${staff.staffId})` : staff.name;
+        }
+      }
+      if (Array.isArray(data.installments)) {
+        data.installments = data.installments.map(inst => {
+          const amt = Number(inst.amount ?? inst.basePayable ?? 0);
+          return {
+            ...inst,
+            discount: amt,
+            discountAmount: amt,
+            pendingAmount: 0,
+            status: 'PAID',
+          };
+        });
+      }
+    }
     return Student.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -720,38 +770,6 @@ class StudentService {
       throw err;
     }
 
-    // Check for remaining arrears before allowing expel
-    const unpaidInstallments = (student.installments || []).filter((inst) => {
-      const st = String(inst.status || '').toUpperCase();
-      if (['SUPERSEDED', 'SETTLED', 'VOID', 'PAID'].includes(st)) return false;
-      const due = Number(inst.totalAmount || inst.amount || inst.basePayable || 0);
-      const paid = Number(inst.paidAmount || 0);
-      return (due - paid) > 0;
-    });
-
-    const pendingChallans = await FeeChallan.find({
-      studentId: student._id,
-      status: { $in: ['PENDING', 'PARTIAL', 'OVERDUE'] }
-    }).lean();
-
-    let totalOutstanding = unpaidInstallments.reduce((sum, inst) => {
-      const due = Number(inst.totalAmount || inst.amount || inst.basePayable || 0);
-      const paid = Number(inst.paidAmount || 0);
-      return sum + Math.max(0, due - paid);
-    }, 0);
-
-    if (totalOutstanding === 0 && pendingChallans.length > 0) {
-      totalOutstanding = pendingChallans.reduce((sum, ch) => {
-        return sum + Math.max(0, Number(ch.amount || 0) - Number(ch.paidAmount || 0));
-      }, 0);
-    }
-
-    if (totalOutstanding > 0) {
-      const err = new Error(`Cannot expel student. Total outstanding arrears: PKR ${totalOutstanding}. Please clear all dues before finalizing status.`);
-      err.status = 400;
-      throw err;
-    }
-
     if (!student.statusHistory) student.statusHistory = [];
     student.statusHistory.push({
       previousStatus: student.status,
@@ -797,6 +815,11 @@ class StudentService {
   }
 
   async rejoin(id, reason, details = {}) {
+    if (typeof reason === 'object' && reason !== null) {
+      const combined = { ...reason, ...(typeof details === 'object' ? details : {}) };
+      reason = combined.reason || combined.remarks || 'Student rejoined';
+      details = combined;
+    }
     const student = await Student.findById(id)
       .populate('programId')
       .populate('classId')
@@ -846,58 +869,10 @@ class StudentService {
     student.statusReason = '';
     student.session = effectiveSession;
 
-    // Auto-generate new fees for new class if not same class
+    // Placement update if not same class
     if (!isSameClass && details.programId && details.classId) {
       const newProgId = details.programId;
       const newClassId = details.classId;
-
-      const newFeeStructure = await FeeStructure.findOne({
-        programId: newProgId,
-        classId: newClassId
-      }).lean();
-
-      const instituteSettings = await InstituteSettings.findOne().lean();
-      const globalLateFeeRate = Number(instituteSettings?.lateFeeRatePerDay ?? 0);
-
-      const totalAmount = newFeeStructure ? newFeeStructure.totalAmount : (student.tuitionFee || 0);
-      const installmentCount = newFeeStructure?.installments || student.numberOfInstallments || 1;
-
-      if (totalAmount > 0) {
-        student.tuitionFee = totalAmount;
-        student.numberOfInstallments = installmentCount;
-
-        const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
-        const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => {
-          const d = new Date();
-          d.setMonth(d.getMonth() + idx + 1);
-          d.setDate(10);
-          const basePayable = idx === installmentCount - 1
-            ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
-            : defaultInstallmentAmount;
-          return {
-            installmentNumber: idx + 1,
-            amount: basePayable,
-            basePayable,
-            pendingAmount: basePayable,
-            totalAmount: basePayable,
-            dueDate: d,
-            month: d.toLocaleString('default', { month: 'long' }),
-            sessionId: effectiveSessionId,
-            classId: newClassId,
-            programId: newProgId,
-            lateFeeRatePerDay: globalLateFeeRate,
-            status: 'PENDING',
-            paidAmount: 0
-          };
-        });
-
-        // Delete existing unbilled installments for target class to avoid duplicates
-        student.installments = (student.installments || []).filter((inst) => {
-          const cIdStr = (inst.classId?._id || inst.classId || '').toString();
-          return cIdStr !== newClassId.toString();
-        });
-        student.installments.push(...newInstallments);
-      }
 
       student.programId = newProgId;
       student.classId = newClassId;
@@ -917,6 +892,124 @@ class StudentService {
         startDate: new Date(),
         status: 'REJOINED'
       });
+    }
+
+    // Scholarship details update
+    if (details.isScholarship100 !== undefined) {
+      student.isScholarship100 = Boolean(details.isScholarship100);
+      student.scholarshipStaffId = details.scholarshipStaffId || null;
+      student.scholarshipStaffName = details.scholarshipStaffName || '';
+      student.scholarshipAuthority = details.scholarshipAuthority || '';
+      student.scholarshipAuthorityOther = details.scholarshipAuthorityOther || '';
+
+      if (student.isScholarship100 && student.scholarshipStaffId && !student.scholarshipStaffName) {
+        const staff = await Staff.findById(student.scholarshipStaffId).select('name staffId').lean().catch(() => null);
+        if (staff) {
+          student.scholarshipStaffName = staff.name ? `${staff.name} (${staff.staffId})` : staff.name;
+        }
+      }
+    }
+
+    // Fee recalculation: Lock paid/settled items, update only pending/unpaid challans & ungenerated installments
+    const allStudentChallans = await FeeChallan.find({
+      studentId: student._id,
+      status: { $ne: 'VOID' }
+    });
+
+    const paidChallans = allStudentChallans.filter(c => c.status === 'PAID' || c.status === 'SETTLED');
+    const totalAlreadyPaid = paidChallans.reduce((sum, c) => {
+      const direct = Number(c.directPaidAmount ?? c.paidAmount ?? 0);
+      const adv = Number(c.advanceApplied || 0);
+      const settled = Number(c.settledViaArrearsAmount ?? c.settledAmount ?? 0);
+      return sum + Math.max(direct + adv, settled);
+    }, 0);
+
+    const hasNewTuitionFee = details.tuitionFee !== undefined && details.tuitionFee !== null && details.tuitionFee !== '';
+    const newTuitionFee = hasNewTuitionFee ? Number(details.tuitionFee) : (student.tuitionFee || 0);
+    student.tuitionFee = newTuitionFee;
+
+    const unpaidChallans = allStudentChallans.filter(c => !['PAID', 'SETTLED', 'VOID'].includes(c.status));
+
+    if (student.isScholarship100) {
+      // 100% Scholarship: set discount = basePayable for all unsettled challans and mark PAID
+      for (const ch of unpaidChallans) {
+        const base = Number(ch.basePayable || ch.amount || 0);
+        ch.discount = base;
+        ch.discountAmount = base;
+        ch.grossAmount = base + Number(ch.arrearsAmount || 0) + Number(ch.headsAmount || 0);
+        ch.netPayable = 0;
+        ch.totalAmount = 0;
+        ch.status = 'PAID';
+        ch.paidAmount = 0;
+        ch.paidDate = new Date();
+        ch.paidBy = '100% Scholarship';
+        ch.paymentMode = 'Scholarship';
+        ch.isScholarship100 = true;
+        await ch.save();
+      }
+
+      if (Array.isArray(student.installments)) {
+        student.installments.forEach(inst => {
+          if (!['PAID', 'SETTLED'].includes(inst.status)) {
+            const base = Number(inst.basePayable || inst.amount || 0);
+            inst.discount = base;
+            inst.discountAmount = base;
+            inst.pendingAmount = 0;
+            inst.paidAmount = 0;
+            inst.status = 'PAID';
+          }
+        });
+      }
+    } else if (hasNewTuitionFee || (!isSameClass && details.classId)) {
+      const remainingBalance = Math.max(0, newTuitionFee - totalAlreadyPaid);
+
+      const unsettledInstallments = (student.installments || []).filter(inst => {
+        if (['PAID', 'SETTLED'].includes(inst.status)) return false;
+        const matchingPaidChallan = paidChallans.find(c =>
+          (c.installmentId && inst._id && String(c.installmentId) === String(inst._id)) ||
+          (c.installmentNumber && inst.installmentNumber && Number(c.installmentNumber) === Number(inst.installmentNumber)) ||
+          (c.month && inst.month && c.month.trim().toLowerCase() === inst.month.trim().toLowerCase())
+        );
+        return !matchingPaidChallan;
+      });
+
+      const totalUnsettledCount = unsettledInstallments.length;
+
+      if (totalUnsettledCount > 0) {
+        const perInst = Math.floor(remainingBalance / totalUnsettledCount);
+        const rem = remainingBalance - (perInst * totalUnsettledCount);
+
+        for (let idx = 0; idx < unsettledInstallments.length; idx++) {
+          const inst = unsettledInstallments[idx];
+          const instAmt = idx === unsettledInstallments.length - 1 ? perInst + rem : perInst;
+          inst.amount = instAmt;
+          inst.basePayable = instAmt;
+          inst.pendingAmount = instAmt;
+          inst.totalAmount = instAmt;
+          inst.discount = 0;
+          inst.discountAmount = 0;
+
+          const matchingUnpaid = unpaidChallans.find(c =>
+            (c.installmentId && inst._id && String(c.installmentId) === String(inst._id)) ||
+            (c.installmentNumber && inst.installmentNumber && Number(c.installmentNumber) === Number(inst.installmentNumber)) ||
+            (c.month && inst.month && c.month.trim().toLowerCase() === inst.month.trim().toLowerCase())
+          );
+
+          if (matchingUnpaid) {
+            matchingUnpaid.basePayable = instAmt;
+            matchingUnpaid.amount = instAmt;
+            const arr = Number(matchingUnpaid.arrearsAmount || 0);
+            const hds = Number(matchingUnpaid.headsAmount || 0);
+            matchingUnpaid.grossAmount = instAmt + arr + hds;
+            const disc = Number(matchingUnpaid.discountAmount || matchingUnpaid.discount || 0);
+            const adv = Number(matchingUnpaid.advanceApplied || 0);
+            const net = Math.max(0, matchingUnpaid.grossAmount - disc - adv);
+            matchingUnpaid.netPayable = net;
+            matchingUnpaid.totalAmount = net;
+            await matchingUnpaid.save();
+          }
+        }
+      }
     }
 
     await student.save();

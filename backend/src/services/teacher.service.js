@@ -104,10 +104,14 @@ class TeacherService {
           subjectIds: [],
           subject: null,
           mappingType: m.mappingType || 'CLASS',
+          isClassTeacher: Boolean(m.isClassTeacher),
         });
       }
 
       const entry = groupedMap.get(key);
+      if (m.isClassTeacher) {
+        entry.isClassTeacher = true;
+      }
       if (m.subjectId) {
         const subIdStr = (m.subjectId._id || m.subjectId).toString();
         if (!entry.subjectIds.includes(subIdStr)) {

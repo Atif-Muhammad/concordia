@@ -44,6 +44,7 @@ const buildTcmPayload = ({
   selectedSessionId,
   selectedSubjectIds,
   classAllowsSections,
+  isClassTeacher,
 }) => {
   return {
     id: id ? resolveId(id) : undefined,
@@ -52,6 +53,7 @@ const buildTcmPayload = ({
     sectionId: classAllowsSections && selectedSectionId ? resolveId(selectedSectionId) : null,
     sessionId: selectedSessionId && selectedSessionId !== "none" ? resolveId(selectedSessionId) : null,
     subjectIds: Array.from(selectedSubjectIds).map((s) => resolveId(s)),
+    isClassTeacher: Boolean(isClassTeacher),
   };
 };
 
@@ -261,6 +263,34 @@ describe("TeacherClassMappingTab Form Logic & allowSections", () => {
       expect(resolveId(42)).toBe("42");
       expect(resolveId(null)).toBe("");
       expect(resolveId(undefined)).toBe("");
+    });
+  });
+
+  describe("6. Class Teacher assignment flag", () => {
+    it("includes isClassTeacher: true when checkbox is checked", () => {
+      const payload = buildTcmPayload({
+        selectedStaff: { id: "teacher-1" },
+        selectedClassId: "class-1",
+        selectedSectionId: "sec-1",
+        selectedSessionId: "session-1",
+        selectedSubjectIds: new Set(["sub-1"]),
+        classAllowsSections: true,
+        isClassTeacher: true,
+      });
+      expect(payload.isClassTeacher).toBe(true);
+    });
+
+    it("defaults isClassTeacher to false when unchecked", () => {
+      const payload = buildTcmPayload({
+        selectedStaff: { id: "teacher-1" },
+        selectedClassId: "class-1",
+        selectedSectionId: "sec-1",
+        selectedSessionId: "session-1",
+        selectedSubjectIds: new Set(["sub-1"]),
+        classAllowsSections: true,
+        isClassTeacher: false,
+      });
+      expect(payload.isClassTeacher).toBe(false);
     });
   });
 });

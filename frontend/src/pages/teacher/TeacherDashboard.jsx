@@ -687,6 +687,11 @@ export default function TeacherDashboard() {
                           <div className="space-y-1.5 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="text-sm font-semibold text-foreground">{className}</p>
+                              {item.isClassTeacher && (
+                                <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                  Class Teacher
+                                </Badge>
+                              )}
                               {programName && (
                                 <Badge variant="outline" className="text-xs font-normal text-muted-foreground bg-muted/30">
                                   {programName}
@@ -728,6 +733,13 @@ export default function TeacherDashboard() {
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                            {item.isClassTeacher && (
+                              <Button asChild size="sm" variant="outline" className="h-8 px-2.5 text-xs font-medium border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                                <Link to={attendanceUrl}>
+                                  Attendance <ArrowRight className="w-3.5 h-3.5 ml-1 text-emerald-600" />
+                                </Link>
+                              </Button>
+                            )}
                             <Button asChild size="sm" variant="ghost" className="h-8 px-2.5 text-xs font-medium hover:bg-primary/10 hover:text-primary">
                               <Link to="/teacher/students">
                                 Students <ArrowRight className="w-3.5 h-3.5 ml-1 text-primary" />

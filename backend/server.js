@@ -37,10 +37,7 @@ connectDB();
 
 // Middlewares
 app.use(cors({
-  origin: function (origin, callback) {
-    // allow all origins in development or credentials matching
-    callback(null, true);
-  },
+  origin: ['http://localhost:5173', 'https://beams.hayatfoundation.org.pk'],
   credentials: true
 }));
 app.use(cookieParser());

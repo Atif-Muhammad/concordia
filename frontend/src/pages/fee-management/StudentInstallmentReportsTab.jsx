@@ -416,7 +416,8 @@ export const StudentInstallmentReportsTab = ({
         const dueDate = inst.dueDate;
         const amount = Number(inst.amount ?? inst.basePayable ?? inst.totalAmount ?? 0);
         const paidAmount = Number(inst.paidAmount ?? 0);
-        const pendingAmount = Number(
+        const isExpelled = String(s.status || '').toUpperCase() === 'EXPELLED';
+        const pendingAmount = isExpelled ? 0 : Number(
           inst.pendingAmount ?? Math.max(0, amount - paidAmount)
         );
         const status = (inst.status || "PENDING").toUpperCase();

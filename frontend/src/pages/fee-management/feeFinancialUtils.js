@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { getDefaultFeeChallanTemplate } from "@/services/api";
+import { getDefaultFeeChallanTemplate } from "../../../config/apis";
 
 const cachedTemplates = {
   INSTALLMENT: null,

@@ -207,9 +207,16 @@ export const FeeSummaryReport = ({
       totalLateFee += lateFee;
       totalDiscount += discount;
 
+      const isExpelledStudent = String(
+        c.studentStatus ||
+        c.student?.status ||
+        c.studentId?.status ||
+        ''
+      ).toUpperCase() === 'EXPELLED';
+
       const challanGross = tuition + challanHeadsTotal + arrears + lateFee;
       const challanNet = Math.max(0, challanGross - discount);
-      const challanPending = Math.max(0, challanNet - paid);
+      const challanPending = isExpelledStudent ? 0 : Math.max(0, challanNet - paid);
 
       totalGross += challanGross;
       totalNet += challanNet;

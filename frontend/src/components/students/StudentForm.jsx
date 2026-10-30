@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
     Upload, X, Eye, Edit, Trash2, IdCard, Check, Plus,
     Trash, TrendingUp, Calendar as CalendarIcon, Undo2,
-    Loader2
+    Loader2, Info
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { getFeeStructures, getLatestRollNumbersBatch } from "@/services/api";
+import { getAllStaff } from "../../../config/apis";
 import { resolveFileUrl } from "@/lib/utils";
 
 const extractId = (val) => {
@@ -67,6 +68,10 @@ const StudentForm = ({
         queryKey: ['feeStructures'],
         queryFn: getFeeStructures,
         enabled: !propFeeStructures || propFeeStructures.length === 0,
+    });
+    const { data: staffList = [] } = useQuery({
+        queryKey: ['allStaffActive'],
+        queryFn: () => getAllStaff({ status: 'ACTIVE' }),
     });
     const allFeeStructures = Array.isArray(propFeeStructures) && propFeeStructures.length > 0
         ? propFeeStructures
@@ -122,9 +127,14 @@ const StudentForm = ({
             programId: extractId(initialData.programId),
             classId: extractId(initialData.classId),
             sectionId: extractId(initialData.sectionId),
-            tuitionFee: initialData.tuitionFee?.toString() || "",
+            tuitionFee: initialData.isScholarship100 ? "0" : (initialData.tuitionFee?.toString() || ""),
             numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
             lateFeeFine: initialData.lateFeeFine || 0,
+            isScholarship100: Boolean(initialData.isScholarship100),
+            scholarshipStaffId: extractId(initialData.scholarshipStaffId) || "",
+            scholarshipStaffName: initialData.scholarshipStaffName || "",
+            scholarshipAuthority: initialData.scholarshipAuthority || "",
+            scholarshipAuthorityOther: initialData.scholarshipAuthorityOther || "",
             installments: (initialData.installments || initialData.feeInstallments || []).map(inst => {
                 let sessionName = inst.session || "";
                 if (typeof sessionName === "object" && sessionName?.name) sessionName = sessionName.name;
@@ -194,9 +204,14 @@ const StudentForm = ({
             programId: extractId(initialData.programId),
             classId: extractId(initialData.classId),
             sectionId: extractId(initialData.sectionId),
-            tuitionFee: initialData.tuitionFee?.toString() || "",
+            tuitionFee: initialData.isScholarship100 ? "0" : (initialData.tuitionFee?.toString() || ""),
             numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
             lateFeeFine: initialData.lateFeeFine || 0,
+            isScholarship100: Boolean(initialData.isScholarship100),
+            scholarshipStaffId: extractId(initialData.scholarshipStaffId) || "",
+            scholarshipStaffName: initialData.scholarshipStaffName || "",
+            scholarshipAuthority: initialData.scholarshipAuthority || "",
+            scholarshipAuthorityOther: initialData.scholarshipAuthorityOther || "",
             installments: (initialData.installments || initialData.feeInstallments || []).map(inst => {
                 let sessionName = inst.session || "";
                 if (typeof sessionName === "object" && sessionName?.name) sessionName = sessionName.name;
@@ -732,7 +747,7 @@ const StudentForm = ({
             admissionDate: validateRequired(formData.admissionDate, "Admission date"),
             address: validateMaxLength(formData.address, INPUT_LIMITS.longText, "Address"),
             religion: validateMaxLength(formData.religion, INPUT_LIMITS.name, "Religion"),
-            tuitionFee: firstError(
+            tuitionFee: formData.isScholarship100 ? "" : firstError(
                 validateNonNegativeNumber(formData.tuitionFee, "Tuition fee"),
                 standardFee > 0 && Number(formData.tuitionFee) > standardFee
                     ? `Agreed fee cannot exceed standard fee (Rs. ${standardFee}).`
@@ -750,7 +765,7 @@ const StudentForm = ({
                 ? "Please define at least one installment."
                 : hasInvalidDates
                     ? "All installments must have a valid due date."
-                    : totalInstallmentsAmount !== agreedTuitionFee
+                    : (!formData.isScholarship100 && totalInstallmentsAmount !== agreedTuitionFee)
                         ? `Installment total must equal agreed tuition fee (Rs. ${agreedTuitionFee}).`
                         : "",
         };
@@ -775,6 +790,7 @@ const StudentForm = ({
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
             'gender', 'religion', 'dob', 'admissionDate', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
+            'isScholarship100', 'scholarshipStaffId', 'scholarshipStaffName', 'scholarshipAuthority', 'scholarshipAuthorityOther',
             'installments', 'documents', 'status', 'session', 'sessionId', 'studentCnic',
             'admissionFormNumber', 'previousBoardName', 'previousBoardRollNumber',
             'obtainedMarks', 'totalMarks',
@@ -788,6 +804,16 @@ const StudentForm = ({
                 const secVal = classAllowsSections ? (formData.sectionId || '') : '';
                 if (secVal) {
                     submissionData.append(key, secVal);
+                }
+            } else if (key === 'scholarshipStaffId') {
+                const sVal = formData.scholarshipStaffId && formData.scholarshipStaffId !== 'none' ? formData.scholarshipStaffId : '';
+                if (sVal) {
+                    submissionData.append(key, sVal);
+                }
+            } else if (key === 'scholarshipAuthority') {
+                const aVal = formData.scholarshipAuthority && formData.scholarshipAuthority !== 'none' ? formData.scholarshipAuthority : '';
+                if (aVal) {
+                    submissionData.append(key, aVal);
                 }
             } else if (formData[key] !== undefined && formData[key] !== null) {
                 submissionData.append(key, formData[key]);
@@ -1185,6 +1211,115 @@ const StudentForm = ({
                     </Button>
                 </div>
 
+                {/* 100% Scholarship Section */}
+                <div className="mb-5 p-3.5 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={formData.isScholarship100}
+                                onChange={(e) => {
+                                    const is100 = e.target.checked;
+                                    const stdFee = (currentClassFeeStructure || selectedClass?.feeStructures?.[0])?.totalAmount || 0;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        isScholarship100: is100,
+                                        tuitionFee: is100 ? "0" : (stdFee ? stdFee.toString() : (prev.tuitionFee === "0" ? "" : prev.tuitionFee)),
+                                        scholarshipStaffId: is100 ? prev.scholarshipStaffId : "",
+                                        scholarshipAuthority: is100 ? prev.scholarshipAuthority : "",
+                                        scholarshipAuthorityOther: is100 ? prev.scholarshipAuthorityOther : ""
+                                    }));
+                                    clearFieldError("tuitionFee");
+                                    clearFieldError("installments");
+                                }}
+                                className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                                100% Scholarship (Full Concession)
+                            </span>
+                        </label>
+                        {formData.isScholarship100 && (
+                            <span className="text-[10px] bg-emerald-200/80 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded-full font-bold">
+                                100% Concession
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-emerald-700/90 dark:text-emerald-400">
+                        When enabled, fee challans will be generated with standard base tuition fee offset by an equal 100% discount, resulting in PKR 0 payable and auto-marked as Paid.
+                    </p>
+
+                    {formData.isScholarship100 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-emerald-200/60 dark:border-emerald-800/40 animate-in fade-in duration-200">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-emerald-950 dark:text-emerald-200">
+                                    Recommending Staff Member (Optional)
+                                </Label>
+                                <Select
+                                    value={formData.scholarshipStaffId || "none"}
+                                    onValueChange={(val) => {
+                                        const sId = val === "none" ? "" : val;
+                                        const found = (Array.isArray(staffList) ? staffList : []).find(s => extractId(s) === sId);
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            scholarshipStaffId: sId,
+                                            scholarshipStaffName: found?.name ? `${found.name} (${found.staffId || ""})` : ""
+                                        }));
+                                    }}
+                                >
+                                    <SelectTrigger className="bg-white dark:bg-card border-emerald-200 dark:border-emerald-800 text-xs h-9">
+                                        <SelectValue placeholder="Select Staff Member (Optional)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">None / Direct Word</SelectItem>
+                                        {(Array.isArray(staffList) ? staffList : []).map((staff) => {
+                                            const id = extractId(staff);
+                                            return (
+                                                <SelectItem key={id} value={id}>
+                                                    {staff.name} {staff.staffId ? `(${staff.staffId})` : ""}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-emerald-950 dark:text-emerald-200">
+                                    Scholarship Authority (Optional)
+                                </Label>
+                                <Select
+                                    value={formData.scholarshipAuthority || "none"}
+                                    onValueChange={(val) => {
+                                        const authVal = val === "none" ? "" : val;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            scholarshipAuthority: authVal,
+                                            scholarshipAuthorityOther: authVal === "Others" ? prev.scholarshipAuthorityOther : ""
+                                        }));
+                                    }}
+                                >
+                                    <SelectTrigger className="bg-white dark:bg-card border-emerald-200 dark:border-emerald-800 text-xs h-9">
+                                        <SelectValue placeholder="Select Authority (Optional)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">None / Standard</SelectItem>
+                                        <SelectItem value="WWF">WWF (Workers Welfare Fund)</SelectItem>
+                                        <SelectItem value="Others">Others</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {formData.scholarshipAuthority === "Others" && (
+                                    <Input
+                                        placeholder="Specify Authority (e.g. Welfare Trust, Donor)..."
+                                        className="mt-1.5 text-xs bg-white dark:bg-card border-emerald-200 dark:border-emerald-800 h-8"
+                                        value={formData.scholarshipAuthorityOther}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, scholarshipAuthorityOther: e.target.value }))}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-muted/30 rounded-lg">
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
@@ -1198,9 +1333,11 @@ const StudentForm = ({
                         <div className="relative">
                             <Input
                                 type="number"
-                                className={`pl-8 font-bold text-primary ${fieldErrors.tuitionFee ? "border-destructive" : ""}`}
-                                value={formData.tuitionFee}
+                                disabled={formData.isScholarship100}
+                                className={`pl-8 font-bold ${formData.isScholarship100 ? "bg-muted/50 text-emerald-700 cursor-not-allowed" : "text-primary"} ${fieldErrors.tuitionFee ? "border-destructive" : ""}`}
+                                value={formData.isScholarship100 ? 0 : formData.tuitionFee}
                                 onChange={e => {
+                                    if (formData.isScholarship100) return;
                                     const standardFee = (currentClassFeeStructure || selectedClass?.feeStructures?.[0])?.totalAmount || 0;
                                     let val = e.target.value;
 
@@ -1225,6 +1362,12 @@ const StudentForm = ({
                             />
                             <span className="absolute left-3 top-2.5 text-muted-foreground text-sm font-medium">Rs.</span>
                         </div>
+                        {formData.isScholarship100 && (
+                            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1.5 pt-1">
+                                <Info className="w-3.5 h-3.5 shrink-0" />
+                                <span>Challans will be generated with standard installment amounts and equal discount applied for proper trails in reports.</span>
+                            </p>
+                        )}
                         <FieldError message={fieldErrors.tuitionFee} />
                     </div>
                 </div>
@@ -1329,6 +1472,18 @@ const StudentForm = ({
                                     <td className="px-4 py-3">
                                         {(() => {
                                             const total = formData.installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+                                            if (formData.isScholarship100) {
+                                                return (
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="font-bold text-sm text-emerald-700 dark:text-emerald-400">
+                                                            Decided: Rs. 0 (100% Scholarship) ✓
+                                                        </span>
+                                                        <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                                                            Challan Base: Rs. {total.toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            }
                                             const agreed = Number(formData.tuitionFee) || 0;
                                             const match = total === agreed;
                                             const exceeded = total > agreed;

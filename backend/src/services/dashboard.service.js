@@ -126,11 +126,14 @@ class DashboardService {
       ]
     } : {};
 
-    const [challans, extraChallans, hostelChallans] = await Promise.all([
+    const [challans, extraChallans, hostelChallans, rawExpelledIds] = await Promise.all([
       FeeChallan.find(sessionMatch).lean().catch(() => []),
       ExtraChallan.find(extraFilter).lean().catch(() => []),
       HostelChallan.find(sessionMatch).lean().catch(() => []),
+      Student.find({ status: { $regex: /^expelled$/i } }).distinct('_id').catch(() => [])
     ]);
+
+    const expelledStudentIds = new Set((rawExpelledIds || []).map(id => id.toString()));
 
     let regularCollected = 0;
     let regularPending = 0;
@@ -141,14 +144,19 @@ class DashboardService {
     for (const c of challans) {
       const isPaid = ['PAID', 'SETTLED'].includes(c.status);
       const isOverdue = c.status === 'OVERDUE';
+      const sId = (c.studentId?._id || c.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+
       if (isPaid) paidCount++;
-      else if (isOverdue) overdueCount++;
-      else pendingCount++;
+      else if (!isExpelled) {
+        if (isOverdue) overdueCount++;
+        else pendingCount++;
+      }
 
       const paid = Number(c.paidAmount || 0);
       const total = Number(c.totalAmount || c.netPayable || c.amount || 0);
       regularCollected += paid;
-      if (!isPaid && c.status !== 'VOID' && c.status !== 'SUPERSEDED') {
+      if (!isPaid && c.status !== 'VOID' && c.status !== 'SUPERSEDED' && !isExpelled) {
         regularPending += Math.max(0, total - paid);
       }
     }
@@ -158,14 +166,19 @@ class DashboardService {
     for (const ec of extraChallans) {
       const isPaid = ec.status === 'PAID';
       const isOverdue = ec.status === 'OVERDUE';
+      const sId = (ec.studentId?._id || ec.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+
       if (isPaid) paidCount++;
-      else if (isOverdue) overdueCount++;
-      else pendingCount++;
+      else if (!isExpelled) {
+        if (isOverdue) overdueCount++;
+        else pendingCount++;
+      }
 
       const paid = Number(ec.paidAmount || 0);
       const total = Number(ec.totalAmount || ec.amount || 0);
       extraCollected += paid;
-      if (!isPaid && ec.status !== 'VOID') {
+      if (!isPaid && ec.status !== 'VOID' && !isExpelled) {
         extraPending += Math.max(0, total - paid);
       }
     }
@@ -175,14 +188,19 @@ class DashboardService {
     for (const hc of hostelChallans) {
       const isPaid = ['PAID', 'SETTLED'].includes(hc.status);
       const isOverdue = hc.status === 'OVERDUE';
+      const sId = (hc.studentId?._id || hc.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+
       if (isPaid) paidCount++;
-      else if (isOverdue) overdueCount++;
-      else pendingCount++;
+      else if (!isExpelled) {
+        if (isOverdue) overdueCount++;
+        else pendingCount++;
+      }
 
       const paid = Number(hc.paidAmount || 0);
       const total = Number(hc.totalAmount || hc.amount || hc.hostelFee || 0);
       hostelCollected += paid;
-      if (!isPaid && hc.status !== 'VOID' && hc.status !== 'SUPERSEDED') {
+      if (!isPaid && hc.status !== 'VOID' && hc.status !== 'SUPERSEDED' && !isExpelled) {
         hostelPending += Math.max(0, total - paid);
       }
     }

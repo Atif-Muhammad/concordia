@@ -284,6 +284,8 @@ export const FeeReportsTab = ({
       const c = normalizeChallan(raw);
       if (!c) continue;
       if (['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) continue;
+      const studentStatus = String(c.studentStatus || c.student?.status || c.studentId?.status || '').toUpperCase();
+      if (studentStatus === 'EXPELLED') continue;
 
       // Exact late fee fine, arrears, advance and gross totals matching ChallansTab
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);

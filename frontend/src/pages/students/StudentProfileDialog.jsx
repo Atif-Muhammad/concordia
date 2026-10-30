@@ -316,7 +316,13 @@ export const StudentProfileDialog = ({
         (sum, i) => sum + Number(i.basePayable || 0),
         0
       );
+      const isStudentScholarship = Boolean(
+        viewStudent?.isScholarship100 ||
+        studentDetails?.isScholarship100 ||
+        allClassInsts.some(inst => inst.discountAmount > 0 && inst.discountAmount === Number(inst.amount ?? inst.basePayable ?? 0))
+      );
       const isInstPaid = (i) => {
+        if (isStudentScholarship) return true;
         if (["PAID", "SETTLED"].includes(i.status)) return true;
         const targetInstId = (i.id || i._id || "").toString();
         const ch = session.challans.find((c) => {
@@ -404,8 +410,8 @@ export const StudentProfileDialog = ({
       const tuitionPaidThisSession = Math.max(0, paidThisSession - headsPlusFinesPaid);
 
       const unpaidActiveInsts = activeInsts.filter((i) => !isInstPaid(i));
-      const remainingDues = Math.max(0, sessionFee - paidThisSession);
-      const remainingExtras = unpaidActiveInsts.reduce(
+      const remainingDues = isStudentScholarship ? 0 : Math.max(0, sessionFee - paidThisSession);
+      const remainingExtras = isStudentScholarship ? 0 : unpaidActiveInsts.reduce(
         (sum, i) => sum + Number(i.lateFeeFine || 0) + Number(i.extraFine || 0),
         0
       );
@@ -1483,9 +1489,16 @@ export const StudentProfileDialog = ({
                   <AvatarFallback>{student.fName}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
-                  <h3 className="text-2xl font-bold mb-2">
-                    {student.fName} {student.lName}
-                  </h3>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <h3 className="text-2xl font-bold">
+                      {student.fName} {student.lName}
+                    </h3>
+                    {student.isScholarship100 && (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-semibold text-xs px-2.5 py-0.5">
+                        100% Scholarship
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-4">
                     <p className="uppercase text-gray-500 tracking-wide text-sm">
                       Father / Guardian:
@@ -1555,9 +1568,15 @@ export const StudentProfileDialog = ({
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-blue-600" />
                   <span className="font-semibold">Total Tuition Fee:</span>
-                  <span className="font-mono font-bold">
-                    Rs. {student.tuitionFee?.toLocaleString()}
-                  </span>
+                  {student.isScholarship100 ? (
+                    <span className="font-mono font-bold text-emerald-700">
+                      Rs. 0 (100% Scholarship)
+                    </span>
+                  ) : (
+                    <span className="font-mono font-bold">
+                      Rs. {student.tuitionFee?.toLocaleString()}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <span className="font-semibold">Installments:</span>
@@ -1568,6 +1587,33 @@ export const StudentProfileDialog = ({
                       : "Installments"}
                   </span>
                 </div>
+
+                {student.isScholarship100 && (
+                  <div className="col-span-2 p-3 bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-emerald-600 text-white font-semibold text-[10px]">
+                        100% Scholarship Active
+                      </Badge>
+                      <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                        Student is granted 100% concession on tuition fees
+                      </span>
+                    </div>
+                    {(student.scholarshipStaffName || (student.scholarshipStaffId && typeof student.scholarshipStaffId === 'object' && student.scholarshipStaffId.name)) && (
+                      <p className="text-xs text-emerald-900 dark:text-emerald-200">
+                        <span className="font-semibold">Recommending Staff:</span>{" "}
+                        {student.scholarshipStaffName || student.scholarshipStaffId?.name}
+                      </p>
+                    )}
+                    {student.scholarshipAuthority && (
+                      <p className="text-xs text-emerald-900 dark:text-emerald-200">
+                        <span className="font-semibold">Scholarship Authority:</span>{" "}
+                        {student.scholarshipAuthority === "Others" && student.scholarshipAuthorityOther
+                          ? `${student.scholarshipAuthority} (${student.scholarshipAuthorityOther})`
+                          : student.scholarshipAuthority}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {student.admissionFormNumber && (
                   <div>
@@ -1803,12 +1849,17 @@ export const StudentProfileDialog = ({
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {student.isScholarship100 && (
+                            <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-semibold text-[10px] py-1 px-3">
+                              100% Scholarship (PKR 0 Payable)
+                            </Badge>
+                          )}
                           <Badge
                             variant="outline"
                             className="bg-slate-50 uppercase text-[10px] py-1 px-3"
                           >
-                            Plan Total: PKR{" "}
+                            {student.isScholarship100 ? "Base Plan Total: PKR " : "Plan Total: PKR "}
                             {group.installments
                               .reduce(
                                 (sum, i) =>
@@ -1886,6 +1937,14 @@ export const StudentProfileDialog = ({
                                 const rawStatus = challanStatus || instStatus || "PENDING";
                                 const planAmount = Number(inst.basePayable ?? inst.amount ?? matchingChallan?.basePayable ?? matchingChallan?.amount ?? matchingChallan?.totalAmount ?? 0);
 
+                                const isScholarshipStudent = Boolean(
+                                  student?.isScholarship100 ||
+                                  studentDetails?.isScholarship100 ||
+                                  viewStudent?.isScholarship100 ||
+                                  matchingChallan?.isScholarship100 ||
+                                  (inst.discountAmount > 0 && inst.discountAmount === planAmount)
+                                );
+
                                 const advApplied = Number(matchingChallan?.advanceApplied || matchingChallan?.advanceAmount || inst.advanceApplied || 0);
                                 const directPaid = Number(
                                   matchingChallan?.directPaidAmount != null
@@ -1903,6 +1962,7 @@ export const StudentProfileDialog = ({
 
                                 let status = "UNPAID";
                                 if (
+                                  isScholarshipStudent ||
                                   challanStatus === "PAID" ||
                                   instStatus === "PAID" ||
                                   (planAmount > 0 && totalPaid + discountAmount >= planAmount)
@@ -1930,7 +1990,9 @@ export const StudentProfileDialog = ({
                                 // "lightest green for paid and settled, lightest orange for partial paid and transparent bg for unpaid"
                                 let rowBgClass = "bg-transparent hover:bg-muted/40 transition-colors";
                                 if (status === "PAID" || status === "SETTLED") {
-                                  rowBgClass = "bg-green-50/70 hover:bg-green-100/60 dark:bg-green-950/20 border-b border-green-100/80 transition-colors";
+                                  rowBgClass = isScholarshipStudent
+                                    ? "bg-emerald-50/70 hover:bg-emerald-100/60 dark:bg-emerald-950/20 border-b border-emerald-100/80 transition-colors"
+                                    : "bg-green-50/70 hover:bg-green-100/60 dark:bg-green-950/20 border-b border-green-100/80 transition-colors";
                                 } else if (status === "PARTIAL") {
                                   rowBgClass = "bg-orange-50/70 hover:bg-orange-100/60 dark:bg-orange-950/20 border-b border-orange-100/80 transition-colors";
                                 }
@@ -1958,121 +2020,134 @@ export const StudentProfileDialog = ({
                                         : "—"}
                                     </TableCell>
                                     <TableCell className="py-2.5 px-3 text-sm text-right font-mono font-medium">
-                                      PKR {planAmount.toLocaleString()}
+                                      <div>PKR {planAmount.toLocaleString()}</div>
+                                      {isScholarshipStudent && (
+                                        <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-sans font-medium">
+                                          100% Concession
+                                        </div>
+                                      )}
                                     </TableCell>
                                     <TableCell className="py-2.5 px-3 text-sm text-right">
-                                      {status === "PAID" && (
-                                        <div className="flex flex-col items-end gap-0.5">
-                                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
-                                            PAID
-                                          </Badge>
-                                          {(advancePaid > 0 || arrearsSettled > 0) ? (
-                                            <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
-                                              {directPaid > 0 && (
-                                                <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
-                                                  Direct: PKR {directPaid.toLocaleString()}
+                                      {isScholarshipStudent ? (
+                                        <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                          100% Scholarship
+                                        </Badge>
+                                      ) : (
+                                        <>
+                                          {status === "PAID" && (
+                                            <div className="flex flex-col items-end gap-0.5">
+                                              <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                                PAID
+                                              </Badge>
+                                              {(advancePaid > 0 || arrearsSettled > 0) ? (
+                                                <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                                  {directPaid > 0 && (
+                                                    <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                      Direct: PKR {directPaid.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {advancePaid > 0 && (
+                                                    <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
+                                                      Adv: PKR {advancePaid.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {arrearsSettled > 0 && (
+                                                    <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                      Arrears: PKR {arrearsSettled.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {discountAmount > 0 && (
+                                                    <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
+                                                      Disc: PKR {discountAmount.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              ) : discountAmount > 0 ? (
+                                                <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                                                  Paid: PKR {totalPaid.toLocaleString()} (Disc: PKR {discountAmount.toLocaleString()})
                                                 </span>
-                                              )}
-                                              {advancePaid > 0 && (
-                                                <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
-                                                  Adv: PKR {advancePaid.toLocaleString()}
-                                                </span>
-                                              )}
-                                              {arrearsSettled > 0 && (
-                                                <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
-                                                  Arrears: PKR {arrearsSettled.toLocaleString()}
-                                                </span>
-                                              )}
-                                              {discountAmount > 0 && (
-                                                <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
-                                                  Disc: PKR {discountAmount.toLocaleString()}
-                                                </span>
-                                              )}
+                                              ) : null}
                                             </div>
-                                          ) : discountAmount > 0 ? (
-                                            <span className="text-[10px] text-emerald-700 font-semibold font-mono">
-                                              Paid: PKR {totalPaid.toLocaleString()} (Disc: PKR {discountAmount.toLocaleString()})
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      )}
-                                      {status === "SETTLED" && (
-                                        <div className="flex flex-col items-end gap-0.5">
-                                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
-                                            SETTLED
-                                          </Badge>
-                                          <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
-                                            {directPaid > 0 && (
-                                              <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
-                                                Direct: PKR {directPaid.toLocaleString()}
+                                          )}
+                                          {status === "SETTLED" && (
+                                            <div className="flex flex-col items-end gap-0.5">
+                                              <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-bold text-[10px] uppercase tracking-wide">
+                                                SETTLED
+                                              </Badge>
+                                              <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                                {directPaid > 0 && (
+                                                  <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                    Direct: PKR {directPaid.toLocaleString()}
+                                                  </span>
+                                                )}
+                                                {arrearsSettled > 0 && (
+                                                  <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                    Rolled: PKR {arrearsSettled.toLocaleString()}
+                                                  </span>
+                                                )}
+                                                {matchingChallan?.settledByChallanNo && (
+                                                  <span className="text-[9px] text-muted-foreground font-mono">
+                                                    (#{matchingChallan.settledByChallanNo})
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                          {status === "PARTIAL" && (
+                                            <div className="flex flex-col items-end gap-0.5">
+                                              <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 border border-orange-300 font-bold text-[10px] uppercase tracking-wide">
+                                                PARTIAL
+                                              </Badge>
+                                              <span className="text-[10px] text-orange-700 font-bold font-mono">
+                                                Paid: PKR {totalPaid.toLocaleString()}
                                               </span>
-                                            )}
-                                            {arrearsSettled > 0 && (
-                                              <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
-                                                Rolled: PKR {arrearsSettled.toLocaleString()}
-                                              </span>
-                                            )}
-                                            {matchingChallan?.settledByChallanNo && (
-                                              <span className="text-[9px] text-muted-foreground font-mono">
-                                                (#{matchingChallan.settledByChallanNo})
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      )}
-                                      {status === "PARTIAL" && (
-                                        <div className="flex flex-col items-end gap-0.5">
-                                          <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 border border-orange-300 font-bold text-[10px] uppercase tracking-wide">
-                                            PARTIAL
-                                          </Badge>
-                                          <span className="text-[10px] text-orange-700 font-bold font-mono">
-                                            Paid: PKR {totalPaid.toLocaleString()}
-                                          </span>
-                                          {(advancePaid > 0 || arrearsSettled > 0) && (
-                                            <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
-                                              {directPaid > 0 && (
-                                                <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
-                                                  Direct: PKR {directPaid.toLocaleString()}
-                                                </span>
+                                              {(advancePaid > 0 || arrearsSettled > 0) && (
+                                                <div className="flex items-center gap-1 flex-wrap justify-end text-[9px] font-mono mt-0.5">
+                                                  {directPaid > 0 && (
+                                                    <span className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded border border-slate-200">
+                                                      Direct: PKR {directPaid.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {advancePaid > 0 && (
+                                                    <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
+                                                      Adv: PKR {advancePaid.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {arrearsSettled > 0 && (
+                                                    <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
+                                                      Arrears: PKR {arrearsSettled.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                  {discountAmount > 0 && (
+                                                    <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
+                                                      Disc: PKR {discountAmount.toLocaleString()}
+                                                    </span>
+                                                  )}
+                                                </div>
                                               )}
-                                              {advancePaid > 0 && (
-                                                <span className="bg-purple-50 text-purple-700 px-1 py-0.5 rounded border border-purple-200">
-                                                  Adv: PKR {advancePaid.toLocaleString()}
-                                                </span>
-                                              )}
-                                              {arrearsSettled > 0 && (
-                                                <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">
-                                                  Arrears: PKR {arrearsSettled.toLocaleString()}
-                                                </span>
-                                              )}
-                                              {discountAmount > 0 && (
-                                                <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
-                                                  Disc: PKR {discountAmount.toLocaleString()}
+                                              {advancePaid === 0 && arrearsSettled === 0 && discountAmount > 0 && (
+                                                <span className="text-[9px] text-emerald-700 font-semibold font-mono">
+                                                  (Disc: PKR {discountAmount.toLocaleString()})
                                                 </span>
                                               )}
                                             </div>
                                           )}
-                                          {advancePaid === 0 && arrearsSettled === 0 && discountAmount > 0 && (
-                                            <span className="text-[9px] text-emerald-700 font-semibold font-mono">
-                                              (Disc: PKR {discountAmount.toLocaleString()})
-                                            </span>
+                                          {status === "UNPAID" && (
+                                            <Badge variant="outline" className="text-slate-500 border-slate-300 font-medium text-[10px] uppercase tracking-wide">
+                                              UNPAID
+                                            </Badge>
                                           )}
-                                        </div>
-                                      )}
-                                      {status === "UNPAID" && (
-                                        <Badge variant="outline" className="text-slate-500 border-slate-300 font-medium text-[10px] uppercase tracking-wide">
-                                          UNPAID
-                                        </Badge>
-                                      )}
-                                      {status === "OVERDUE" && (
-                                        <Badge variant="destructive" className="font-bold text-[10px] uppercase tracking-wide">
-                                          OVERDUE
-                                        </Badge>
-                                      )}
-                                      {status === "VOID" && (
-                                        <Badge variant="outline" className="opacity-60 font-medium text-[10px] uppercase tracking-wide">
-                                          VOID
-                                        </Badge>
+                                          {status === "OVERDUE" && (
+                                            <Badge variant="destructive" className="font-bold text-[10px] uppercase tracking-wide">
+                                              OVERDUE
+                                            </Badge>
+                                          )}
+                                          {status === "VOID" && (
+                                            <Badge variant="outline" className="opacity-60 font-medium text-[10px] uppercase tracking-wide">
+                                              VOID
+                                            </Badge>
+                                          )}
+                                        </>
                                       )}
                                     </TableCell>
                                   </TableRow>

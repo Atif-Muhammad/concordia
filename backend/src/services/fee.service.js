@@ -998,6 +998,18 @@ class FeeService {
     const basePay = Number(data.basePayable ?? data.amount ?? 0);
     data.amount = data.amount ?? basePay;
     data.basePayable = data.basePayable ?? basePay;
+
+    if (data.studentId && data.isScholarship100 === undefined) {
+      const studentObj = await Student.findById(data.studentId).select('isScholarship100 scholarshipAuthority').lean().catch(() => null);
+      if (studentObj?.isScholarship100) {
+        data.isScholarship100 = true;
+        if (data.discountAmount === undefined && data.discount === undefined) {
+          data.discount = basePay;
+          data.discountAmount = basePay;
+        }
+      }
+    }
+
     const arrears = Number(data.arrearsAmount || 0);
     const heads = Number(data.headsAmount || 0);
     data.grossAmount = basePay + arrears + heads;
@@ -1043,7 +1055,13 @@ class FeeService {
     data.netPayable = Math.max(0, data.grossAmount - advanceApplied - discountAmount);
     data.totalAmount = data.netPayable;
 
-    if (data.netPayable === 0 && advanceApplied > 0) {
+    if (data.netPayable === 0 && data.isScholarship100) {
+      data.status = 'PAID';
+      data.paidDate = new Date();
+      data.paidBy = '100% Scholarship';
+      data.paymentMode = 'Scholarship';
+      data.remarks = data.remarks || '100% Scholarship';
+    } else if (data.netPayable === 0 && advanceApplied > 0) {
       data.status = 'PAID';
       data.paidDate = new Date();
       data.paidBy = 'Advance Credit';
@@ -1163,10 +1181,17 @@ class FeeService {
     }
 
     const hasDirectPayment = Number(challan.paidAmount || 0) > 0;
+    const isScholarshipChallan = Boolean(
+      challan.isScholarship100 ||
+      challan.paidBy === '100% Scholarship'
+    );
 
     if (data.discount !== undefined || data.discountAmount !== undefined) {
       const disc = Math.max(0, Math.round(Number(data.discount !== undefined ? data.discount : data.discountAmount) || 0));
       const currentDisc = Math.round(Number(challan.discountAmount ?? challan.discount ?? 0));
+      if (isScholarshipChallan && disc !== currentDisc) {
+        throw new Error('Discount originating from 100% scholarship is locked and cannot be modified');
+      }
       if (hasDirectPayment && disc !== currentDisc) {
         throw new Error('Cannot add or modify discount on a challan that has already received direct payment');
       }
@@ -3039,11 +3064,14 @@ class FeeService {
       ];
     }
 
-    const [challans, extraChallans, hostelChallans] = await Promise.all([
+    const [challans, extraChallans, hostelChallans, rawExpelledIds] = await Promise.all([
       FeeChallan.find(challanFilter).lean().catch(() => []),
       ExtraChallan.find(extraFilter).lean().catch(() => []),
       HostelChallan.find(hostelFilter).lean().catch(() => []),
+      Student.find({ status: { $regex: /^expelled$/i } }).distinct('_id').catch(() => [])
     ]);
+
+    const expelledStudentIds = new Set((rawExpelledIds || []).map(id => id.toString()));
 
     const hasDateFilter = Boolean(dateFrom || dateTo);
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : -Infinity;
@@ -3065,7 +3093,9 @@ class FeeService {
       if (paid > 0 && matchesDate(c)) {
         regularCollected += paid;
       }
-      if (!['PAID', 'SETTLED'].includes(c.status)) {
+      const sId = (c.studentId?._id || c.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+      if (!['PAID', 'SETTLED'].includes(c.status) && !isExpelled) {
         regularPending += Math.max(0, total - paid);
       }
     }
@@ -3079,7 +3109,9 @@ class FeeService {
       if (paid > 0 && matchesDate(ec)) {
         extraCollected += paid;
       }
-      if (ec.status !== 'PAID') {
+      const sId = (ec.studentId?._id || ec.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+      if (ec.status !== 'PAID' && !isExpelled) {
         extraPending += Math.max(0, total - paid);
       }
     }
@@ -3093,7 +3125,9 @@ class FeeService {
       if (paid > 0 && matchesDate(hc)) {
         hostelCollected += paid;
       }
-      if (!['PAID', 'SETTLED'].includes(hc.status)) {
+      const sId = (hc.studentId?._id || hc.studentId || '').toString();
+      const isExpelled = expelledStudentIds.has(sId);
+      if (!['PAID', 'SETTLED'].includes(hc.status) && !isExpelled) {
         hostelPending += Math.max(0, total - paid);
       }
     }
@@ -3372,7 +3406,7 @@ class FeeService {
     if (filters.status && filters.status !== 'all') {
       const s = String(filters.status).trim();
       query.status = { $regex: new RegExp(`^${s}$`, 'i') };
-    } else {
+    } else if (!filters.status) {
       query.status = { $regex: /^active$/i };
     }
 
@@ -3438,6 +3472,7 @@ class FeeService {
       const fatherName = s.fatherOrguardian || '-';
       const rollNumber = (s.rollNumber ?? '').toString() || '-';
 
+      const isExpelled = String(s.status || '').toUpperCase() === 'EXPELLED';
       const installments = (s.installments || []).map(inst => ({
         id: inst._id?.toString() || `${s._id}-inst-${inst.installmentNumber}`,
         installmentNumber: inst.installmentNumber,
@@ -3445,14 +3480,14 @@ class FeeService {
         dueDate: inst.dueDate,
         amount: Number(inst.amount ?? inst.basePayable ?? 0),
         paidAmount: Number(inst.paidAmount ?? 0),
-        pendingAmount: Number(inst.pendingAmount ?? 0),
+        pendingAmount: isExpelled ? 0 : Number(inst.pendingAmount ?? 0),
         status: (inst.status || 'PENDING').toUpperCase()
       })).sort((a, b) => a.installmentNumber - b.installmentNumber);
 
       const totalInstallmentAmount = installments.reduce((sum, i) => sum + i.amount, 0);
       const totalPaidAmount = installments.reduce((sum, i) => sum + i.paidAmount, 0);
       const totalPendingAmount = installments.reduce((sum, i) => sum + i.pendingAmount, 0);
-      const decidedTuitionFee = Number(s.tuitionFee || totalInstallmentAmount || 0);
+      const decidedTuitionFee = s.isScholarship100 ? 0 : Number(s.tuitionFee ?? totalInstallmentAmount ?? 0);
 
       return {
         id: s._id.toString(),
@@ -4015,13 +4050,17 @@ class FeeService {
           headsAmount += absenteeFineAmount;
         }
 
-        const discountAmount = Number(matchingInst.discountAmount || matchingInst.discount || 0);
+        const isScholarshipStudent = Boolean(student.isScholarship100);
+        const discountAmount = isScholarshipStudent
+          ? basePayable
+          : Number(matchingInst.discountAmount || matchingInst.discount || 0);
         const grossAmount = basePayable + totalArrears + headsAmount;
         const netBeforeAdvance = Math.max(0, grossAmount - discountAmount);
         const advanceToApply = Math.min(netBeforeAdvance, totalAvailableCredit);
         const netPayable = Math.max(0, netBeforeAdvance - advanceToApply);
-        const isFullyPaidByAdvance = (netPayable === 0 && advanceToApply > 0);
-        const isPartiallyPaidByAdvance = (advanceToApply > 0 && !isFullyPaidByAdvance);
+        const isScholarshipPaid = Boolean(isScholarshipStudent && netPayable === 0);
+        const isFullyPaidByAdvance = (netPayable === 0 && advanceToApply > 0 && !isScholarshipPaid);
+        const isPartiallyPaidByAdvance = (advanceToApply > 0 && !isFullyPaidByAdvance && !isScholarshipPaid);
 
         const challanNo = await this.generate8DigitChallanNo();
 
@@ -4048,16 +4087,27 @@ class FeeService {
           installmentId: matchingInst._id,
           arrearAllocations,
           supersedes: supersededChallanIds,
-          status: isFullyPaidByAdvance ? 'PAID' : (isPartiallyPaidByAdvance ? 'PARTIAL' : 'PENDING'),
+          status: isScholarshipPaid ? 'PAID' : (isFullyPaidByAdvance ? 'PAID' : (isPartiallyPaidByAdvance ? 'PARTIAL' : 'PENDING')),
           paidAmount: 0,
-          paidDate: isFullyPaidByAdvance ? new Date() : (isPartiallyPaidByAdvance ? new Date() : undefined),
-          paidBy: advanceToApply > 0 ? 'Advance Credit' : 'Cash',
-          paymentMode: advanceToApply > 0 ? 'Advance Credit' : 'Cash',
+          paidDate: (isScholarshipPaid || isFullyPaidByAdvance || isPartiallyPaidByAdvance) ? new Date() : undefined,
+          paidBy: isScholarshipPaid ? '100% Scholarship' : (advanceToApply > 0 ? 'Advance Credit' : 'Cash'),
+          paymentMode: isScholarshipPaid ? 'Scholarship' : (advanceToApply > 0 ? 'Advance Credit' : 'Cash'),
+          isScholarship100: isScholarshipStudent,
+          remarks: isScholarshipStudent ? (student.scholarshipAuthority ? `100% Scholarship (${student.scholarshipAuthority})` : '100% Scholarship') : '',
           absenteeCount,
           absenteeFineAmount,
           absenteeMonth: absenteeCount > 0 ? prevMonthName : '',
           absenteeRate
         });
+
+        if (isScholarshipPaid) {
+          matchingInst.status = 'PAID';
+          matchingInst.challanGenerated = true;
+          matchingInst.discount = basePayable;
+          matchingInst.discountAmount = basePayable;
+          matchingInst.pendingAmount = 0;
+          matchingInst.paidAmount = 0;
+        }
 
         // 3. Mark prior challans as SUPERSEDED
         if (supersededChallanIds.length > 0) {

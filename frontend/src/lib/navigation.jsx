@@ -506,6 +506,13 @@ export const TEACHER_NAV_MODULES = [
     description: "Students in your assigned classes and sections",
   },
   {
+    icon: UserCheck,
+    label: "Attendance",
+    path: "/teacher/attendance",
+    componentKey: "TeacherAttendance",
+    description: "Mark attendance for your assigned class teacher classes",
+  },
+  {
     icon: GraduationCap,
     label: "Examination",
     path: "/teacher/examination",

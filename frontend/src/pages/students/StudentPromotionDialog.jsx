@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
@@ -44,8 +45,10 @@ import {
   UserX,
   UserMinus,
   RotateCcw,
+  Info,
 } from "lucide-react";
-import { getStudents, getPassedOutStudents } from "../../../config/apis";
+import { getStudents, getPassedOutStudents, getAllStaff } from "../../../config/apis";
+import { getFeeStructures } from "@/services/api";
 
 export const StudentPromotionDialog = ({
   open,
@@ -63,6 +66,7 @@ export const StudentPromotionDialog = ({
 }) => {
   const { toast } = useToast();
   const [promotionAction, setPromotionAction] = useState(initialAction);
+  const isRejoinMode = promotionAction === "rejoin";
   const [selectedForPromotion, setSelectedForPromotion] = useState(initialSelectedIds);
   const [promotionReason, setPromotionReason] = useState("");
 
@@ -90,6 +94,24 @@ export const StudentPromotionDialog = ({
     classId: "",
     sectionId: "",
     sameClass: true,
+    tuitionFee: "",
+    isScholarship100: false,
+    scholarshipStaffId: "",
+    scholarshipStaffName: "",
+    scholarshipAuthority: "",
+    scholarshipAuthorityOther: "",
+  });
+
+  const { data: staffList = [] } = useQuery({
+    queryKey: ["allStaffActive"],
+    queryFn: () => getAllStaff({ status: "ACTIVE" }),
+    enabled: open && isRejoinMode,
+  });
+
+  const { data: feeStructures = [] } = useQuery({
+    queryKey: ["feeStructures"],
+    queryFn: getFeeStructures,
+    enabled: open && isRejoinMode,
   });
 
   const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false);
@@ -129,7 +151,6 @@ export const StudentPromotionDialog = ({
     }
   }, [open, initialAction, initialSelectedIds, initialRejoinDetails, initialSessionId, activeSessionId]);
 
-  const isRejoinMode = promotionAction === "rejoin";
   const dialogQueryEnabled = open && !!dialogFilterProgram;
   const cleanDialogSessionId = dialogFilterSessionId === "all" ? "" : dialogFilterSessionId;
 
@@ -164,6 +185,25 @@ export const StudentPromotionDialog = ({
     if (typeof val === "object") return (val._id || val.id || "").toString();
     return val.toString();
   };
+
+  const selectedStudent = useMemo(() => {
+    if (!isRejoinMode || !selectedForPromotion.length) return null;
+    return dialogStudentsData.find((s) => extractId(s) === extractId(selectedForPromotion[0])) || null;
+  }, [isRejoinMode, selectedForPromotion, dialogStudentsData]);
+
+  useEffect(() => {
+    if (isRejoinMode && selectedStudent) {
+      setRejoinDetails((prev) => ({
+        ...prev,
+        tuitionFee: prev.tuitionFee !== "" ? prev.tuitionFee : (selectedStudent.tuitionFee?.toString() || ""),
+        isScholarship100: prev.isScholarship100 ?? Boolean(selectedStudent.isScholarship100),
+        scholarshipStaffId: prev.scholarshipStaffId || extractId(selectedStudent.scholarshipStaffId) || "",
+        scholarshipStaffName: prev.scholarshipStaffName || selectedStudent.scholarshipStaffName || "",
+        scholarshipAuthority: prev.scholarshipAuthority || selectedStudent.scholarshipAuthority || "",
+        scholarshipAuthorityOther: prev.scholarshipAuthorityOther || selectedStudent.scholarshipAuthorityOther || "",
+      }));
+    }
+  }, [isRejoinMode, selectedStudent]);
 
   const getClassesForProgram = (programId) => {
     if (!programId || programId === "all") return [];
@@ -668,6 +708,172 @@ export const StudentPromotionDialog = ({
                     </div>
                   </div>
                 )}
+
+                {/* Fee Structure & Agreed Tuition Fee Section */}
+                {(() => {
+                  const targetRejoinClassId = rejoinDetails.sameClass
+                    ? (selectedStudent?.classId?._id || selectedStudent?.classId)
+                    : rejoinDetails.classId;
+
+                  const targetClassFs = (Array.isArray(feeStructures) ? feeStructures : []).find(
+                    (fs) => extractId(fs.classId || fs.class) === extractId(targetRejoinClassId)
+                  );
+                  const targetStdFee = targetClassFs?.totalAmount || 0;
+
+                  const alreadyPaidAmt = (selectedStudent?.installments || []).reduce(
+                    (sum, inst) => sum + (Number(inst.paidAmount) || 0),
+                    0
+                  );
+
+                  const agreedFeeVal = Number(rejoinDetails.tuitionFee) || 0;
+                  const remainingFeeBalance = Math.max(0, agreedFeeVal - alreadyPaidAmt);
+
+                  return (
+                    <div className="pt-3 border-t border-blue-200/80 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-blue-900">
+                          Fee Structure & Agreed Tuition Fee
+                        </h4>
+                        {targetStdFee > 0 && (
+                          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                            Class Standard: Rs. {targetStdFee}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-xs font-semibold text-blue-950">Agreed Tuition Fee (Rs.)</Label>
+                          <Input
+                            type="number"
+                            disabled={rejoinDetails.isScholarship100}
+                            value={rejoinDetails.isScholarship100 ? 0 : rejoinDetails.tuitionFee}
+                            onChange={(e) => {
+                              if (rejoinDetails.isScholarship100) return;
+                              setRejoinDetails((prev) => ({ ...prev, tuitionFee: e.target.value }));
+                            }}
+                            placeholder={targetStdFee ? String(targetStdFee) : "Enter agreed tuition fee"}
+                            className={`bg-white text-xs h-9 font-semibold ${rejoinDetails.isScholarship100 ? "bg-muted/50 text-emerald-700 cursor-not-allowed" : ""}`}
+                          />
+                          {rejoinDetails.isScholarship100 && (
+                            <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 mt-1">
+                              <Info className="w-3.5 h-3.5 shrink-0" />
+                              <span>Challans will be generated with standard installment amounts and equal discount applied for proper trails in reports.</span>
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Financial status summary */}
+                        <div className="p-2.5 bg-blue-100/60 rounded-md text-xs space-y-1 text-blue-900 border border-blue-200">
+                          <div className="flex justify-between">
+                            <span className="text-blue-700">Already Paid (Locked):</span>
+                            <span className="font-bold font-mono">Rs. {alreadyPaidAmt}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-blue-700">New Agreed Fee:</span>
+                            <span className="font-bold font-mono">Rs. {agreedFeeVal}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-blue-200 pt-1 font-bold">
+                            <span>Remaining to Collect:</span>
+                            <span className="text-emerald-700 font-mono">Rs. {remainingFeeBalance}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 100% Scholarship Toggle for Rejoin */}
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={rejoinDetails.isScholarship100}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setRejoinDetails((prev) => ({
+                                ...prev,
+                                isScholarship100: checked,
+                                tuitionFee: checked ? "0" : (targetStdFee ? String(targetStdFee) : prev.tuitionFee),
+                                scholarshipStaffId: checked ? prev.scholarshipStaffId : "",
+                                scholarshipAuthority: checked ? prev.scholarshipAuthority : "",
+                                scholarshipAuthorityOther: checked ? prev.scholarshipAuthorityOther : "",
+                              }));
+                            }}
+                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-emerald-900">
+                            Re-admit under 100% Scholarship (Full Concession)
+                          </span>
+                        </label>
+
+                        {rejoinDetails.isScholarship100 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-emerald-200">
+                            <div>
+                              <Label className="text-[11px] font-semibold text-emerald-950">Staff Member (Optional)</Label>
+                              <Select
+                                value={rejoinDetails.scholarshipStaffId || "none"}
+                                onValueChange={(val) => {
+                                  const sId = val === "none" ? "" : val;
+                                  const matched = (Array.isArray(staffList) ? staffList : []).find((s) => extractId(s) === sId);
+                                  setRejoinDetails((prev) => ({
+                                    ...prev,
+                                    scholarshipStaffId: sId,
+                                    scholarshipStaffName: matched?.name ? `${matched.name} (${matched.staffId || ""})` : "",
+                                  }));
+                                }}
+                              >
+                                <SelectTrigger className="bg-white text-xs h-8">
+                                  <SelectValue placeholder="Select Staff Member" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">None / Direct Word</SelectItem>
+                                  {(Array.isArray(staffList) ? staffList : []).map((staff) => {
+                                    const id = extractId(staff);
+                                    return (
+                                      <SelectItem key={id} value={id}>
+                                        {staff.name} {staff.staffId ? `(${staff.staffId})` : ""}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div>
+                              <Label className="text-[11px] font-semibold text-emerald-950">Authority (Optional)</Label>
+                              <Select
+                                value={rejoinDetails.scholarshipAuthority || "none"}
+                                onValueChange={(val) => {
+                                  const aVal = val === "none" ? "" : val;
+                                  setRejoinDetails((prev) => ({
+                                    ...prev,
+                                    scholarshipAuthority: aVal,
+                                    scholarshipAuthorityOther: aVal === "Others" ? prev.scholarshipAuthorityOther : "",
+                                  }));
+                                }}
+                              >
+                                <SelectTrigger className="bg-white text-xs h-8">
+                                  <SelectValue placeholder="Select Authority" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">None / Standard</SelectItem>
+                                  <SelectItem value="WWF">WWF (Workers Welfare Fund)</SelectItem>
+                                  <SelectItem value="Others">Others</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {rejoinDetails.scholarshipAuthority === "Others" && (
+                                <Input
+                                  placeholder="Specify Authority details..."
+                                  className="mt-1 text-xs bg-white h-7"
+                                  value={rejoinDetails.scholarshipAuthorityOther}
+                                  onChange={(e) => setRejoinDetails((prev) => ({ ...prev, scholarshipAuthorityOther: e.target.value }))}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

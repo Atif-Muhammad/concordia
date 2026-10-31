@@ -209,20 +209,49 @@ class AttendanceService {
         { upsert: true, returnDocument: 'after' }
       );
     });
-    return Promise.all(ops);
+    const results = await Promise.all(ops);
+
+    // Auto-sync open collectable challans for affected students
+    try {
+      const studentIds = studentList.map(item => item.studentId || item.id).filter(Boolean);
+      if (studentIds.length > 0 && date) {
+        const feeService = require('./fee.service');
+        feeService.syncStudentAbsenteeFineForMonth(studentIds, date).catch(err => {
+          console.error('Error auto-syncing student absentee fine for month:', err);
+        });
+      }
+    } catch (e) {
+      console.error('Error triggering absentee fine sync in updateStudentAttendance:', e);
+    }
+
+    return results;
   }
 
   async deleteStudentRecord({ studentId, classId, sectionId, subjectId, date, attendanceId }) {
+    let deleted = null;
     if (attendanceId) {
-      return Attendance.findByIdAndDelete(attendanceId);
+      deleted = await Attendance.findByIdAndDelete(attendanceId);
+    } else {
+      deleted = await Attendance.findOneAndDelete({
+        studentId,
+        classId,
+        date,
+        role: 'STUDENT',
+        ...(sectionId ? { sectionId } : {})
+      });
     }
-    return Attendance.findOneAndDelete({
-      studentId,
-      classId,
-      date,
-      role: 'STUDENT',
-      ...(sectionId ? { sectionId } : {})
-    });
+
+    if (deleted && deleted.studentId && deleted.date) {
+      try {
+        const feeService = require('./fee.service');
+        feeService.syncStudentAbsenteeFineForMonth([deleted.studentId], deleted.date).catch(err => {
+          console.error('Error auto-syncing student absentee fine on deleteStudentRecord:', err);
+        });
+      } catch (e) {
+        console.error('Error triggering absentee fine sync in deleteStudentRecord:', e);
+      }
+    }
+    return deleted;
   }
 
   // Leaves
@@ -353,6 +382,15 @@ class AttendanceService {
               },
               { upsert: true, returnDocument: 'after' }
             );
+          }
+
+          try {
+            const feeService = require('./fee.service');
+            feeService.syncStudentAbsenteeFineForMonth([leave.studentId], leave.fromDate).catch(err => {
+              console.error('Error syncing student absentee fine on leave approval:', err);
+            });
+          } catch (e) {
+            console.error('Error triggering absentee fine sync on leave approval:', e);
           }
         }
       } catch (syncErr) {

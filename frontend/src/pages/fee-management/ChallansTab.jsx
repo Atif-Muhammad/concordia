@@ -1225,8 +1225,8 @@ export const ChallansTab = ({
       if (catalogMatch) {
         matchedHeadIds.add(extractId(catalogMatch.id || catalogMatch._id));
       } else if (typeof item === 'object' && item.name && item.amount) {
-        const isDailyAbsentee = /^Absentee Fine \(\d+ day/i.test(item.name);
-        if (!isDailyAbsentee) {
+        const isAbsentee = /^absentee fine/i.test(item.name);
+        if (!isAbsentee) {
           customHeadsList.push({ name: item.name, amount: Number(item.amount) || 0 });
         }
       }
@@ -1240,9 +1240,9 @@ export const ChallansTab = ({
       };
     } else if (customHeadsList.length > 1) {
       const totalCustom = customHeadsList.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
-      const names = customHeadsList.map(h => h.name).filter(Boolean).join(', ');
+      const uniqueNames = Array.from(new Set(customHeadsList.map(h => h.name?.trim()).filter(Boolean)));
       foundOtherHead = {
-        name: names || 'Other',
+        name: uniqueNames.join(', ') || 'Other',
         amount: totalCustom
       };
     }
@@ -1337,8 +1337,8 @@ export const ChallansTab = ({
     }
 
     // Preserve automated daily absentee fine if not already present
-    const existingAbsenteeHead = (editingChallan?.challanHeads || []).find(h => /^Absentee Fine \(\d+ day/i.test(h.name || ''));
-    if (existingAbsenteeHead && !allFeeHeadDetails.some(h => /^Absentee Fine \(\d+ day/i.test(h.name || ''))) {
+    const existingAbsenteeHead = (editingChallan?.challanHeads || []).find(h => /^absentee fine/i.test(h.name || ''));
+    if (existingAbsenteeHead && !allFeeHeadDetails.some(h => /^absentee fine/i.test(h.name || ''))) {
       allFeeHeadDetails.push({
         name: existingAbsenteeHead.name,
         amount: Math.round(Number(existingAbsenteeHead.amount) || 0),

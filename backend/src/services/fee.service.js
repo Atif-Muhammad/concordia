@@ -2949,6 +2949,7 @@ class FeeService {
 
   async updateSettings(data) {
     let settings = await FeeSettings.findOne();
+    const oldAbsenteeRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject ?? 50);
     const payload = { ...data };
     if (payload.lateFeeRatePerDay !== undefined) {
       payload.lateFeeRatePerDay = Number(payload.lateFeeRatePerDay) || 0;
@@ -2984,11 +2985,21 @@ class FeeService {
     if (!settings) {
       settings = await FeeSettings.create(payload);
     } else {
-      settings = await FeeSettings.findByIdAndUpdate(settings._id, payload, { new: true });
+      settings = await FeeSettings.findByIdAndUpdate(settings._id, payload, { returnDocument: 'after' });
     }
     const obj = settings.toObject();
     const rate = Number(obj.lateFeeRatePerDay ?? obj.lateFeeFinePerDay ?? 0);
     const absenteeRate = Number(obj.absenteeFinePerDay ?? obj.absenteeFinePerSubject ?? 50);
+
+    // Propagate updated absentee fine rate across all collectable challans (PENDING, PARTIAL, and unsettled SUPERSEDED)
+    if ((payload.absenteeFinePerDay !== undefined || payload.absenteeFinePerSubject !== undefined) && absenteeRate !== oldAbsenteeRate) {
+      try {
+        await this.syncAbsenteeFineRateAcrossCollectableChallans(absenteeRate);
+      } catch (syncErr) {
+        console.error('Failed to propagate absentee fine rate update across collectable challans:', syncErr);
+      }
+    }
+
     return {
       ...obj,
       lateFeeRatePerDay: rate,
@@ -3002,6 +3013,341 @@ class FeeService {
       accountNumber: obj.accountNumber || '',
       accountTitle: obj.accountTitle || 'Concordia College'
     };
+  }
+
+  async syncAbsenteeFineRateAcrossCollectableChallans(newRate) {
+    if (!Number.isFinite(newRate) || newRate < 0) return { updatedCount: 0 };
+
+    const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+    const challans = await FeeChallan.find({
+      status: { $in: ['PENDING', 'PARTIAL', 'SUPERSEDED'] }
+    }).lean();
+
+    const allChallans = await FeeChallan.find({
+      status: { $in: ['PAID', 'SETTLED', 'PENDING', 'PARTIAL', 'SUPERSEDED'] }
+    }).select('_id status supersededBy challanNo arrearsAmount grossAmount netPayable totalAmount arrearAllocations').lean();
+    const challanLookup = new Map(allChallans.map(c => [c._id.toString(), c]));
+
+    const isSettledDownstream = (ch) => {
+      if (['PAID', 'SETTLED'].includes(ch.status)) return true;
+      if (ch.status !== 'SUPERSEDED') return false;
+      let cur = ch.supersededBy;
+      const seen = new Set([ch._id.toString()]);
+      while (cur) {
+        const curId = (cur._id || cur).toString();
+        if (seen.has(curId)) break;
+        seen.add(curId);
+        const nextCh = challanLookup.get(curId) || cur;
+        if (['PAID', 'SETTLED'].includes(nextCh.status)) return true;
+        cur = nextCh.supersededBy;
+      }
+      return false;
+    };
+
+    let updatedCount = 0;
+
+    for (const c of challans) {
+      if (isSettledDownstream(c)) {
+        continue;
+      }
+
+      const pInfo = getPreviousMonthInfo(c.month || (c.dueDate ? new Date(c.dueDate).toISOString().slice(0, 7) : ''));
+      const prevMonthName = pInfo.prevMonthName;
+      const prevMonthStr = pInfo.prevMonthStr;
+
+      const distinctDates = await Attendance.distinct('date', {
+        studentId: c.studentId,
+        status: { $regex: /^absent$/i },
+        date: { $regex: `^${prevMonthStr}` }
+      });
+
+      const count = distinctDates.length;
+      const newFine = count * newRate;
+
+      const currentHeads = c.challanHeads || [];
+      const nonAbsenteeHeads = currentHeads.filter(h => !/^absentee fine/i.test(h.name || ''));
+      const updatedHeads = [...nonAbsenteeHeads];
+
+      if (count > 0 && newFine > 0) {
+        const dayWord = count === 1 ? 'day' : 'days';
+        updatedHeads.push({
+          name: `Absentee Fine (${count} ${dayWord} absent in ${prevMonthName})`,
+          category: 'custom',
+          amount: newFine,
+          isCustom: true,
+          appliedAt: new Date()
+        });
+      }
+
+      const headsAmount = updatedHeads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+      const basePayable = Number(c.basePayable || c.amount || 0);
+      const arrearsAmount = Number(c.arrearsAmount || 0);
+      const lateFeeAmount = Number(c.lateFeeAmount || c.fineAmount || 0);
+      const discountAmount = Number(c.discountAmount || c.discount || 0);
+      const grossAmount = basePayable + arrearsAmount + headsAmount + lateFeeAmount;
+      const netBeforeAdvance = Math.max(0, grossAmount - discountAmount);
+
+      let advanceApplied = Number(c.advanceApplied || 0);
+      if (advanceApplied > netBeforeAdvance) {
+        const creditDiff = advanceApplied - netBeforeAdvance;
+        advanceApplied = netBeforeAdvance;
+        const srcChNo = c.advanceAllocations?.[0]?.sourceChallanNo;
+        if (srcChNo) {
+          await StudentCreditLedger.updateOne(
+            { studentId: c.studentId, sourceChallanNo: srcChNo },
+            { $inc: { remainingAmount: creditDiff }, $set: { status: 'AVAILABLE' } }
+          );
+        }
+      }
+
+      const oldNetPayable = Number(c.netPayable || c.totalAmount || 0);
+      const netPayable = Math.max(0, netBeforeAdvance - advanceApplied);
+      const paidAmount = Number(c.paidAmount || 0);
+
+      await FeeChallan.updateOne(
+        { _id: c._id },
+        {
+          $set: {
+            absenteeCount: count,
+            absenteeFineAmount: newFine,
+            absenteeRate: newRate,
+            absenteeMonth: count > 0 ? prevMonthName : '',
+            challanHeads: updatedHeads,
+            headsAmount,
+            grossAmount,
+            advanceApplied,
+            netPayable,
+            totalAmount: netPayable
+          }
+        }
+      );
+
+      if (c.studentId && c.installmentNumber) {
+        await Student.updateOne(
+          { _id: c.studentId, 'installments.installmentNumber': c.installmentNumber },
+          {
+            $set: {
+              'installments.$.pendingAmount': Math.max(0, netPayable - paidAmount),
+              'installments.$.totalAmount': netPayable
+            }
+          }
+        );
+      }
+
+      if (c.status === 'SUPERSEDED' && c.supersededBy) {
+        const diff = netPayable - oldNetPayable;
+        if (diff !== 0) {
+          const downCh = await FeeChallan.findById(c.supersededBy).lean();
+          if (downCh && !['PAID', 'SETTLED'].includes(downCh.status)) {
+            const newDownArrears = Math.max(0, (Number(downCh.arrearsAmount) || 0) + diff);
+            const newDownGross = (Number(downCh.basePayable || downCh.amount || 0)) + newDownArrears + (Number(downCh.headsAmount) || 0) + (Number(downCh.lateFeeAmount || downCh.fineAmount) || 0);
+            const downDiscount = Number(downCh.discountAmount || downCh.discount || 0);
+            const newDownNetBeforeAdv = Math.max(0, newDownGross - downDiscount);
+            const newDownNetPayable = Math.max(0, newDownNetBeforeAdv - (Number(downCh.advanceApplied) || 0));
+
+            const updatedAlloc = (downCh.arrearAllocations || []).map(a => {
+              if (a.sourceChallanId && a.sourceChallanId.toString() === c._id.toString()) {
+                return {
+                  ...a,
+                  amountCarriedForward: Math.max(0, (Number(a.amountCarriedForward) || 0) + diff),
+                  originalDueAmount: Math.max(0, (Number(a.originalDueAmount) || 0) + diff)
+                };
+              }
+              return a;
+            });
+
+            await FeeChallan.updateOne(
+              { _id: downCh._id },
+              {
+                $set: {
+                  arrearsAmount: newDownArrears,
+                  grossAmount: newDownGross,
+                  netPayable: newDownNetPayable,
+                  totalAmount: newDownNetPayable,
+                  arrearAllocations: updatedAlloc
+                }
+              }
+            );
+
+            if (downCh.studentId && downCh.installmentNumber) {
+              await Student.updateOne(
+                { _id: downCh.studentId, 'installments.installmentNumber': downCh.installmentNumber },
+                {
+                  $set: {
+                    'installments.$.pendingAmount': Math.max(0, newDownNetPayable - (Number(downCh.paidAmount) || 0)),
+                    'installments.$.totalAmount': newDownNetPayable
+                  }
+                }
+              );
+            }
+          }
+        }
+      }
+
+      updatedCount++;
+    }
+
+    return { updatedCount };
+  }
+
+  async syncStudentAbsenteeFineForMonth(studentIds, dateStr) {
+    if (!studentIds || !dateStr) return;
+    const sIdList = (Array.isArray(studentIds) ? studentIds : [studentIds])
+      .map(id => id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id)));
+
+    const dateMonthStr = String(dateStr).slice(0, 7);
+    const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const [y, m] = dateMonthStr.split('-').map(Number);
+    if (!y || !m) return;
+
+    const targetMonthName = monthNames[m - 1];
+    const nextDate = new Date(y, m, 1);
+    const nextMonthName = monthNames[nextDate.getMonth()];
+
+    const settings = await this.getSettings().catch(() => null);
+    const defaultRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject ?? 50);
+
+    for (const studentId of sIdList) {
+      const challan = await FeeChallan.findOne({
+        studentId,
+        status: { $in: ['PENDING', 'PARTIAL', 'SUPERSEDED'] },
+        $or: [
+          { absenteeMonth: { $regex: new RegExp(`^${targetMonthName}$`, 'i') } },
+          { month: { $regex: new RegExp(`^${nextMonthName}$`, 'i') } }
+        ]
+      }).sort({ createdAt: -1 });
+
+      if (!challan) continue;
+
+      const distinctDates = await Attendance.distinct('date', {
+        studentId,
+        status: { $regex: /^absent$/i },
+        date: { $regex: `^${dateMonthStr}` }
+      });
+
+      const count = distinctDates.length;
+      const rate = Number(challan.absenteeRate || defaultRate);
+      const newFine = count * rate;
+
+      const currentHeads = challan.challanHeads || [];
+      const nonAbsenteeHeads = currentHeads.filter(h => !/^absentee fine/i.test(h.name || ''));
+      const updatedHeads = [...nonAbsenteeHeads];
+
+      if (count > 0 && newFine > 0) {
+        const dayWord = count === 1 ? 'day' : 'days';
+        updatedHeads.push({
+          name: `Absentee Fine (${count} ${dayWord} absent in ${targetMonthName})`,
+          category: 'custom',
+          amount: newFine,
+          isCustom: true,
+          appliedAt: new Date()
+        });
+      }
+
+      const headsAmount = updatedHeads.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+      const basePayable = Number(challan.basePayable || challan.amount || 0);
+      const arrearsAmount = Number(challan.arrearsAmount || 0);
+      const lateFeeAmount = Number(challan.lateFeeAmount || challan.fineAmount || 0);
+      const discountAmount = Number(challan.discountAmount || challan.discount || 0);
+      const grossAmount = basePayable + arrearsAmount + headsAmount + lateFeeAmount;
+      const netBeforeAdvance = Math.max(0, grossAmount - discountAmount);
+
+      let advanceApplied = Number(challan.advanceApplied || 0);
+      if (advanceApplied > netBeforeAdvance) {
+        const creditDiff = advanceApplied - netBeforeAdvance;
+        advanceApplied = netBeforeAdvance;
+        const srcChNo = challan.advanceAllocations?.[0]?.sourceChallanNo;
+        if (srcChNo) {
+          await StudentCreditLedger.updateOne(
+            { studentId, sourceChallanNo: srcChNo },
+            { $inc: { remainingAmount: creditDiff }, $set: { status: 'AVAILABLE' } }
+          );
+        }
+      }
+
+      const netPayable = Math.max(0, netBeforeAdvance - advanceApplied);
+      const paidAmount = Number(challan.paidAmount || 0);
+      const oldNetPayable = Number(challan.netPayable || challan.totalAmount || 0);
+      const diff = netPayable - oldNetPayable;
+
+      await FeeChallan.updateOne(
+        { _id: challan._id },
+        {
+          $set: {
+            absenteeCount: count,
+            absenteeFineAmount: newFine,
+            absenteeRate: rate,
+            absenteeMonth: count > 0 ? targetMonthName : '',
+            challanHeads: updatedHeads,
+            headsAmount,
+            grossAmount,
+            advanceApplied,
+            netPayable,
+            totalAmount: netPayable
+          }
+        }
+      );
+
+      if (challan.installmentNumber) {
+        await Student.updateOne(
+          { _id: studentId, 'installments.installmentNumber': challan.installmentNumber },
+          {
+            $set: {
+              'installments.$.pendingAmount': Math.max(0, netPayable - paidAmount),
+              'installments.$.totalAmount': netPayable
+            }
+          }
+        );
+      }
+
+      if (challan.status === 'SUPERSEDED' && challan.supersededBy && Math.abs(diff) > 0.01) {
+        const downCh = await FeeChallan.findById(challan.supersededBy).lean();
+        if (downCh && !['PAID', 'SETTLED'].includes(downCh.status)) {
+          const newDownArrears = Math.max(0, (Number(downCh.arrearsAmount) || 0) + diff);
+          const newDownGross = (Number(downCh.basePayable || downCh.amount || 0)) + newDownArrears + (Number(downCh.headsAmount) || 0) + (Number(downCh.lateFeeAmount || downCh.fineAmount) || 0);
+          const downDiscount = Number(downCh.discountAmount || downCh.discount || 0);
+          const newDownNetBeforeAdv = Math.max(0, newDownGross - downDiscount);
+          const newDownNetPayable = Math.max(0, newDownNetBeforeAdv - (Number(downCh.advanceApplied) || 0));
+
+          const updatedAlloc = (downCh.arrearAllocations || []).map(a => {
+            if (a.sourceChallanId && a.sourceChallanId.toString() === challan._id.toString()) {
+              return {
+                ...a,
+                amountCarriedForward: Math.max(0, (Number(a.amountCarriedForward) || 0) + diff),
+                originalDueAmount: Math.max(0, (Number(a.originalDueAmount) || 0) + diff)
+              };
+            }
+            return a;
+          });
+
+          await FeeChallan.updateOne(
+            { _id: downCh._id },
+            {
+              $set: {
+                arrearsAmount: newDownArrears,
+                grossAmount: newDownGross,
+                netPayable: newDownNetPayable,
+                totalAmount: newDownNetPayable,
+                arrearAllocations: updatedAlloc
+              }
+            }
+          );
+
+          if (downCh.studentId && downCh.installmentNumber) {
+            await Student.updateOne(
+              { _id: downCh.studentId, 'installments.installmentNumber': downCh.installmentNumber },
+              {
+                $set: {
+                  'installments.$.pendingAmount': Math.max(0, newDownNetPayable - (Number(downCh.paidAmount) || 0)),
+                  'installments.$.totalAmount': newDownNetPayable
+                }
+              }
+            );
+          }
+        }
+      }
+    }
   }
 
   // Reports

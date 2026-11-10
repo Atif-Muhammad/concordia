@@ -1834,41 +1834,59 @@ export const generateChallanHtml = (rawChallan, manualTemplate = null, options =
     return `<td>${tot > 0 ? tot.toFixed(0) : '0'}</td>`;
   }).join('');
 
-  const histPaid = displayHistory.map(i => {
-    if (!i) return '<td>—</td>';
-    const { candidateChallan } = resolveHistoryItem(i) || {};
+  const extractHistoryPaid = (candidateChallan, inst) => {
+    if (!candidateChallan && !inst) return 0;
 
-    const targetObj = candidateChallan || i;
-    const directPaid = Number(
-      (targetObj.paidAmount != null && Number(targetObj.paidAmount) > 0 ? targetObj.paidAmount : null) ??
-      (targetObj.directPaidAmount != null && Number(targetObj.directPaidAmount) > 0 ? targetObj.directPaidAmount : null) ??
-      (targetObj.amountReceived != null && Number(targetObj.amountReceived) > 0 ? targetObj.amountReceived : null) ??
-      (i?.paidAmount != null && Number(i.paidAmount) > 0 ? i.paidAmount : null) ??
-      targetObj.paidAmount ??
-      targetObj.directPaidAmount ??
-      targetObj.amountReceived ??
-      i?.paidAmount ??
-      0
-    );
-    const advancePaid = Number(targetObj.advanceApplied ?? targetObj.advanceAmount ?? 0);
+    const extractFromChallan = (ch) => {
+      if (!ch) return 0;
+      const adv = Number(ch.advanceApplied ?? ch.advanceAmount ?? ch.advanceCreditUsed ?? 0);
+      const isAdvanceOnly = String(ch.paidBy || '').trim().toLowerCase() === 'advance credit' ||
+                            String(ch.paymentMode || '').trim().toLowerCase() === 'advance credit';
 
-    let paid = directPaid + advancePaid;
+      let direct = 0;
+      if (ch.directPaidAmount != null) {
+        direct = Number(ch.directPaidAmount) || 0;
+      } else if (isAdvanceOnly) {
+        direct = 0;
+      } else {
+        const raw = Number(ch.amountReceived ?? ch.paidAmount ?? 0);
+        // If raw equals advanceApplied and advance was applied, raw was populated from advanceApplied
+        direct = (raw === adv && adv > 0) ? 0 : raw;
+      }
 
-    const subChallans = Array.isArray(targetObj?.challans) && targetObj.challans.length > 0
-      ? targetObj.challans
-      : (Array.isArray(i?.challans) ? i.challans : []);
+      return direct + adv;
+    };
+
+    let paid = 0;
+    if (candidateChallan) {
+      paid = extractFromChallan(candidateChallan);
+    }
+
+    const subChallans = Array.isArray(candidateChallan?.challans) && candidateChallan.challans.length > 0
+      ? candidateChallan.challans
+      : (Array.isArray(inst?.challans) ? inst.challans : []);
     if (subChallans.length > 0) {
       const preferred = subChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase())) || subChallans[0];
       if (preferred) {
-        const pDirect = Number(preferred.amountReceived ?? preferred.paidAmount ?? preferred.directPaidAmount ?? 0);
-        const pAdv = Number(preferred.advanceApplied ?? preferred.advanceAmount ?? 0);
-        const pPaid = pDirect + pAdv;
-        if (pPaid > 0) {
-          paid = Math.max(paid, pPaid);
+        const subPaid = extractFromChallan(preferred);
+        if (subPaid > 0) {
+          paid = Math.max(paid, subPaid);
         }
       }
     }
 
+    // Fall back to installment paidAmount ONLY if no candidateChallan found or paid is 0
+    if (paid <= 0 && inst) {
+      paid = Number(inst.paidAmount ?? 0);
+    }
+
+    return paid;
+  };
+
+  const histPaid = displayHistory.map(i => {
+    if (!i) return '<td>—</td>';
+    const { candidateChallan } = resolveHistoryItem(i) || {};
+    const paid = extractHistoryPaid(candidateChallan, i);
     return `<td>${paid > 0 ? paid.toFixed(0) : '0'}</td>`;
   }).join('');
 

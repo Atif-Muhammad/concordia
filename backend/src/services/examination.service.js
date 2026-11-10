@@ -197,6 +197,36 @@ class ExaminationService {
   }
 
   async createMarks(data) {
+    if (data && typeof data === 'object') {
+      const extractCleanId = (val) => {
+        if (!val) return null;
+        if (val instanceof mongoose.Types.ObjectId) return val.toString();
+        if (typeof val === 'object') {
+          const raw = val._id || val.id;
+          if (raw) {
+            if (raw instanceof mongoose.Types.ObjectId) return raw.toString();
+            const str = String(raw).trim();
+            if (str && str !== '[object Object]' && mongoose.Types.ObjectId.isValid(str)) return str;
+          }
+        }
+        const str = String(val).trim();
+        if (!str || str === '[object Object]' || str === 'undefined' || str === 'null') return null;
+        return mongoose.Types.ObjectId.isValid(str) ? str : null;
+      };
+      const cleanStudent = extractCleanId(data.studentId || data.student);
+      if (cleanStudent) data.studentId = cleanStudent;
+      const cleanExam = extractCleanId(data.examId || data.exam);
+      if (cleanExam) data.examId = cleanExam;
+      const cleanSubject = extractCleanId(data.subjectId);
+      if (cleanSubject) data.subjectId = cleanSubject;
+      if (data.totalMarks !== undefined) data.totalMarks = Math.max(0, Number(data.totalMarks) || 100);
+      if (data.obtainedMarks !== undefined) {
+        let obt = data.isAbsent ? 0 : (Number(data.obtainedMarks) || 0);
+        if (obt < 0) obt = 0;
+        if (data.totalMarks && obt > data.totalMarks) obt = data.totalMarks;
+        data.obtainedMarks = obt;
+      }
+    }
     return ExamMarks.create(data);
   }
 
@@ -209,19 +239,46 @@ class ExaminationService {
       return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
     }
 
+    const extractCleanId = (val) => {
+      if (!val) return null;
+      if (val instanceof mongoose.Types.ObjectId) return val.toString();
+      if (typeof val === 'object') {
+        const raw = val._id || val.id;
+        if (raw) {
+          if (raw instanceof mongoose.Types.ObjectId) return raw.toString();
+          const str = String(raw).trim();
+          if (str && str !== '[object Object]' && mongoose.Types.ObjectId.isValid(str)) return str;
+        }
+      }
+      const str = String(val).trim();
+      if (!str || str === '[object Object]' || str === 'undefined' || str === 'null') return null;
+      return mongoose.Types.ObjectId.isValid(str) ? str : null;
+    };
+
     const subjectCache = {};
     for (const r of list) {
+      r.examId = extractCleanId(r.examId || r.exam);
+      r.studentId = extractCleanId(r.studentId || r.student);
+      r.subjectId = extractCleanId(r.subjectId);
+
       if (!r.subjectId && r.subject) {
         if (!subjectCache[r.subject]) {
           const sDoc = await Subject.findOne({ name: r.subject });
-          if (sDoc) subjectCache[r.subject] = sDoc._id;
+          if (sDoc) subjectCache[r.subject] = sDoc._id.toString();
         }
         if (subjectCache[r.subject]) {
           r.subjectId = subjectCache[r.subject];
         }
       }
-      if (r.totalMarks !== undefined) r.totalMarks = Number(r.totalMarks) || 100;
-      if (r.obtainedMarks !== undefined) r.obtainedMarks = r.isAbsent ? 0 : (Number(r.obtainedMarks) || 0);
+      if (r.classId) r.classId = extractCleanId(r.classId || r.class);
+      if (r.sectionId) r.sectionId = extractCleanId(r.sectionId || r.section);
+      if (r.totalMarks !== undefined) r.totalMarks = Math.max(0, Number(r.totalMarks) || 100);
+      if (r.obtainedMarks !== undefined) {
+        let obt = r.isAbsent ? 0 : (Number(r.obtainedMarks) || 0);
+        if (obt < 0) obt = 0;
+        if (r.totalMarks && obt > r.totalMarks) obt = r.totalMarks;
+        r.obtainedMarks = obt;
+      }
     }
 
     const validRecords = list.filter(r => r.examId && r.studentId && r.subjectId);

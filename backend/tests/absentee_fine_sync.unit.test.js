@@ -284,4 +284,46 @@ describe('Absentee Fine Backend Synchronization & Integrity Tests', () => {
       assert.strictEqual(dailyHead.isCustom, true, 'Daily absentee fine is custom line item');
     });
   });
+
+  describe('5. Partial Paid Challan via Advance Editability', () => {
+    it('allows updating a challan partially paid via advance credit (e.g. Challan #11101008)', async () => {
+      const partialAdvanceCh = await FeeChallan.findOne({
+        advanceApplied: { $gt: 0 },
+        status: 'PARTIAL'
+      });
+
+      if (!partialAdvanceCh) return;
+
+      const originalRemarks = partialAdvanceCh.remarks || '';
+      const updatedRemarks = 'Updated for partial advance test';
+
+      // updateChallan must NOT throw locked error
+      const updated = await feeService.updateChallan(partialAdvanceCh._id, {
+        remarks: updatedRemarks
+      });
+
+      assert.strictEqual(updated.remarks, updatedRemarks);
+      assert.strictEqual(updated.status, 'PARTIAL');
+
+      // Revert remarks
+      await FeeChallan.updateOne({ _id: partialAdvanceCh._id }, { $set: { remarks: originalRemarks } });
+    });
+
+    it('rejects updating a challan 100% paid by advance credit', async () => {
+      const fullyPaidAdvanceCh = await FeeChallan.findOne({
+        advanceApplied: { $gt: 0 },
+        status: 'PAID'
+      });
+
+      if (!fullyPaidAdvanceCh) return;
+
+      await assert.rejects(
+        async () => {
+          await feeService.updateChallan(fullyPaidAdvanceCh._id, { remarks: 'Should fail' });
+        },
+        /locked/i,
+        'Should reject updating a fully paid advance challan'
+      );
+    });
+  });
 });

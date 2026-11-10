@@ -38,9 +38,21 @@ export const formatTime = (isoString) => {
 
 export const extractId = (val) => {
   if (!val) return "";
-  if (typeof val === "string") return val;
-  if (typeof val === "object") return (val._id || val.id || "").toString();
-  return String(val);
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed === "[object Object]" || trimmed === "undefined" || trimmed === "null") return "";
+    return trimmed;
+  }
+  if (typeof val === "object") {
+    const raw = val._id || val.id || "";
+    if (raw && typeof raw === "object") {
+      const nested = (raw._id || raw.id || "").toString().trim();
+      if (nested && nested !== "[object Object]") return nested;
+    }
+    const str = (raw ? raw.toString() : "").trim();
+    return str === "[object Object]" ? "" : str;
+  }
+  return String(val).trim();
 };
 
 export const resolveFileUrl = (url) => {
@@ -50,4 +62,3 @@ export const resolveFileUrl = (url) => {
   }
   return url.startsWith('/') ? url : `/${url}`;
 };
-

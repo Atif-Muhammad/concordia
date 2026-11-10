@@ -222,6 +222,17 @@ All colors MUST be HSL.
     background: hsl(var(--primary) / 0.6);
   }
 
+  /* Hide number input spinners / steppers */
+input[type="number"].no-spinners::-webkit-outer-spin-button,
+input[type="number"].no-spinners::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"].no-spinners {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
   /* Firefox support */
   * {
     scrollbar-width: thin;

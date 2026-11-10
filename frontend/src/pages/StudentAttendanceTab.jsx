@@ -42,7 +42,7 @@ export const StudentAttendanceTab = ({
         queryFn: getNewFeeSettings,
         staleTime: 5 * 60 * 1000,
     });
-    const absenteeRate = Number(feeSettings?.absenteeFinePerDay ?? feeSettings?.absenteeFinePerSubject ?? 50);
+    const absenteeRate = Number(feeSettings?.absenteeFinePerDay ?? 300);
 
     const activeSession = useMemo(() => {
         return academicSessions.find((s) => s.isActive === true || s.isActive === "true") || null;

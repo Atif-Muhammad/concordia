@@ -21,7 +21,7 @@ export const FeeSettingsTab = ({
   // Form State
   const [lateFeeRatePerDay, setLateFeeRatePerDay] = useState(0);
   const [extraChallanLateFee, setExtraChallanLateFee] = useState(0);
-  const [absenteeFinePerDay, setAbsenteeFinePerDay] = useState(50);
+  const [absenteeFinePerDay, setAbsenteeFinePerDay] = useState(300);
 
   const { data: newFeeSettings, isLoading } = useQuery({
     queryKey: ['newFeeSettings'],
@@ -46,8 +46,6 @@ export const FeeSettingsTab = ({
 
       if (s.absenteeFinePerDay !== undefined) {
         setAbsenteeFinePerDay(Number(s.absenteeFinePerDay) || 0);
-      } else if (s.absenteeFinePerSubject !== undefined) {
-        setAbsenteeFinePerDay(Number(s.absenteeFinePerSubject) || 0);
       }
     }
   }, [newFeeSettings, propFeeSettings, instituteSettings]);
@@ -153,7 +151,7 @@ export const FeeSettingsTab = ({
                     className="pl-11 h-9 text-xs font-medium"
                     value={lateFeeRatePerDay}
                     onChange={(e) => setLateFeeRatePerDay(parseFloat(e.target.value) || 0)}
-                    placeholder="e.g. 50"
+                    placeholder="e.g. 300"
                     disabled={!canUpdate || isSaving}
                   />
                 </div>
@@ -203,7 +201,7 @@ export const FeeSettingsTab = ({
                     className="pl-11 h-9 text-xs font-medium"
                     value={absenteeFinePerDay}
                     onChange={(e) => setAbsenteeFinePerDay(parseFloat(e.target.value) || 0)}
-                    placeholder="e.g. 50"
+                    placeholder="e.g. 300"
                     disabled={!canUpdate || isSaving}
                   />
                 </div>

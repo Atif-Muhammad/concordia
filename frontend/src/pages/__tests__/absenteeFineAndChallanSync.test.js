@@ -335,4 +335,115 @@ describe("Absentee Fine & Challan Synchronization Unit Tests", () => {
       expect(netPayable).toBe(0);
     });
   });
+
+  // =========================================================================
+  // 5. PARTIAL PAID CHALLAN EDITABILITY (DIRECT AND ADVANCE PAID)
+  // =========================================================================
+  describe("5. Partial Paid Challan Editability (Direct and Advance Paid)", () => {
+    const isChallanEditable = (challan, canUpdate = true) => {
+      if (!canUpdate) return false;
+      if (["PAID", "SETTLED", "VOID", "SUPERSEDED"].includes((challan.status || "").toUpperCase())) return false;
+      const net = Number(challan.netPayable ?? challan.totalAmount ?? 0);
+      const paid = Number(challan.paidAmount || 0);
+      const adv = Number(challan.advanceApplied || 0);
+
+      // If fully satisfied by advance (netPayable is 0 and advance was applied)
+      if (net === 0 && adv > 0) return false;
+
+      // If direct payment covers or exceeds remaining net payable
+      if (net > 0 && paid >= net) return false;
+
+      return true;
+    };
+
+    it("allows editing a challan partially paid via advance credit (e.g. advance 49520, net 8750, paid 0)", () => {
+      const challan = {
+        challanNo: "11101008",
+        status: "PARTIAL",
+        grossAmount: 58270,
+        discountAmount: 0,
+        advanceApplied: 49520,
+        netPayable: 8750,
+        totalAmount: 8750,
+        paidAmount: 0,
+      };
+
+      expect(isChallanEditable(challan)).toBe(true);
+    });
+
+    it("allows editing a challan partially paid via advance credit with additional partial direct payment", () => {
+      const challan = {
+        challanNo: "11101008",
+        status: "PARTIAL",
+        grossAmount: 58270,
+        discountAmount: 0,
+        advanceApplied: 49520,
+        netPayable: 8750,
+        totalAmount: 8750,
+        paidAmount: 4000, // 4,750 still pending
+      };
+
+      expect(isChallanEditable(challan)).toBe(true);
+    });
+
+    it("locks editing once an advance-credited challan's remaining net payable is fully paid directly", () => {
+      const challan = {
+        challanNo: "11101008",
+        status: "PARTIAL",
+        grossAmount: 58270,
+        discountAmount: 0,
+        advanceApplied: 49520,
+        netPayable: 8750,
+        totalAmount: 8750,
+        paidAmount: 8750, // Fully paid
+      };
+
+      expect(isChallanEditable(challan)).toBe(false);
+    });
+
+    it("locks editing when a challan was 100% covered by advance credit", () => {
+      const challan = {
+        challanNo: "14569582",
+        status: "PAID",
+        grossAmount: 10000,
+        discountAmount: 0,
+        advanceApplied: 10000,
+        netPayable: 0,
+        totalAmount: 0,
+        paidAmount: 0,
+      };
+
+      expect(isChallanEditable(challan)).toBe(false);
+    });
+
+    it("allows editing a direct partial paid challan (no advance)", () => {
+      const challan = {
+        challanNo: "99887766",
+        status: "PARTIAL",
+        grossAmount: 20000,
+        discountAmount: 0,
+        advanceApplied: 0,
+        netPayable: 20000,
+        totalAmount: 20000,
+        paidAmount: 5000,
+      };
+
+      expect(isChallanEditable(challan)).toBe(true);
+    });
+
+    it("locks editing for a direct fully paid challan (no advance)", () => {
+      const challan = {
+        challanNo: "99887766",
+        status: "PAID",
+        grossAmount: 20000,
+        discountAmount: 0,
+        advanceApplied: 0,
+        netPayable: 20000,
+        totalAmount: 20000,
+        paidAmount: 20000,
+      };
+
+      expect(isChallanEditable(challan)).toBe(false);
+    });
+  });
 });

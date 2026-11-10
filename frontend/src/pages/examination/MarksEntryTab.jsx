@@ -414,20 +414,83 @@ export const MarksEntryTab = () => {
   });
 
   useEffect(() => {
-    if (bulkMarksDialog && existingMarksForBulk.length > 0) {
+    if (bulkMarksDialog) {
       const marksData = {};
       const absenteesData = {};
-      existingMarksForBulk.forEach((mark) => {
-        if (!marksData[mark.studentId]) marksData[mark.studentId] = {};
-        if (!absenteesData[mark.studentId]) absenteesData[mark.studentId] = {};
 
-        marksData[mark.studentId][mark.subject] = mark.obtainedMarks.toString();
-        absenteesData[mark.studentId][mark.subject] = mark.isAbsent;
+      const studentsList = Array.isArray(studentsForMarksEntry)
+        ? studentsForMarksEntry
+        : studentsForMarksEntry?.students || [];
+      const exam = exams.find((e) => extractId(e) === bulkExamId);
+      const scheduleList = exam?.schedule || exam?.schedules || [];
+
+      // 1. Initialize all active students and exam subjects with "0" as actual default
+      studentsList.forEach((st) => {
+        const sId = extractId(st.id || st._id || st);
+        if (!sId || sId === "[object Object]") return;
+        if (!marksData[sId]) marksData[sId] = {};
+        if (!absenteesData[sId]) absenteesData[sId] = {};
+
+        scheduleList.forEach((sc) => {
+          const subId = extractId(sc.subjectId || sc.subject || sc.id || sc._id);
+          if (subId) {
+            marksData[sId][subId] = "0";
+            absenteesData[sId][subId] = false;
+          }
+        });
       });
-      setBulkMarksData(marksData);
-      setBulkAbsentees(absenteesData);
+
+      // 2. Overwrite with any existing marks
+      if (existingMarksForBulk.length > 0) {
+        existingMarksForBulk.forEach((mark) => {
+          const sId = extractId(mark.studentId || mark.student);
+          if (!sId || sId === "[object Object]") return;
+
+          let subId = extractId(mark.subjectId);
+          if (!subId && mark.subject) {
+            const matchedSub = subjects.find(
+              (s) => s.name && s.name.toLowerCase() === mark.subject.toLowerCase()
+            );
+            if (matchedSub) subId = extractId(matchedSub.id || matchedSub._id);
+          }
+          const key = subId || mark.subject;
+          if (!key) return;
+
+          if (!marksData[sId]) marksData[sId] = {};
+          if (!absenteesData[sId]) absenteesData[sId] = {};
+
+          marksData[sId][key] = mark.obtainedMarks !== undefined && mark.obtainedMarks !== null ? mark.obtainedMarks.toString() : "0";
+          absenteesData[sId][key] = !!mark.isAbsent;
+        });
+      }
+
+      setBulkMarksData((prev) => {
+        const updated = { ...marksData };
+        Object.entries(prev || {}).forEach(([stId, subMap]) => {
+          if (!updated[stId]) updated[stId] = {};
+          Object.entries(subMap || {}).forEach(([subId, val]) => {
+            if (val !== undefined && val !== "") {
+              updated[stId][subId] = val;
+            }
+          });
+        });
+        return updated;
+      });
+
+      setBulkAbsentees((prev) => {
+        const updated = { ...absenteesData };
+        Object.entries(prev || {}).forEach(([stId, subMap]) => {
+          if (!updated[stId]) updated[stId] = {};
+          Object.entries(subMap || {}).forEach(([subId, val]) => {
+            if (val !== undefined) {
+              updated[stId][subId] = val;
+            }
+          });
+        });
+        return updated;
+      });
     }
-  }, [existingMarksForBulk, bulkMarksDialog]);
+  }, [existingMarksForBulk, studentsForMarksEntry, bulkMarksDialog, bulkExamId, exams, subjects]);
 
   const bulkMarksMutation = useMutation({
     mutationFn: bulkCreateMarks,
@@ -883,35 +946,22 @@ export const MarksEntryTab = () => {
                                   </TableCell>
                                   {examSubjects.map((s) => {
                                     const subjectKey = `${sId}-${s.id}`;
-                                    const marksValue =
-                                      bulkMarksData[sId]?.[s.id] ?? "";
+                                    const enteredVal = bulkMarksData[sId]?.[s.id];
                                     const isAbsent =
                                       bulkAbsentees[sId]?.[s.id] ?? false;
 
-                                    if (marksValue === "" && marks.length > 0) {
+                                    let marksValue = enteredVal;
+                                    if (marksValue === undefined) {
                                       const existingMark = marks.find(
                                         (m) =>
                                           extractId(m.studentId || m.student) === sId &&
                                           extractId(m.examId || m.exam) === extractId(exam) &&
                                           (extractId(m.subjectId) === s.id || m.subject === s.name)
                                       );
-                                      if (existingMark) {
-                                        setTimeout(() => {
-                                          setBulkMarksData((prev) => ({
-                                            ...prev,
-                                            [sId]: {
-                                              ...(prev[sId] || {}),
-                                              [s.id]: existingMark.obtainedMarks,
-                                            },
-                                          }));
-                                          setBulkAbsentees((prev) => ({
-                                            ...prev,
-                                            [sId]: {
-                                              ...(prev[sId] || {}),
-                                              [s.id]: existingMark.isAbsent,
-                                            },
-                                          }));
-                                        }, 0);
+                                      if (existingMark && existingMark.obtainedMarks !== undefined && existingMark.obtainedMarks !== null) {
+                                        marksValue = existingMark.obtainedMarks.toString();
+                                      } else {
+                                        marksValue = "0";
                                       }
                                     }
 
@@ -924,16 +974,55 @@ export const MarksEntryTab = () => {
                                       >
                                         <div className="flex flex-col gap-2 items-center">
                                           <Input
-                                            type="number"
-                                            className={`h-8 w-20 text-center ${
+                                            type="text"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            className={`h-8 w-20 text-center no-spinners font-medium ${
                                               isAbsent ? "opacity-30" : ""
                                             }`}
-                                            placeholder="0"
-                                            value={marksValue}
+                                            value={marksValue ?? "0"}
                                             disabled={isAbsent}
-                                            max={s.totalMarks || 100}
+                                            onFocus={(e) => {
+                                              e.target.select();
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                                e.preventDefault();
+                                              }
+                                              if (["+", "-", "e", "E", ".", ","].includes(e.key)) {
+                                                e.preventDefault();
+                                              }
+                                            }}
                                             onChange={(e) => {
-                                              const val = e.target.value;
+                                              const maxMarks = Number(s.totalMarks) || 100;
+                                              let val = e.target.value.replace(/\D/g, "");
+
+                                              if (val !== "") {
+                                                let num = parseInt(val, 10);
+                                                if (isNaN(num) || num < 0) num = 0;
+                                                if (num > maxMarks) num = maxMarks;
+                                                val = num.toString();
+                                              }
+
+                                              setBulkMarksData((prev) => ({
+                                                ...prev,
+                                                [sId]: {
+                                                  ...(prev[sId] || {}),
+                                                  [s.id]: val,
+                                                },
+                                              }));
+                                            }}
+                                            onBlur={(e) => {
+                                              const maxMarks = Number(s.totalMarks) || 100;
+                                              let val = e.target.value.trim().replace(/\D/g, "");
+                                              if (val === "" || isNaN(Number(val))) {
+                                                val = "0";
+                                              } else {
+                                                let num = parseInt(val, 10);
+                                                if (num < 0) num = 0;
+                                                if (num > maxMarks) num = maxMarks;
+                                                val = num.toString();
+                                              }
                                               setBulkMarksData((prev) => ({
                                                 ...prev,
                                                 [sId]: {
@@ -1045,50 +1134,129 @@ export const MarksEntryTab = () => {
                       }
                     }
 
+                    const studentsList = Array.isArray(studentsForMarksEntry)
+                      ? studentsForMarksEntry
+                      : studentsForMarksEntry?.students || [];
+                    const sectionStudents = studentsList
+                      .filter((s) => s && s.status === "ACTIVE")
+                      .sort((a, b) => (a.rollNumber || "").localeCompare(b.rollNumber || ""));
+
                     const payload = [];
-                    Object.entries(bulkMarksData).forEach(([studentId, subjectMarks]) => {
-                      Object.entries(subjectMarks).forEach(([subjId, mVal]) => {
-                        const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
-                        const isAbs = bulkAbsentees[studentId]?.[subjId] || false;
-                        if (subj) {
-                          payload.push({
-                            examId: bulkExamId,
-                            studentId: extractId(studentId),
-                            subjectId: extractId(subj.subjectId || subj.id),
-                            subject: subj.name,
-                            classId: extractId(exam.classId || exam.class),
-                            sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? bulkSectionId : null,
-                            totalMarks: Number(subj.totalMarks) || 100,
-                            obtainedMarks: isAbs ? 0 : Number(mVal),
-                            isAbsent: isAbs,
-                          });
+                    const processedPairs = new Set();
+
+                    // Process all students and subjects in the active grid
+                    sectionStudents.forEach((student) => {
+                      const studentId = extractId(student.id || student._id || student);
+                      if (!studentId || studentId === "[object Object]") return;
+
+                      filteredExamSubjects.forEach((subj) => {
+                        const cleanSubId = extractId(subj.subjectId || subj.id);
+                        if (!cleanSubId) return;
+
+                        const pairKey = `${studentId}-${cleanSubId}`;
+                        if (processedPairs.has(pairKey)) return;
+                        processedPairs.add(pairKey);
+
+                        const isAbs = !!(
+                          bulkAbsentees[studentId]?.[cleanSubId] ||
+                          bulkAbsentees[studentId]?.[subj.name] ||
+                          bulkAbsentees[studentId]?.[subj.id]
+                        );
+
+                        const enteredVal =
+                          bulkMarksData[studentId]?.[cleanSubId] ??
+                          bulkMarksData[studentId]?.[subj.name] ??
+                          bulkMarksData[studentId]?.[subj.id];
+
+                        let finalMarks = enteredVal;
+                        if (finalMarks === undefined || finalMarks === "") {
+                          const existingMark = marks.find(
+                            (m) =>
+                              extractId(m.studentId || m.student) === studentId &&
+                              extractId(m.examId || m.exam) === extractId(exam) &&
+                              (extractId(m.subjectId) === cleanSubId || m.subject === subj.name)
+                          );
+                          if (existingMark && existingMark.obtainedMarks !== undefined && existingMark.obtainedMarks !== null) {
+                            finalMarks = existingMark.obtainedMarks;
+                          } else {
+                            finalMarks = 0;
+                          }
                         }
+
+                        const obtainedMarks = isAbs ? 0 : (Number(finalMarks) || 0);
+
+                        payload.push({
+                          examId: extractId(bulkExamId),
+                          studentId: studentId,
+                          subjectId: cleanSubId,
+                          subject: subj.name,
+                          classId: extractId(exam?.classId || exam?.class),
+                          sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? extractId(bulkSectionId) : null,
+                          totalMarks: Number(subj.totalMarks) || 100,
+                          obtainedMarks,
+                          isAbsent: isAbs,
+                        });
                       });
                     });
 
-                    Object.entries(bulkAbsentees).forEach(([studentId, subjectAbs]) => {
-                      Object.entries(subjectAbs).forEach(([subjId, isAbsent]) => {
-                        if (
-                          isAbsent &&
-                          !payload.find(
-                            (p) => p.studentId === studentId && (p.subjectId === subjId || p.subject === subjId)
-                          )
-                        ) {
-                          const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
-                          if (subj) {
-                            payload.push({
-                              examId: bulkExamId,
-                              studentId: extractId(studentId),
-                              subjectId: extractId(subj.subjectId || subj.id),
-                              subject: subj.name,
-                              classId: extractId(exam.classId || exam.class),
-                              sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? bulkSectionId : null,
-                              totalMarks: Number(subj.totalMarks) || 100,
-                              obtainedMarks: 0,
-                              isAbsent: true,
-                            });
-                          }
-                        }
+                    // Include any other student marks stored in bulkMarksData
+                    Object.entries(bulkMarksData).forEach(([rawStudentId, subjectMarks]) => {
+                      const studentId = extractId(rawStudentId);
+                      if (!studentId || studentId === "[object Object]") return;
+
+                      Object.entries(subjectMarks || {}).forEach(([subjId, mVal]) => {
+                        const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
+                        if (!subj) return;
+
+                        const cleanSubId = extractId(subj.subjectId || subj.id);
+                        const pairKey = `${studentId}-${cleanSubId}`;
+                        if (processedPairs.has(pairKey)) return;
+                        processedPairs.add(pairKey);
+
+                        const isAbs = !!(bulkAbsentees[rawStudentId]?.[subjId] || bulkAbsentees[studentId]?.[subjId]);
+                        const finalVal = mVal !== undefined && mVal !== "" ? mVal : "0";
+                        const obtainedMarks = isAbs ? 0 : (Number(finalVal) || 0);
+
+                        payload.push({
+                          examId: extractId(bulkExamId),
+                          studentId: studentId,
+                          subjectId: cleanSubId,
+                          subject: subj.name,
+                          classId: extractId(exam?.classId || exam?.class),
+                          sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? extractId(bulkSectionId) : null,
+                          totalMarks: Number(subj.totalMarks) || 100,
+                          obtainedMarks,
+                          isAbsent: isAbs,
+                        });
+                      });
+                    });
+
+                    // Include any other absentees
+                    Object.entries(bulkAbsentees).forEach(([rawStudentId, subjectAbs]) => {
+                      const studentId = extractId(rawStudentId);
+                      if (!studentId || studentId === "[object Object]") return;
+
+                      Object.entries(subjectAbs || {}).forEach(([subjId, isAbsent]) => {
+                        if (!isAbsent) return;
+                        const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
+                        if (!subj) return;
+
+                        const cleanSubId = extractId(subj.subjectId || subj.id);
+                        const pairKey = `${studentId}-${cleanSubId}`;
+                        if (processedPairs.has(pairKey)) return;
+                        processedPairs.add(pairKey);
+
+                        payload.push({
+                          examId: extractId(bulkExamId),
+                          studentId: studentId,
+                          subjectId: cleanSubId,
+                          subject: subj.name,
+                          classId: extractId(exam?.classId || exam?.class),
+                          sectionId: isBulkSectionApplicable && bulkSectionId && bulkSectionId !== "*" ? extractId(bulkSectionId) : null,
+                          totalMarks: Number(subj.totalMarks) || 100,
+                          obtainedMarks: 0,
+                          isAbsent: true,
+                        });
                       });
                     });
 

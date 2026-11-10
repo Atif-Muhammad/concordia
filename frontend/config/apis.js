@@ -3237,23 +3237,65 @@ export const createMarks = async (payload) => {
   }
 };
 export const bulkCreateMarks = async (payload) => {
-  try {
-    const { data } = await axios.post(
-      `${base_url}/exams/marks/bulk`,
-      payload,
-      {
-        withCredentials: true,
-      }
-    );
-    return data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-    throw { message, status: error.response?.status || 500 };
+  const records = Array.isArray(payload) ? payload : payload?.records || [];
+  if (!records || records.length === 0) {
+    return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
   }
+
+  // Batch in chunks of 200 records to stay safely under any proxy/body-parser limit
+  const CHUNK_SIZE = 200;
+  if (records.length <= CHUNK_SIZE) {
+    try {
+      const { data } = await axios.post(
+        `${base_url}/exams/marks/bulk`,
+        payload,
+        {
+          withCredentials: true,
+        }
+      );
+      return data;
+    } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Something went wrong";
+      throw { message, status: error.response?.status || 500 };
+    }
+  }
+
+  let totalMatched = 0;
+  let totalModified = 0;
+  let totalUpserted = 0;
+
+  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+    const chunk = records.slice(i, i + CHUNK_SIZE);
+    try {
+      const { data } = await axios.post(
+        `${base_url}/exams/marks/bulk`,
+        { records: chunk },
+        {
+          withCredentials: true,
+        }
+      );
+      totalMatched += data?.matchedCount || 0;
+      totalModified += data?.modifiedCount || 0;
+      totalUpserted += data?.upsertedCount || 0;
+    } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Something went wrong";
+      throw { message, status: error.response?.status || 500 };
+    }
+  }
+
+  return {
+    matchedCount: totalMatched,
+    modifiedCount: totalModified,
+    upsertedCount: totalUpserted,
+  };
 };
 export const updateMarks = async (id, payload) => {
   try {

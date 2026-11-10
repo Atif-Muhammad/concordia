@@ -1531,7 +1531,8 @@ class HostelService {
 
     const currentPaid = Number(challan.paidAmount || 0);
     const isLocked = ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
-      (currentPaid + Number(challan.advanceApplied || 0) >= Number(challan.totalAmount || 0) && Number(challan.totalAmount || 0) > 0);
+      (Number(challan.netPayable || 0) === 0 && Number(challan.advanceApplied || 0) > 0) ||
+      (currentPaid >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0);
     if (isLocked) {
       throw new Error('Challan is locked (PAID, SETTLED, or SUPERSEDED) and cannot be updated');
     }

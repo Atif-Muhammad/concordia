@@ -274,28 +274,26 @@ export const generateChallanHtml = (challan, manualTemplate = null, { classesDat
       || activeChallans[0]
       || null;
 
-    const paidFromPreferredChallan = Number(preferred?.amountReceived ?? preferred?.paidAmount ?? 0);
-    const installmentAppliedPaid = Number(i?.paidAmount ?? 0);
-    const sourceChallanNo = preferred?.challanNumber;
+    let actualPaid = 0;
+    if (preferred) {
+      const adv = Number(preferred.advanceApplied ?? preferred.advanceAmount ?? preferred.advanceCreditUsed ?? 0);
+      const isAdvanceOnly = String(preferred.paidBy || '').trim().toLowerCase() === 'advance credit' ||
+                            String(preferred.paymentMode || '').trim().toLowerCase() === 'advance credit';
+      let direct = 0;
+      if (preferred.directPaidAmount != null) {
+        direct = Number(preferred.directPaidAmount) || 0;
+      } else if (isAdvanceOnly) {
+        direct = 0;
+      } else {
+        const raw = Number(preferred.amountReceived ?? preferred.paidAmount ?? 0);
+        direct = (raw === adv && adv > 0) ? 0 : raw;
+      }
+      actualPaid = direct + adv;
+    }
 
-    const linkedAdvanceToThisChallan = sourceChallanNo
-      ? allStudentInsts.reduce((sum, inst) => {
-          const instChallans = Array.isArray(inst?.challans) ? inst.challans : [];
-          const linked = instChallans.reduce((cSum, ch) => {
-            if (!ch) return cSum;
-            const fromNo = String(ch.advanceFromChallanNo || '');
-            if (!fromNo || fromNo !== String(sourceChallanNo)) return cSum;
-            const adv = Number(ch.advanceAmount ?? 0);
-            return cSum + (Number.isFinite(adv) && adv > 0 ? adv : 0);
-          }, 0);
-          return sum + linked;
-        }, 0)
-      : 0;
-
-    const reconstructedPaid = installmentAppliedPaid + linkedAdvanceToThisChallan;
-    const actualPaid = Number.isFinite(paidFromPreferredChallan) && paidFromPreferredChallan > 0
-      ? paidFromPreferredChallan
-      : reconstructedPaid;
+    if (actualPaid <= 0 && i) {
+      actualPaid = Number(i?.paidAmount ?? 0);
+    }
 
     return `<td>${Math.max(0, actualPaid).toFixed(0)}</td>`;
   }).join('');

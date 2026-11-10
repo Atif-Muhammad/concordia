@@ -581,6 +581,97 @@ describe("ChallansTab Bulk Selection & Print Flow", () => {
     expect(html).toContain("<td>10000</td><td>10000</td>");
   });
 
+  it("does not double-count advance paid amounts in payment history (October shows 11666, not 23332)", () => {
+    const templateHtml = `
+      <table>
+        <tr><td>Month</td>{{paymentHistoryMonths}}</tr>
+        <tr><td>Total</td>{{paymentHistoryTotals}}</tr>
+        <tr><td>Paid</td>{{paymentHistoryPaid}}</tr>
+      </table>
+    `;
+
+    // Student Shahiroon scenario:
+    // Sept: 18866 total, 77200 paid directly
+    const septChallan = {
+      _id: "ch-sept-95252196",
+      studentId: "student-shahiroon",
+      challanNumber: "95252196",
+      challanNo: "95252196",
+      installmentNumber: 1,
+      month: "September",
+      basePayable: 11666,
+      grossAmount: 18866,
+      totalAmount: 18866,
+      paidAmount: 77200,
+      directPaidAmount: 77200,
+      advanceApplied: 0,
+      excessCreditGenerated: 58334,
+      status: "PAID",
+      paidBy: "Administrator",
+    };
+
+    // Oct: 11666 total, paid via advance from Sept (advanceApplied = 11666, directPaidAmount = 0, paidAmount = 11666)
+    const octChallan = {
+      _id: "ch-oct-48500603",
+      studentId: "student-shahiroon",
+      challanNumber: "48500603",
+      challanNo: "48500603",
+      installmentNumber: 2,
+      month: "October",
+      basePayable: 11666,
+      grossAmount: 11666,
+      totalAmount: 11666,
+      netPayable: 0,
+      advanceApplied: 11666,
+      paidAmount: 11666,
+      directPaidAmount: 0,
+      status: "PAID",
+      paidBy: "Advance Credit",
+      paymentMode: "Advance Credit",
+    };
+
+    // Current Nov challan
+    const novChallan = {
+      _id: "ch-nov-37640416",
+      studentId: "student-shahiroon",
+      challanNumber: "37640416",
+      challanNo: "37640416",
+      installmentNumber: 3,
+      month: "November",
+      basePayable: 11666,
+      grossAmount: 11716,
+      totalAmount: 11716,
+      netPayable: 0,
+      advanceApplied: 11716,
+      paidAmount: 11716,
+      directPaidAmount: 0,
+      status: "PAID",
+      paidBy: "Advance Credit",
+      paymentMode: "Advance Credit",
+      student: {
+        _id: "student-shahiroon",
+        fName: "Shahiroon",
+        rollNumber: "PSH-HSSC-26-026",
+        installments: [
+          { installmentNumber: 1, month: "September", amount: 11666, paidAmount: 77200, status: "PAID" },
+          { installmentNumber: 2, month: "October", amount: 11666, paidAmount: 11666, status: "PAID" },
+          { installmentNumber: 3, month: "November", amount: 11666, paidAmount: 11716, status: "PAID" },
+        ],
+      },
+      previousChallans: [septChallan, octChallan],
+    };
+
+    const html = generateChallanHtml(novChallan, templateHtml, {
+      feeChallans: [septChallan, octChallan, novChallan],
+    });
+
+    expect(html).toContain("<td>September</td><td>October</td>");
+    expect(html).toContain("<td>18866</td><td>11666</td>");
+    // Crucial check: September paid is 77200, October paid is 11666 (NOT 23332!)
+    expect(html).toContain("<td>77200</td><td>11666</td>");
+    expect(html).not.toContain("23332");
+  });
+
   it("itemizes Late Fee Fine (Overdue) in particulars and shows Total Payable (Overdue)", () => {
     const templateHtml = `
       <table>

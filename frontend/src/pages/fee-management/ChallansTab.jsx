@@ -1270,7 +1270,8 @@ export const ChallansTab = ({
   const handleSubmitChallan = () => {
     const isFullyPaid = editingChallan && (
       ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((editingChallan.status || '').toUpperCase()) ||
-      (Number(editingChallan.paidAmount || 0) + Number(editingChallan.advanceApplied || 0) >= Number(editingChallan.netPayable || editingChallan.totalAmount || 0) && Number(editingChallan.totalAmount || editingChallan.netPayable || 0) > 0)
+      (Number(editingChallan.netPayable || 0) === 0 && Number(editingChallan.advanceApplied || 0) > 0) ||
+      (Number(editingChallan.paidAmount || 0) >= Number(editingChallan.netPayable || editingChallan.totalAmount || 0) && Number(editingChallan.totalAmount || editingChallan.netPayable || 0) > 0)
     );
     if (isFullyPaid) {
       toast({ title: "Challan is locked (PAID or SETTLED) and cannot be modified", variant: "destructive" });
@@ -1379,7 +1380,7 @@ export const ChallansTab = ({
       }
 
       updateChallanMutation.mutate({
-        id: editingChallan.id,
+        id: editingChallan.id || editingChallan._id,
         data: {
           dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
           amount: tuitionToStore,
@@ -2417,7 +2418,8 @@ export const ChallansTab = ({
 
                               {canUpdate &&
                                 !['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) &&
-                                !(Number(challan.paidAmount || 0) + Number(challan.advanceApplied || 0) >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0) && (
+                                !(Number(challan.netPayable || 0) === 0 && Number(challan.advanceApplied || 0) > 0) &&
+                                !(Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0) && (
                                 <DropdownMenuItem
                                   className="cursor-pointer gap-2"
                                   onClick={() => handleEditChallan(challan)}

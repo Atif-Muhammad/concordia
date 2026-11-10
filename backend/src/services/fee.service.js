@@ -962,7 +962,7 @@ class FeeService {
       try {
         const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(data.month);
         const settings = await this.getSettings().catch(() => null);
-        const absenteeRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject) || 50;
+        const absenteeRate = Number(settings?.absenteeFinePerDay || 300);
         const studentObjId = mongoose.Types.ObjectId.isValid(data.studentId)
           ? new mongoose.Types.ObjectId(String(data.studentId))
           : data.studentId;
@@ -1166,7 +1166,8 @@ class FeeService {
     }
 
     const isLocked = ['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes((challan.status || '').toUpperCase()) ||
-      (Number(challan.paidAmount || 0) + Number(challan.advanceApplied || 0) >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0);
+      (Number(challan.netPayable || 0) === 0 && Number(challan.advanceApplied || 0) > 0) ||
+      (Number(challan.paidAmount || 0) >= Number(challan.netPayable || challan.totalAmount || 0) && Number(challan.totalAmount || challan.netPayable || 0) > 0);
     if (isLocked) {
       throw new Error('Challan is locked (PAID, SETTLED, or fully satisfied) and cannot be updated');
     }
@@ -2931,13 +2932,12 @@ class FeeService {
     }
     const obj = settings.toObject();
     const rate = Number(obj.lateFeeRatePerDay ?? obj.lateFeeFinePerDay ?? 0);
-    const absenteeRate = Number(obj.absenteeFinePerDay ?? obj.absenteeFinePerSubject ?? 50);
+    const absenteeRate = Number(obj.absenteeFinePerDay ?? 300);
     return {
       ...obj,
       lateFeeRatePerDay: rate,
       lateFeeFinePerDay: rate,
       absenteeFinePerDay: absenteeRate,
-      absenteeFinePerSubject: absenteeRate,
       extraChallanLateFee: Number(obj.extraChallanLateFee ?? 0),
       defaultDueDays: Number(obj.defaultDueDays ?? 10),
       challanPrefix: obj.challanPrefix || 'CH-',
@@ -2949,7 +2949,7 @@ class FeeService {
 
   async updateSettings(data) {
     let settings = await FeeSettings.findOne();
-    const oldAbsenteeRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject ?? 50);
+    const oldAbsenteeRate = Number(settings?.absenteeFinePerDay ?? 300);
     const payload = { ...data };
     if (payload.lateFeeRatePerDay !== undefined) {
       payload.lateFeeRatePerDay = Number(payload.lateFeeRatePerDay) || 0;
@@ -2970,11 +2970,10 @@ class FeeService {
     }
     if (payload.absenteeFinePerDay !== undefined) {
       payload.absenteeFinePerDay = Number(payload.absenteeFinePerDay) || 0;
-      payload.absenteeFinePerSubject = payload.absenteeFinePerDay;
-    } else if (payload.absenteeFinePerSubject !== undefined) {
-      payload.absenteeFinePerSubject = Number(payload.absenteeFinePerSubject) || 0;
-      payload.absenteeFinePerDay = payload.absenteeFinePerSubject;
     }
+    // Remove stale legacy field if passed
+    delete payload.absenteeFinePerSubject;
+
     if (payload.extraChallanLateFee !== undefined) {
       payload.extraChallanLateFee = Number(payload.extraChallanLateFee) || 0;
     }
@@ -2989,10 +2988,10 @@ class FeeService {
     }
     const obj = settings.toObject();
     const rate = Number(obj.lateFeeRatePerDay ?? obj.lateFeeFinePerDay ?? 0);
-    const absenteeRate = Number(obj.absenteeFinePerDay ?? obj.absenteeFinePerSubject ?? 50);
+    const absenteeRate = Number(obj.absenteeFinePerDay ?? 300);
 
     // Propagate updated absentee fine rate across all collectable challans (PENDING, PARTIAL, and unsettled SUPERSEDED)
-    if ((payload.absenteeFinePerDay !== undefined || payload.absenteeFinePerSubject !== undefined) && absenteeRate !== oldAbsenteeRate) {
+    if (payload.absenteeFinePerDay !== undefined && absenteeRate !== oldAbsenteeRate) {
       try {
         await this.syncAbsenteeFineRateAcrossCollectableChallans(absenteeRate);
       } catch (syncErr) {
@@ -3005,7 +3004,6 @@ class FeeService {
       lateFeeRatePerDay: rate,
       lateFeeFinePerDay: rate,
       absenteeFinePerDay: absenteeRate,
-      absenteeFinePerSubject: absenteeRate,
       extraChallanLateFee: Number(obj.extraChallanLateFee ?? 0),
       defaultDueDays: Number(obj.defaultDueDays ?? 10),
       challanPrefix: obj.challanPrefix || 'CH-',
@@ -3114,6 +3112,14 @@ class FeeService {
             absenteeRate: newRate,
             absenteeMonth: count > 0 ? prevMonthName : '',
             challanHeads: updatedHeads,
+            selectedHeads: updatedHeads.map(h => ({
+              name: h.name,
+              amount: Number(h.amount) || 0,
+              category: h.category || 'custom',
+              isCustom: h.isCustom !== undefined ? h.isCustom : true,
+              type: 'additional',
+              isSelected: true
+            })),
             headsAmount,
             grossAmount,
             advanceApplied,
@@ -3206,7 +3212,7 @@ class FeeService {
     const nextMonthName = monthNames[nextDate.getMonth()];
 
     const settings = await this.getSettings().catch(() => null);
-    const defaultRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject ?? 50);
+    const defaultRate = Number(settings?.absenteeFinePerDay || 300);
 
     for (const studentId of sIdList) {
       const challan = await FeeChallan.findOne({
@@ -3280,6 +3286,14 @@ class FeeService {
             absenteeRate: rate,
             absenteeMonth: count > 0 ? targetMonthName : '',
             challanHeads: updatedHeads,
+            selectedHeads: updatedHeads.map(h => ({
+              name: h.name,
+              amount: Number(h.amount) || 0,
+              category: h.category || 'custom',
+              isCustom: h.isCustom !== undefined ? h.isCustom : true,
+              type: 'additional',
+              isSelected: true
+            })),
             headsAmount,
             grossAmount,
             advanceApplied,
@@ -3949,7 +3963,7 @@ class FeeService {
 
     // Calculate absentee fine preview for previous month
     const absenteeCountMap = new Map();
-    let absenteeRate = 50;
+    let absenteeRate = 300;
     let targetPrevMonthName = '';
 
     if (students.length > 0) {
@@ -3957,7 +3971,7 @@ class FeeService {
         const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(filters.month);
         targetPrevMonthName = prevMonthName;
         const settings = await this.getSettings().catch(() => null);
-        absenteeRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject) || 50;
+        absenteeRate = Number(settings?.absenteeFinePerDay || 300);
 
         const objectIdStudentIds = studentIds.map(id =>
           id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id))
@@ -4111,7 +4125,7 @@ class FeeService {
 
     const { prevMonthStr, prevMonthName } = getPreviousMonthInfo(month);
     const settings = await this.getSettings().catch(() => null);
-    const absenteeRate = Number(settings?.absenteeFinePerDay ?? settings?.absenteeFinePerSubject) || 50;
+    const absenteeRate = Number(settings?.absenteeFinePerDay || 300);
 
     const objectIdStudentIds = studentIds.map(id =>
       id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id))

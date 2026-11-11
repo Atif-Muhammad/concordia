@@ -85,7 +85,20 @@ const FinanceClosingSchema = new mongoose.Schema({
   totalIncome: { type: Number, default: 0 },
   totalExpense: { type: Number, default: 0 },
   incomeCount: { type: Number, default: 0 },
-  expenseCount: { type: Number, default: 0 }
+  expenseCount: { type: Number, default: 0 },
+  cashierReconciliation: [{
+    cashierId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    cashierName: { type: String, default: '' },
+    openingCash: { type: Number, default: 0 },
+    cashCollected: { type: Number, default: 0 },
+    bankTransfer: { type: Number, default: 0 },
+    onlineCollected: { type: Number, default: 0 },
+    cashCounted: { type: Number, default: 0 },
+    variance: { type: Number, default: 0 },
+    bankReference: { type: String, default: '' },
+    approvedByName: { type: String, default: '' },
+    approvedAt: { type: Date, default: null },
+  }],
 }, { timestamps: true });
 
 FinanceClosingSchema.virtual('id').get(function () {

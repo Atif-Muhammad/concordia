@@ -18,6 +18,12 @@ const ExamSchema = new mongoose.Schema({
   endDate: { type: String, required: true },
   type: { type: String, default: 'Final' },
   description: { type: String, default: '' },
+  gradeSchemeId: { type: mongoose.Schema.Types.ObjectId, ref: 'GradeScheme', default: null },
+  passPercentage: { type: Number, default: 50 },
+  resultLocked: { type: Boolean, default: false },
+  publishedAt: { type: Date, default: null },
+  publishedByName: { type: String, default: '' },
+  supplEligibility: { type: String, enum: ['PER_SUBJECT', 'PER_EXAM'], default: 'PER_SUBJECT' },
   schedule: [ExamScheduleItemSchema]
 }, { timestamps: true });
 
@@ -45,7 +51,20 @@ const ExamMarksSchema = new mongoose.Schema({
   sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Section' },
   obtainedMarks: { type: Number, default: 0 },
   totalMarks: { type: Number, default: 100 },
-  isAbsent: { type: Boolean, default: false }
+  isAbsent: { type: Boolean, default: false },
+  isWithheld: { type: Boolean, default: false },
+  isExempt: { type: Boolean, default: false },
+  teacherRemarks: { type: String, default: '' },
+  verified: { type: Boolean, default: false },
+  verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  verifiedAt: { type: Date, default: null },
+  enteredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  editHistory: [{
+    editedByName: { type: String, default: '' },
+    oldMarks: { type: Number },
+    newMarks: { type: Number },
+    at: { type: Date, default: Date.now },
+  }],
 }, { timestamps: true });
 
 ExamMarksSchema.virtual('id').get(function () {

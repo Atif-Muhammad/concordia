@@ -55,7 +55,7 @@ class AcademicsController {
   // Programs
   async getPrograms(req, res, next) {
     try {
-      const programs = await academicsService.getPrograms();
+      const programs = await academicsService.getPrograms(req.query);
       res.json(programs);
     } catch (err) {
       next(err);
@@ -103,7 +103,7 @@ class AcademicsController {
   // Classes
   async getClasses(req, res, next) {
     try {
-      const classes = await academicsService.getClasses();
+      const classes = await academicsService.getClasses(req.query);
       res.json(classes);
     } catch (err) {
       next(err);
@@ -151,7 +151,7 @@ class AcademicsController {
   // Sections
   async getSections(req, res, next) {
     try {
-      const sections = await academicsService.getSections();
+      const sections = await academicsService.getSections(req.query);
       res.json(sections);
     } catch (err) {
       next(err);
@@ -211,7 +211,7 @@ class AcademicsController {
   // Subjects
   async getSubjects(req, res, next) {
     try {
-      const subjects = await academicsService.getSubjects();
+      const subjects = await academicsService.getSubjects(req.query);
       res.json(subjects);
     } catch (err) {
       next(err);

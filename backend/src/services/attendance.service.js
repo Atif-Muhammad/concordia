@@ -200,6 +200,23 @@ class AttendanceService {
       }
     }
 
+    // ponytail: Preload prior daily statuses once so inline status flips log correctionAudit for reports #28/#30
+    const existingMap = new Map();
+    if (
+      targetStudentList.length > 0 &&
+      (mongoose.connection.readyState === 1 || Object.prototype.hasOwnProperty.call(Attendance, 'find'))
+    ) {
+      const priorDocs = await Attendance.find({
+        studentId: { $in: targetStudentList.map(i => i.studentId || i.id).filter(Boolean) },
+        date,
+        classId,
+        role: 'STUDENT',
+      }).lean().catch(() => []);
+      for (const doc of priorDocs || []) {
+        existingMap.set(String(doc.studentId), doc);
+      }
+    }
+
     const ops = targetStudentList.map(item => {
       const studentId = item.studentId || item.id;
       const status = String(item.status || 'PRESENT').toUpperCase();
@@ -211,17 +228,34 @@ class AttendanceService {
         ...(effectiveSectionId ? { sectionId: effectiveSectionId } : { sectionId: null }),
         ...(sessionId ? { sessionId } : {})
       };
-      return Attendance.findOneAndUpdate(
-        query,
-        {
+      const prior = existingMap.get(String(studentId));
+      const updatePayload = {
+        $set: {
           ...query,
           status,
           leaveType: item.leaveType || (status === 'LEAVE' ? 'CASUAL' : null),
           notes: item.notes || '',
+          correctionPending: Boolean(item.correctionPending),
           markedBy: effectiveUserId,
           markedByStaffId: effectiveStaffId,
           markedAt: new Date()
-        },
+        }
+      };
+      if (prior && prior.status && prior.status !== status) {
+        updatePayload.$push = {
+          correctionAudit: {
+            oldStatus: prior.status,
+            newStatus: status,
+            changedBy: effectiveUserId,
+            changedByName: user?.name || user?.email || 'Staff',
+            changedAt: new Date(),
+            reason: item.correctionReason || item.notes || 'Status updated'
+          }
+        };
+      }
+      return Attendance.findOneAndUpdate(
+        query,
+        updatePayload,
         { upsert: true, returnDocument: 'after' }
       );
     });

@@ -1,14 +1,51 @@
 const mongoose = require('mongoose');
-const { Staff, TeacherMapping, Subject, Class, Section, Student, Attendance, Holiday, AttendanceSkip, Leave, AcademicSession } = require('../models');
+const { Staff, TeacherMapping, Subject, Class, Program, Section, Student, Attendance, Holiday, AttendanceSkip, Leave, AcademicSession } = require('../models');
 const { ACTIVE_STUDENT_FILTER, getActiveStudentIds } = require('../utils/studentStatus');
+const { toObjectIds, applyMultiIdFilter } = require('../utils/filterHelpers');
 
 const isValidObjectId = (val) => {
   return val && val !== 'undefined' && val !== 'null' && val !== 'all' && mongoose.Types.ObjectId.isValid(val);
 };
 
 class TeacherService {
-  async getTeachers() {
-    return Staff.find({ isTeaching: true }).populate('departmentId').sort({ name: 1 });
+  async getTeachers(filters = {}) {
+    const query = { isTeaching: true };
+    applyMultiIdFilter(query, 'departmentId', filters.departmentId);
+
+    const classIds = toObjectIds(filters.classId);
+    const programIds = toObjectIds(filters.programId);
+
+    if (classIds.length > 0 || programIds.length > 0) {
+      let targetClassIds = classIds;
+      if (targetClassIds.length === 0 && programIds.length > 0) {
+        const classes = await Class.find({ programId: { $in: programIds } }).select('_id').lean();
+        targetClassIds = classes.map((c) => c._id);
+      }
+
+      const [mappings, programs] = await Promise.all([
+        targetClassIds.length > 0
+          ? TeacherMapping.find({ classId: { $in: targetClassIds } }).select('teacherId').lean()
+          : Promise.resolve([]),
+        programIds.length > 0
+          ? Program.find({ _id: { $in: programIds } }).select('departmentId').lean()
+          : Promise.resolve([]),
+      ]);
+
+      const mappedIds = mappings.map((m) => m.teacherId).filter(Boolean);
+      const progDeptIds = programs.map((p) => p.departmentId).filter(Boolean);
+
+      if (mappedIds.length > 0 && progDeptIds.length > 0) {
+        query.$or = [{ _id: { $in: mappedIds } }, { departmentId: { $in: progDeptIds } }];
+      } else if (mappedIds.length > 0) {
+        query._id = { $in: mappedIds };
+      } else if (progDeptIds.length > 0) {
+        query.departmentId = { $in: progDeptIds };
+      } else {
+        return [];
+      }
+    }
+
+    return Staff.find(query).populate('departmentId').sort({ name: 1 });
   }
 
   async getTeacherNames() {

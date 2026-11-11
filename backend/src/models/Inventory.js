@@ -3,8 +3,13 @@ const mongoose = require('mongoose');
 // InventoryItem
 const InventoryItemSchema = new mongoose.Schema({
   itemName: { type: String, required: true },
+  sku: { type: String, default: '' },
   category: { type: String, required: true },
   quantity: { type: Number, default: 0 },
+  openingStock: { type: Number, default: null },
+  reorderLevel: { type: Number, default: 5 },
+  unit: { type: String, default: 'Unit' },
+  storeName: { type: String, default: 'Main store' },
   unitPrice: { type: Number, default: 0 },
   totalValue: { type: Number, default: 0 },
   purchaseDate: { type: String, default: () => new Date().toISOString().split('T')[0] },

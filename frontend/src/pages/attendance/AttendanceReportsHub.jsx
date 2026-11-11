@@ -10,6 +10,8 @@ import {
   Award,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import { Button } from "@/components/ui/button";
 import { hasPermission } from "@/lib/navigation.jsx";
 import AttendanceReportsTab from "./AttendanceReportsTab";
@@ -94,6 +96,7 @@ export default function AttendanceReportsHub({ initialReport = null }) {
 
   // Default View: 3 Report Navigation Cards
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS.Attendance}>
     <div className="space-y-6 max-w-full">
       {/* Top Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
@@ -325,5 +328,6 @@ export default function AttendanceReportsHub({ initialReport = null }) {
           </div>
         )}
     </div>
+    </ReportsModeWrapper>
   );
 }

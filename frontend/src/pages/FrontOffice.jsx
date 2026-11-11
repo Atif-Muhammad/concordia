@@ -10,6 +10,8 @@ import {
   ComplaintTab,
   ContactsTab,
 } from "./front-office/index.js";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 const FrontOffice = () => {
   const location = useLocation();
@@ -36,6 +38,7 @@ const FrontOffice = () => {
             <TabsTrigger value="visitor">Visitor Book</TabsTrigger>
             <TabsTrigger value="complaint">Complaints</TabsTrigger>
             <TabsTrigger value="contacts">Contacts</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
           </TabsList>
 
           <TabsContent value="inquiry" className="space-y-4">
@@ -52,6 +55,10 @@ const FrontOffice = () => {
 
           <TabsContent value="contacts" className="space-y-4">
             <ContactsTab />
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-4">
+            <ModuleReportsHub reports={MODULE_REPORT_LISTS["Front Office"]} />
           </TabsContent>
         </Tabs>
       </div>

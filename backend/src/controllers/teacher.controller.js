@@ -64,7 +64,7 @@ async function resolveTeacherIds(teacherIdParam, user) {
 class TeacherController {
   async getTeachers(req, res, next) {
     try {
-      const teachers = await teacherService.getTeachers();
+      const teachers = await teacherService.getTeachers(req.query);
       res.json(teachers);
     } catch (err) {
       next(err);

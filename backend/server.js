@@ -29,6 +29,7 @@ const financeRoutes = require('./src/routes/finance.routes');
 const inventoryRoutes = require('./src/routes/inventory.routes');
 const dashboardRoutes = require('./src/routes/dashboard.routes');
 const walletRoutes = require('./src/routes/wallet.routes');
+const reportRoutes = require('./src/routes/report.routes');
 
 const app = express();
 
@@ -99,6 +100,7 @@ app.use('/api/finance', financeRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/wallets', walletRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

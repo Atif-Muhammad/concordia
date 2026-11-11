@@ -14,6 +14,8 @@ import {
   TimetableTab,
   AssignmentsTab,
 } from "./academics/index.js";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 const Academics = () => {
   const location = useLocation();
@@ -44,6 +46,7 @@ const Academics = () => {
             <TabsTrigger value="scm">S-Class</TabsTrigger>
             <TabsTrigger value="classMapping">T-Class</TabsTrigger>
             <TabsTrigger value="timetable">Timetable</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
             {/* <TabsTrigger value="assignments">Assignments</TabsTrigger> */}
           </TabsList>
 
@@ -81,6 +84,10 @@ const Academics = () => {
 
           <TabsContent value="assignments">
             <AssignmentsTab />
+          </TabsContent>
+
+          <TabsContent value="reports">
+            <ModuleReportsHub reports={MODULE_REPORT_LISTS.Academics} />
           </TabsContent>
         </Tabs>
       </div>

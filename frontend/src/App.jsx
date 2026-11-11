@@ -30,6 +30,7 @@ import Finance from "./pages/Finance";
 import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
 import Complaints from "./pages/Complaints";
+import ReportCentre from "./pages/ReportCentre";
 import NotFound from "./pages/NotFound";
 import StudentVerifyPage from "./pages/students/StudentVerifyPage";
 // Teacher portal pages
@@ -73,6 +74,7 @@ const pageComponents = {
   Finance,
   Inventory,
   Configuration,
+  ReportCentre,
   // Teacher portal
   TeacherDashboard,
   TeacherClasses,

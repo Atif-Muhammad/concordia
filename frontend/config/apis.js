@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-const base_url = "http://localhost:3003/api";
-// const base_url = "https://beams.hayatfoundation.org.pk/api";
+// const base_url = "http://localhost:3003/api";
+const base_url = "https://beams.hayatfoundation.org.pk/api";
 
 // Attach token as fallback header in case cookies are blocked
 axios.interceptors.request.use((config) => {
@@ -187,10 +187,15 @@ export const getAllStaff = async (filters = {}) => {
     const params = new URLSearchParams();
     if (filters.isTeaching !== undefined) params.append('isTeaching', filters.isTeaching);
     if (filters.isNonTeaching !== undefined) params.append('isNonTeaching', filters.isNonTeaching);
+    if (filters.isSupportingStaff !== undefined) params.append('isSupportingStaff', filters.isSupportingStaff);
     if (filters.search) params.append('search', filters.search);
-    if (filters.status) params.append('status', filters.status);
+    if (filters.status && filters.status !== 'ALL' && filters.status !== 'all') params.append('status', filters.status);
+    if (filters.departmentId && filters.departmentId !== 'all' && filters.departmentId !== 'ALL') {
+      params.append('departmentId', filters.departmentId);
+    }
 
-    const response = await axios.get(`${base_url}/hr/staff?${params.toString()}`, {
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/hr/staff${qs ? `?${qs}` : ''}`, {
       withCredentials: true,
     });
     return response.data;
@@ -662,9 +667,22 @@ export const getTeacherSubjects = async (teacherId, classId) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getTeachers = async () => {
+const appendLookupFilters = (params, filters, keys) => {
+  if (!filters || typeof filters !== "object" || filters.queryKey || filters.signal) return;
+  keys.forEach((k) => {
+    const val = filters[k];
+    if (val !== undefined && val !== null && val !== "" && val !== "all" && val !== "ALL" && val !== "undefined" && val !== "null") {
+      params.append(k, String(val));
+    }
+  });
+};
+
+export const getTeachers = async (filters = {}) => {
   try {
-    const response = await axios.get(`${base_url}/teacher/get`, {
+    const params = new URLSearchParams();
+    appendLookupFilters(params, filters, ["departmentId", "programId", "classId"]);
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/teacher/get${qs ? `?${qs}` : ""}`, {
       withCredentials: true,
     });
     return response.data;
@@ -851,9 +869,12 @@ export const getProgramNames = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getPrograms = async () => {
+export const getPrograms = async (filters = {}) => {
   try {
-    const response = await axios.get(`${base_url}/academics/program/get/all`, {
+    const params = new URLSearchParams();
+    appendLookupFilters(params, filters, ["departmentId"]);
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/academics/program/get/all${qs ? `?${qs}` : ""}`, {
       withCredentials: true,
     });
     return response.data;
@@ -939,9 +960,12 @@ export const getClasseNames = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getClasses = async () => {
+export const getClasses = async (filters = {}) => {
   try {
-    const { data } = await axios.get(`${base_url}/academics/class/get/all`, {
+    const params = new URLSearchParams();
+    appendLookupFilters(params, filters, ["programId", "departmentId", "sessionId"]);
+    const qs = params.toString();
+    const { data } = await axios.get(`${base_url}/academics/class/get/all${qs ? `?${qs}` : ""}`, {
       withCredentials: true,
     });
     return data;
@@ -1028,9 +1052,12 @@ export const getSectionNames = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getSections = async () => {
+export const getSections = async (filters = {}) => {
   try {
-    const response = await axios.get(`${base_url}/academics/section/get/all`, {
+    const params = new URLSearchParams();
+    appendLookupFilters(params, filters, ["classId", "programId"]);
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/academics/section/get/all${qs ? `?${qs}` : ""}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1169,9 +1196,12 @@ export const deleteAcademicSession = async (sessionID) => {
 };
 
 // subjects
-export const getSubjects = async () => {
+export const getSubjects = async (filters = {}) => {
   try {
-    const response = await axios.get(`${base_url}/academics/subject/get/all`, {
+    const params = new URLSearchParams();
+    appendLookupFilters(params, filters, ["programId", "classId", "sessionId"]);
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/academics/subject/get/all${qs ? `?${qs}` : ""}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1965,6 +1995,7 @@ export const searchStudents = async (query, options = {}) => {
     params.append("search", query ?? "");
     params.append("searchFor", query ?? "");
     params.append("status", options?.status ?? "ACTIVE");
+    appendLookupFilters(params, options, ["sessionId", "programId", "classId", "sectionId", "limit"]);
     const { data } = await axios.get(`${base_url}/student/search?${params.toString()}`, {
       withCredentials: true,
     });
@@ -3185,27 +3216,40 @@ export const delExam = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getExams = async (sessionId) => {
+export const getExams = async (sessionOrFilters) => {
   try {
     const params = new URLSearchParams();
-    const cleanSessionId =
-      typeof sessionId === 'string' || typeof sessionId === 'number'
-        ? String(sessionId)
-        : typeof sessionId === 'object' && sessionId !== null && !sessionId.queryKey && !sessionId.signal
-        ? String(sessionId.id || sessionId._id || sessionId.sessionId || '')
-        : undefined;
-
     if (
-      cleanSessionId &&
-      cleanSessionId !== 'all' &&
-      cleanSessionId !== 'undefined' &&
-      cleanSessionId !== 'null' &&
-      cleanSessionId !== '[object Object]'
+      sessionOrFilters &&
+      typeof sessionOrFilters === "object" &&
+      !sessionOrFilters.queryKey &&
+      !sessionOrFilters.signal &&
+      ("sessionId" in sessionOrFilters || "programId" in sessionOrFilters || "classId" in sessionOrFilters)
     ) {
-      params.append('sessionId', cleanSessionId);
+      appendLookupFilters(params, sessionOrFilters, ["sessionId", "programId", "classId", "search"]);
+    } else {
+      const cleanSessionId =
+        typeof sessionOrFilters === "string" || typeof sessionOrFilters === "number"
+          ? String(sessionOrFilters)
+          : typeof sessionOrFilters === "object" &&
+            sessionOrFilters !== null &&
+            !sessionOrFilters.queryKey &&
+            !sessionOrFilters.signal
+          ? String(sessionOrFilters.id || sessionOrFilters._id || "")
+          : undefined;
+
+      if (
+        cleanSessionId &&
+        cleanSessionId !== "all" &&
+        cleanSessionId !== "undefined" &&
+        cleanSessionId !== "null" &&
+        cleanSessionId !== "[object Object]"
+      ) {
+        params.append("sessionId", cleanSessionId);
+      }
     }
     const { data } = await axios.get(
-      `${base_url}/exams${params.toString() ? '?' + params.toString() : ''}`,
+      `${base_url}/exams${params.toString() ? "?" + params.toString() : ""}`,
       {
         withCredentials: true,
       }
@@ -6832,6 +6876,103 @@ export const recordCustomActivityAPI = async (payload) => {
   } catch (err) {
     // Non-blocking log attempt
     console.warn("Could not record custom activity log:", err);
+  }
+};
+
+// Unified ERP Report Engine APIs
+const RAW_TECHNICAL_ERR_RE =
+  /(\bis not defined\b|\bcannot read propert|\bis not a function\b|\bcast to (objectid|number|date|boolean|string)\b|\be11000\b|mongoservererror|mongonetworkerror|mongotimeout|mongoose|objectid|strictpopulateerror|buffering timed out|referenceerror|typeerror|syntaxerror|validation failed)/i;
+
+export function extractReadableApiError(error, fallback = "Something went wrong. Please try again.") {
+  const serverMsg = error?.response?.data?.message;
+  const raw = String(serverMsg || error?.message || "").trim();
+  if (!raw) return fallback;
+  if (/^network error$/i.test(raw) || /err_network/i.test(String(error?.code || ""))) {
+    return "Unable to reach the server. Please check your connection and try again.";
+  }
+  if (/timeout of \d+ms exceeded/i.test(raw) || error?.code === "ECONNABORTED") {
+    return "The request took too long to complete. Try narrowing your filters and try again.";
+  }
+  if (/^request failed with status code 5\d\d$/i.test(raw)) {
+    return fallback;
+  }
+  if (RAW_TECHNICAL_ERR_RE.test(raw)) {
+    return fallback;
+  }
+  return raw;
+}
+
+export const getReportCatalog = async () => {
+  try {
+    const response = await axios.get(`${base_url}/reports/catalog`, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    throw {
+      message: extractReadableApiError(error, "Unable to load the report list right now. Please try again."),
+      status: error.response?.status || 500,
+    };
+  }
+};
+
+export const runReportQuery = async (reportKey, filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "" || v === "all") return;
+      params.append(k, Array.isArray(v) ? v.join(",") : String(v));
+    });
+    const qs = params.toString();
+    const response = await axios.get(`${base_url}/reports/${reportKey}${qs ? `?${qs}` : ""}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    throw {
+      message: extractReadableApiError(error, "Unable to generate this report right now. Please check your filters and try again."),
+      status: error.response?.status || 500,
+    };
+  }
+};
+
+export const logReportExport = async (reportKey, payload = {}) => {
+  try {
+    const response = await axios.post(`${base_url}/reports/${reportKey}/export-log`, payload, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (err) {
+    console.warn("Could not record report export log:", err);
+    return null;
+  }
+};
+
+export const getGradeSchemes = async () => {
+  try {
+    const response = await axios.get(`${base_url}/reports/meta/grade-schemes`, {
+      withCredentials: true,
+    });
+    return response.data?.gradeSchemes || response.data || [];
+  } catch (error) {
+    throw {
+      message: extractReadableApiError(error, "Unable to load grading schemes right now."),
+      status: error.response?.status || 500,
+    };
+  }
+};
+
+export const runReportInlineAction = async (reportKey, action, payload = {}) => {
+  try {
+    const response = await axios.post(
+      `${base_url}/reports/${reportKey}/action`,
+      { action, payload },
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    throw {
+      message: extractReadableApiError(error, "Unable to complete this action. Please review your inputs and try again."),
+      status: error.response?.status || 500,
+    };
   }
 };
 

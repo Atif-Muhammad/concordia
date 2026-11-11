@@ -7,8 +7,10 @@ const {
   SubjectClassMapping,
   TeacherMapping,
   Timetable,
-  Staff
+  Staff,
+  Exam,
 } = require('../models');
+const { toObjectIds, applyMultiIdFilter } = require('../utils/filterHelpers');
 
 class AcademicsService {
   // Sessions
@@ -35,8 +37,10 @@ class AcademicsService {
   }
 
   // Programs
-  async getPrograms() {
-    return Program.find()
+  async getPrograms(filters = {}) {
+    const query = {};
+    applyMultiIdFilter(query, 'departmentId', filters.departmentId);
+    return Program.find(query)
       .populate({
         path: 'departmentId',
         populate: { path: 'hod', select: 'name designation phone email' },
@@ -61,8 +65,18 @@ class AcademicsService {
   }
 
   // Classes
-  async getClasses() {
-    return Class.find().populate('programId').populate('feeStructures').sort({ name: 1 });
+  async getClasses(filters = {}) {
+    const query = {};
+    const progIds = applyMultiIdFilter(query, 'programId', filters.programId);
+    if (progIds.length === 0 && filters.departmentId) {
+      const deptIds = toObjectIds(filters.departmentId);
+      if (deptIds.length > 0) {
+        const progs = await Program.find({ departmentId: { $in: deptIds } }).select('_id').lean();
+        if (progs.length === 0) return [];
+        query.programId = { $in: progs.map((p) => p._id) };
+      }
+    }
+    return Class.find(query).populate('programId').populate('feeStructures').sort({ name: 1 });
   }
 
   async getClassNames() {
@@ -82,8 +96,18 @@ class AcademicsService {
   }
 
   // Sections
-  async getSections() {
-    return Section.find().populate('classId').sort({ name: 1 });
+  async getSections(filters = {}) {
+    const query = {};
+    const clsIds = applyMultiIdFilter(query, 'classId', filters.classId);
+    if (clsIds.length === 0 && filters.programId) {
+      const progIds = toObjectIds(filters.programId);
+      if (progIds.length > 0) {
+        const classes = await Class.find({ programId: { $in: progIds } }).select('_id').lean();
+        if (classes.length === 0) return [];
+        query.classId = { $in: classes.map((c) => c._id) };
+      }
+    }
+    return Section.find(query).populate('classId').sort({ name: 1 });
   }
 
   async getSectionNames() {
@@ -103,7 +127,48 @@ class AcademicsService {
   }
 
   // Subjects
-  async getSubjects() {
+  async getSubjects(filters = {}) {
+    const classIds = toObjectIds(filters.classId);
+    const programIds = toObjectIds(filters.programId);
+    const sessionIds = toObjectIds(filters.sessionId);
+
+    if (classIds.length > 0 || programIds.length > 0) {
+      let targetClassIds = classIds;
+      if (targetClassIds.length === 0 && programIds.length > 0) {
+        const classes = await Class.find({ programId: { $in: programIds } }).select('_id').lean();
+        targetClassIds = classes.map((c) => c._id);
+      }
+      if (targetClassIds.length === 0) return [];
+
+      const scmFilter = { classId: { $in: targetClassIds } };
+      if (sessionIds.length > 0) {
+        scmFilter.$or = [
+          { sessionId: { $in: sessionIds } },
+          { sessionId: null },
+          { sessionId: { $exists: false } },
+        ];
+      }
+
+      const [scms, exams] = await Promise.all([
+        SubjectClassMapping.find(scmFilter).select('subjectIds subjects.subjectId').lean(),
+        Exam
+          ? Exam.find({ classId: { $in: targetClassIds } }).select('schedule.subjectId').lean()
+          : Promise.resolve([]),
+      ]);
+
+      const subIdSet = new Set();
+      scms.forEach((scm) => {
+        (scm.subjectIds || []).forEach((id) => id && subIdSet.add(String(id)));
+        (scm.subjects || []).forEach((s) => s?.subjectId && subIdSet.add(String(s.subjectId)));
+      });
+      exams.forEach((ex) => {
+        (ex.schedule || []).forEach((item) => item?.subjectId && subIdSet.add(String(item.subjectId)));
+      });
+
+      if (subIdSet.size === 0) return [];
+      return Subject.find({ _id: { $in: [...subIdSet] } }).sort({ name: 1 });
+    }
+
     return Subject.find().sort({ name: 1 });
   }
 

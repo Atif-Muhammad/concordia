@@ -10,6 +10,8 @@ import {
   ResultsTab,
   PositionsTab,
 } from "./examination/index.js";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 const Examination = () => {
   const location = useLocation();
@@ -44,6 +46,9 @@ const Examination = () => {
             <TabsTrigger value="positions" className="gap-2">
               <Trophy className="w-4 h-4" />Positions
             </TabsTrigger>
+            <TabsTrigger value="reports" className="gap-2">
+              <FileText className="w-4 h-4" />Reports
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="exams">
@@ -60,6 +65,10 @@ const Examination = () => {
 
           <TabsContent value="positions">
             <PositionsTab />
+          </TabsContent>
+
+          <TabsContent value="reports">
+            <ModuleReportsHub reports={MODULE_REPORT_LISTS.Examination} />
           </TabsContent>
         </Tabs>
       </div>

@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -2228,6 +2230,7 @@ export const ReportsTab = () => {
   // DEFAULT VIEW: CARDS NAVIGATION HUB (Matching FeeReportsTab Style)
   // =========================================================================
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS["HR & Payroll"]}>
     <div className="space-y-6 max-w-full">
       {/* Top Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
@@ -2332,6 +2335,7 @@ export const ReportsTab = () => {
         </div>
       </div>
     </div>
+    </ReportsModeWrapper>
   );
 };
 

@@ -40,6 +40,25 @@ const InquirySchema = new mongoose.Schema({
   followUpDate: { type: Date },
   followUpSlab: { type: String, default: '' },
   referenceBody: { type: String, default: '' },
+  // Reporting extensions — admissions workflow (P2-P6)
+  assignedOfficerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', default: null },
+  assignedOfficerName: { type: String, default: '' },
+  applicationId: { type: String, default: '' },
+  applicationStatus: {
+    type: String,
+    enum: ['INQUIRY', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', ''],
+    default: '',
+  },
+  appliedAt: { type: Date, default: null },
+  missingDocuments: [{
+    docKey: { type: String, default: '' },
+    label: { type: String, default: '' },
+    status: { type: String, enum: ['AWAITING_APPLICANT', 'AWAITING_VERIFICATION', 'COMPLETE'], default: 'AWAITING_APPLICANT' },
+    assignedOfficerName: { type: String, default: '' },
+    nextAction: { type: String, default: '' },
+    flaggedAt: { type: Date, default: Date.now },
+  }],
+  duplicateOfInquiryId: { type: mongoose.Schema.Types.ObjectId, ref: 'FrontOfficeInquiry', default: null },
   status: {
     type: String,
     enum: ['NEW', 'APPROVED', 'REJECTED'],
@@ -66,7 +85,13 @@ const VisitorSchema = new mongoose.Schema({
   date: { type: String },
   inTime: { type: String, default: '' },
   outTime: { type: String, default: '' },
-  remarks: { type: String, default: '' }
+  remarks: { type: String, default: '' },
+  assignedOfficerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', default: null },
+  assignedOfficerName: { type: String, default: '' },
+  interestedProgramId: { type: mongoose.Schema.Types.ObjectId, ref: 'Program', default: null },
+  outcome: { type: String, default: '' },
+  followUpDate: { type: Date, default: null },
+  linkedInquiryId: { type: mongoose.Schema.Types.ObjectId, ref: 'FrontOfficeInquiry', default: null },
 }, { timestamps: true });
 
 VisitorSchema.pre('save', function () {
@@ -100,6 +125,13 @@ const ComplaintSchema = new mongoose.Schema({
     default: 'Pending'
   },
   assignedToIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Staff' }],
+  priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
+  slaDueDate: { type: Date, default: null },
+  escalated: { type: Boolean, default: false },
+  escalatedAt: { type: Date, default: null },
+  actionTaken: { type: String, default: '' },
+  complainantNotified: { type: Boolean, default: false },
+  resolvedAt: { type: Date, default: null },
   remarks: [{
     text: { type: String, default: '' },
     remark: { type: String, default: '' },

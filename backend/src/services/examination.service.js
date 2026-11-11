@@ -1,28 +1,15 @@
 const mongoose = require('mongoose');
 const { Exam, ExamMarks, ExamResult, Student, Subject, Class } = require('../models');
 const { ACTIVE_STUDENT_FILTER, isStudentActive, getActiveStudentIds } = require('../utils/studentStatus');
+const { applyMultiIdFilter } = require('../utils/filterHelpers');
 
 class ExaminationService {
   // Exams
   async getExams(filters = {}) {
     const query = {};
-    if (filters.programId && filters.programId !== 'all' && mongoose.Types.ObjectId.isValid(filters.programId)) {
-      query.programId = filters.programId;
-    }
-    if (filters.classId && filters.classId !== 'all' && mongoose.Types.ObjectId.isValid(filters.classId)) {
-      query.classId = filters.classId;
-    }
-    if (
-      filters.sessionId &&
-      filters.sessionId !== 'all' &&
-      filters.sessionId !== 'none' &&
-      filters.sessionId !== 'undefined' &&
-      filters.sessionId !== 'null' &&
-      filters.sessionId !== '[object Object]' &&
-      mongoose.Types.ObjectId.isValid(filters.sessionId)
-    ) {
-      query.sessionId = filters.sessionId;
-    }
+    applyMultiIdFilter(query, 'programId', filters.programId);
+    applyMultiIdFilter(query, 'classId', filters.classId);
+    applyMultiIdFilter(query, 'sessionId', filters.sessionId);
     if (filters.search && typeof filters.search === 'string') {
       query.examName = new RegExp(filters.search, 'i');
     }

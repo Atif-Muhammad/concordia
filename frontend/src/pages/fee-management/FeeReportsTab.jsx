@@ -74,6 +74,8 @@ import {
   Tag,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { isChallanStudentActive } from "@/lib/studentStatus";
@@ -1694,6 +1696,7 @@ export const FeeReportsTab = ({
 
   // 4. Default View: selectedReport === null (Cards Menu Page ONLY)
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS["Fee Management"]}>
     <div className="space-y-6 max-w-full">
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
@@ -1962,5 +1965,6 @@ export const FeeReportsTab = ({
         </div>
       )}
     </div>
+    </ReportsModeWrapper>
   );
 };

@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { Staff, StaffIdSettings, Department, User } = require('../models');
+const { applyMultiIdFilter } = require('../utils/filterHelpers');
 
 class StaffService {
   async getStaff(filters = {}) {
@@ -8,6 +9,7 @@ class StaffService {
     if (filters.isNonTeaching !== undefined) query.isNonTeaching = filters.isNonTeaching === 'true' || filters.isNonTeaching === true;
     if (filters.isSupportingStaff !== undefined) query.isSupportingStaff = filters.isSupportingStaff === 'true' || filters.isSupportingStaff === true;
     if (filters.status && filters.status !== 'all') query.status = filters.status;
+    applyMultiIdFilter(query, 'departmentId', filters.departmentId);
     if (filters.search) {
       const re = new RegExp(filters.search, 'i');
       query.$or = [

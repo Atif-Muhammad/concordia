@@ -44,6 +44,8 @@ const StatusHistorySchema = new mongoose.Schema({
   action: { type: String },
   reason: { type: String, default: '' },
   date: { type: Date, default: Date.now },
+  changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  changedByName: { type: String, default: '' },
   details: { type: mongoose.Schema.Types.Mixed },
 }, { _id: true, timestamps: true });
 
@@ -89,7 +91,7 @@ const StudentSchema = new mongoose.Schema({
   graduationDate: { type: Date },
   status: {
     type: String,
-    enum: ['ACTIVE', 'GRADUATED', 'EXPELLED', 'STRUCK_OFF', 'Active', 'Graduated', 'Expelled', 'Struck Off'],
+    enum: ['ACTIVE', 'GRADUATED', 'EXPELLED', 'STRUCK_OFF', 'PENDING', 'TRANSFERRED', 'CANCELLED', 'Active', 'Graduated', 'Expelled', 'Struck Off', 'Pending', 'Transferred', 'Cancelled'],
     default: 'ACTIVE'
   },
   session: { type: String, default: '' },

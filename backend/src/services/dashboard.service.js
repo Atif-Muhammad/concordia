@@ -587,7 +587,9 @@ class DashboardService {
         $or: [{ studentId: null }, { studentId: { $exists: false } }, { studentId: { $in: activeStudentIds } }]
       }).catch(() => 0),
       InventoryItem.countDocuments().catch(() => 0),
-      InventoryItem.countDocuments({ $expr: { $lte: ['$quantity', '$alertQuantity'] } }).catch(() => 0),
+      InventoryItem.countDocuments({
+        $expr: { $lte: [{ $ifNull: ['$quantity', 0] }, { $ifNull: ['$reorderLevel', 5] }] }
+      }).catch(() => 0),
       Leave.countDocuments({
         status: { $in: ['Pending', 'PENDING'] },
         $or: [{ applicantType: { $ne: 'STUDENT' } }, { studentId: { $in: activeStudentIds } }]

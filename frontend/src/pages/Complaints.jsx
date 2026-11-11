@@ -40,11 +40,15 @@ import {
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import usePermissions from "@/hooks/usePermissions";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 const Complaints = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canCreate, canUpdate, canDelete } = usePermissions("Complaints");
+  const [viewTab, setViewTab] = useState("cases");
   const [selectedComplaintId, setSelectedComplaintId] = useState(null);
   const [remarkText, setRemarkText] = useState("");
   const [remarkDialogOpen, setRemarkDialogOpen] = useState(false);
@@ -112,14 +116,27 @@ const Complaints = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-in fade-in slide-in- duration-500">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold tracking-tight bg-clip-text text-foreground">
-            My Assigned Complaints
-          </h1>
-          <p className="text-muted-foreground">
-            Manage complaints assigned to you and track their progress with remarks.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight bg-clip-text text-foreground">
+              My Assigned Complaints
+            </h1>
+            <p className="text-muted-foreground">
+              Manage complaints assigned to you and track their progress with remarks.
+            </p>
+          </div>
+          <Tabs value={viewTab} onValueChange={setViewTab}>
+            <TabsList>
+              <TabsTrigger value="cases">Assigned Cases</TabsTrigger>
+              <TabsTrigger value="reports">Resolution Report (#39)</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
+
+        {viewTab === "reports" ? (
+          <ModuleReportsHub reports={MODULE_REPORT_LISTS.Complaints} />
+        ) : (
+        <>
 
         <div className="flex flex-wrap gap-4 items-end bg-card/30 p-4 rounded-xl border border-border/50">
           <div className="space-y-2">
@@ -368,6 +385,8 @@ const Complaints = () => {
             </div>
           </DialogContent>
         </Dialog>
+        </>
+        )}
       </div>
     </DashboardLayout>
   );

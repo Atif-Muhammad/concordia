@@ -8,6 +8,8 @@ import {
     StaffSettingsTab,
     StaffAttendanceTab,
 } from "./staff/index.js";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 export default function Staff() {
     const location = useLocation();
@@ -33,6 +35,7 @@ export default function Staff() {
                         <TabsTrigger value="directory">Staff Directory</TabsTrigger>
                         <TabsTrigger value="settings">Settings</TabsTrigger>
                         <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                        <TabsTrigger value="reports">Reports</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="directory" className="space-y-6">
@@ -45,6 +48,10 @@ export default function Staff() {
 
                     <TabsContent value="attendance" className="space-y-6">
                         <StaffAttendanceTab />
+                    </TabsContent>
+
+                    <TabsContent value="reports" className="space-y-6">
+                        <ModuleReportsHub reports={MODULE_REPORT_LISTS.Staff} />
                     </TabsContent>
                 </Tabs>
             </div>

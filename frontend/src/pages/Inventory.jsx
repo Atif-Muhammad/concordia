@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, DollarSign, TrendingUp, AlertCircle, Wrench } from "lucide-react";
 import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import { InventoryItemsTab, InventoryExpensesTab } from "./inventory/index.js";
+import ModuleReportsHub from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 
 const Inventory = () => {
     const location = useLocation();
@@ -100,6 +102,7 @@ const Inventory = () => {
                             <Wrench className="mr-2 h-4 w-4" />
                             Expenses
                         </TabsTrigger>
+                        <TabsTrigger value="reports">Reports</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="inventory" className="space-y-4">
@@ -108,6 +111,10 @@ const Inventory = () => {
 
                     <TabsContent value="expenses" className="space-y-4">
                         <InventoryExpensesTab />
+                    </TabsContent>
+
+                    <TabsContent value="reports" className="space-y-4">
+                        <ModuleReportsHub reports={MODULE_REPORT_LISTS.Inventory} />
                     </TabsContent>
                 </Tabs>
             </div>

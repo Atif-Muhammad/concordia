@@ -62,6 +62,11 @@ const {
   WalletTransaction
 } = require('./Wallet');
 const ActivityLog = require('./ActivityLog');
+const { SavedReportView, ReportExportLog } = require('./Report');
+const { SyllabusPlan } = require('./AcademicsSyllabus');
+const { StockMovement, PurchaseOrder } = require('./InventoryProcurement');
+const { GradeScheme } = require('./GradeScheme');
+const { FeeReminderLog, FeeConcessionRequest } = require('./FeeExtensions');
 
 module.exports = {
   ActivityLog,
@@ -117,4 +122,12 @@ module.exports = {
   InventoryExpense,
   Wallet,
   WalletTransaction,
+  SavedReportView,
+  ReportExportLog,
+  SyllabusPlan,
+  StockMovement,
+  PurchaseOrder,
+  GradeScheme,
+  FeeReminderLog,
+  FeeConcessionRequest,
 };

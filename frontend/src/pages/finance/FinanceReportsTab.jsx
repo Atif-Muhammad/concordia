@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import {
   Users,
   Scale,
@@ -33,6 +35,7 @@ export default function FinanceReportsTab() {
 
   // 2. Default Cards Layout (No heavy queries on mount; high speed & clean UX)
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS.Finance}>
     <div className="space-y-6 max-w-full">
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
@@ -171,5 +174,6 @@ export default function FinanceReportsTab() {
         </div>
       </div>
     </div>
+    </ReportsModeWrapper>
   );
 }

@@ -253,7 +253,10 @@ const FeePaymentReceiptSchema = new mongoose.Schema({
   sourceChallanNo: { type: String, default: '' },
   sourceChallanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeChallan' },
   settledViaArrearsAmount: { type: Number, default: 0 },
-  remarks: { type: String, default: '' }
+  remarks: { type: String, default: '' },
+  status: { type: String, enum: ['POSTED', 'VOID'], default: 'POSTED' },
+  voidedAt: { type: Date, default: null },
+  voidReason: { type: String, default: '' },
 }, { timestamps: true });
 
 FeePaymentReceiptSchema.virtual('id').get(function () {

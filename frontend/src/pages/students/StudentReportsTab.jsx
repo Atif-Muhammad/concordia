@@ -11,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
@@ -260,6 +262,7 @@ export const StudentReportsTab = ({
   };
 
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS.Students}>
     <div className="space-y-6 max-w-full">
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-[#fdfcf8] dark:bg-card border border-[#eae8df] dark:border-border p-5 sm:p-6 shadow-xs">
@@ -666,6 +669,7 @@ export const StudentReportsTab = ({
         sectionsData={sectionsData}
       />
     </div>
+    </ReportsModeWrapper>
   );
 };
 

@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 // HostelRoom
 const HostelRoomSchema = new mongoose.Schema({
   roomNumber: { type: String, required: true, unique: true },
+  blockFloor: { type: String, default: 'Block A / Ground' },
   capacity: { type: Number, required: true },
   currentOccupancy: { type: Number, default: 0 },
   type: { type: String, default: 'Double' },
@@ -27,6 +28,7 @@ const HostelAllocationSchema = new mongoose.Schema({
   registrationId: { type: mongoose.Schema.Types.ObjectId, ref: 'HostelRegistration' },
   studentId: { type: mongoose.Schema.Types.Mixed },
   externalName: { type: String, default: '' },
+  bedNumber: { type: String, default: '' },
   allocationDate: { type: String, default: () => new Date().toISOString().split('T')[0] },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' }
 }, { timestamps: true });

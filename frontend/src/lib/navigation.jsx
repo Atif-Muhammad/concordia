@@ -36,6 +36,7 @@ export const NAV_MODULES = [
       { id: "visitor", label: "Visitor Book", path: "/front-office/visitor", icon: BookOpen, description: "Log and monitor campus visitors and entry passes" },
       { id: "complaint", label: "Complaints", path: "/front-office/complaint", icon: AlertCircle, description: "Register, track, and resolve community complaints" },
       { id: "contacts", label: "Contacts", path: "/front-office/contacts", icon: Phone, description: "Manage official and emergency contact directory" },
+      { id: "reports", label: "Reports", path: "/front-office/reports", icon: BarChart3, description: "Admissions inquiry pipeline, visitors & source conversion reports" },
     ],
   },
   {
@@ -70,6 +71,7 @@ export const NAV_MODULES = [
     subModules: [
       { id: "directory", label: "Staff Directory", path: "/staff/directory", icon: Users, description: "View and manage teaching and non-teaching staff profiles" },
       { id: "settings", label: "Settings", path: "/staff/settings", icon: Settings, description: "Configure staff designations, categories, and working rules" },
+      { id: "reports", label: "Reports", path: "/staff/reports", icon: BarChart3, description: "Employee master register, attendance and punctuality reports" },
     ],
   },
   {
@@ -110,6 +112,8 @@ export const NAV_MODULES = [
       { id: "exams", label: "Exams", path: "/examination/exams", icon: CalendarDays, description: "Schedule exams, terms, dates, and subject tests" },
       { id: "marks", label: "Marks Entry", path: "/examination/marks", icon: PenSquare, description: "Input and edit subject marks for examination terms" },
       { id: "results", label: "Results", path: "/examination/results", icon: Award, description: "Compute results, grade sheets, and student transcripts" },
+      { id: "positions", label: "Positions", path: "/examination/positions", icon: Award, description: "Position holders and merit ranking lists" },
+      { id: "reports", label: "Reports", path: "/examination/reports", icon: BarChart3, description: "Institutional exam analysis, gazettes, subject performance & grade distributions" },
     ],
   },
   {
@@ -134,6 +138,7 @@ export const NAV_MODULES = [
       { id: "scm", label: "Subject Classes", path: "/academics/scm", icon: Network, description: "Assign curriculum subjects to corresponding classes" },
       { id: "classMapping", segment: "class-mapping", label: "Teacher Classes", path: "/academics/class-mapping", icon: UserCheck, description: "Allocate teachers to class sections and subjects" },
       { id: "timetable", label: "Timetable", path: "/academics/timetable", icon: Clock, description: "Build and schedule weekly class and teacher timetables" },
+      { id: "reports", label: "Reports", path: "/academics/reports", icon: BarChart3, description: "Syllabus coverage, lesson progress and class health reports" },
     ],
   },
   {
@@ -192,7 +197,15 @@ export const NAV_MODULES = [
     subModules: [
       { id: "inventory", label: "Inventory", path: "/inventory/inventory", icon: PackageOpen, description: "Track campus physical stock, assets, and reorder levels" },
       { id: "expenses", label: "Expenses", path: "/inventory/expenses", icon: ShoppingCart, description: "Log vendor purchase orders and item procurement costs" },
+      { id: "reports", label: "Reports", path: "/inventory/reports", icon: BarChart3, description: "Stock on hand, low stock alerts and purchase/GRN register" },
     ],
+  },
+  {
+    icon: FileSpreadsheet,
+    label: "Report Centre",
+    path: "/reports",
+    componentKey: "ReportCentre",
+    description: "Unified institutional report hub across all 47 ERP templates & audit log",
   },
   {
     icon: Settings,
@@ -292,6 +305,14 @@ export const hasModuleAccess = (user, moduleLabel) => {
     "Timetable",
   ].includes(moduleLabel)) return true;
   if (role === "Staff" && moduleLabel === "Complaints") return true;
+  if (moduleLabel === "Report Centre") {
+    const actions = user?.permissions?.actions || user?.permissions?.crud || {};
+    const subs = user?.permissions?.subModules || {};
+    const hasAnyReportPerm =
+      Object.values(actions).some((m) => m && typeof m === "object" && Object.keys(m).some((k) => k.toLowerCase().includes("report") && m[k]?.read)) ||
+      Object.values(subs).some((arr) => Array.isArray(arr) && arr.some((id) => id === "reports" || id === "revenue"));
+    if (hasAnyReportPerm) return true;
+  }
   return hasExplicitModuleAccess(user, moduleLabel);
 };
 

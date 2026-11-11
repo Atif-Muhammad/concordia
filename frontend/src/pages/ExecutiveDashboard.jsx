@@ -587,25 +587,36 @@ const ExecutiveDashboard = () => {
             <h1 className="text-xl font-semibold">Concordia College Peshawar Executive Dashboard</h1>
             <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening in your institute.</p>
           </div>
-          <Select value={sid || ""} onValueChange={setSelectedSessionId}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select session" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Time</SelectItem>
-              {sessions.map(s => {
-                const sessionKey = (s.id || s._id)?.toString();
-                return (
-                  <SelectItem key={sessionKey} value={sessionKey}>
-                    <span className="flex items-center gap-2">
-                      {s.name}
-                      {s.isActive && <Badge className="bg-green-500 text-white text-[10px] py-0 px-1 h-4">Active</Badge>}
-                    </span>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => go("/reports?key=executive-monthly-overview")}
+              className="bg-[#F7941E] hover:bg-[#e08212] text-white text-xs font-semibold shadow-xs"
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              ERP Report Centre (#43)
+            </Button>
+            <Select value={sid || ""} onValueChange={setSelectedSessionId}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select session" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Time</SelectItem>
+                {sessions.map(s => {
+                  const sessionKey = (s.id || s._id)?.toString();
+                  return (
+                    <SelectItem key={sessionKey} value={sessionKey}>
+                      <span className="flex items-center gap-2">
+                        {s.name}
+                        {s.isActive && <Badge className="bg-green-500 text-white text-[10px] py-0 px-1 h-4">Active</Badge>}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* -- Main Stats -- */}

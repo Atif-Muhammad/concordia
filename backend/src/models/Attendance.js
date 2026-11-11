@@ -24,7 +24,16 @@ const AttendanceSchema = new mongoose.Schema({
   notes: { type: String, default: '' },
   markedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   markedByStaffId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
-  markedAt: { type: Date, default: Date.now }
+  markedAt: { type: Date, default: Date.now },
+  correctionPending: { type: Boolean, default: false },
+  correctionAudit: [{
+    previousStatus: { type: String, default: '' },
+    newStatus: { type: String, default: '' },
+    reason: { type: String, default: '' },
+    correctedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    correctedByName: { type: String, default: '' },
+    correctedAt: { type: Date, default: Date.now },
+  }],
 }, { timestamps: true });
 
 AttendanceSchema.index({ studentId: 1, date: 1, role: 1 });

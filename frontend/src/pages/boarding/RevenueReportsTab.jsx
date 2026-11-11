@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReportsModeWrapper } from "@/components/reports/ModuleReportsHub";
+import { MODULE_REPORT_LISTS } from "@/components/reports/moduleReportConfigs";
 import {
   Table,
   TableBody,
@@ -110,6 +112,7 @@ export const RevenueReportsTab = () => {
   }, [reportExpenses]);
 
   return (
+    <ReportsModeWrapper reports={MODULE_REPORT_LISTS.Boarding} classicLabel="Hostel Revenue & Expenses">
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:ml-auto">
@@ -327,5 +330,6 @@ export const RevenueReportsTab = () => {
         </>
       )}
     </div>
+    </ReportsModeWrapper>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,6 +22,14 @@ import { FileUser, Printer, Search, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getStudents, searchStudent, getClasses, getSections, getSubjects } from "../../config/apis";
 import { extractId } from "@/lib/utils.jsx";
+import {
+  isStudentActive,
+  getStudentStatusCode,
+  formatStudentStatusLabel,
+  getStudentStatusTextTone,
+} from "@/lib/studentStatus";
+import { formatNormalizedFullName } from "@/lib/studentSearch";
+import { CheckboxMultiSelect } from "@/components/ui/CheckboxMultiSelect";
 
 export const StudentResultsTab = ({
   programs = [],
@@ -34,6 +42,12 @@ export const StudentResultsTab = ({
   setStudentResultClass,
   studentResultSection,
   setStudentResultSection,
+  studentResultProgramIds: propProgramIds,
+  setStudentResultProgramIds: propSetProgramIds,
+  studentResultClassIds: propClassIds,
+  setStudentResultClassIds: propSetClassIds,
+  studentResultSectionIds: propSectionIds,
+  setStudentResultSectionIds: propSetSectionIds,
   studentResultStudent,
   setStudentResultStudent,
   studentResultExam,
@@ -43,6 +57,44 @@ export const StudentResultsTab = ({
   printStudentResult,
   getFullName,
 }) => {
+  // Normalize multi-select props
+  const selectedProgIds = useMemo(() => {
+    if (Array.isArray(propProgramIds)) return propProgramIds;
+    if (studentResultProgram) return [studentResultProgram];
+    return [];
+  }, [propProgramIds, studentResultProgram]);
+
+  const handleProgChange = (newIds) => {
+    if (propSetProgramIds) propSetProgramIds(newIds);
+    else if (setStudentResultProgram) setStudentResultProgram(newIds[0] || "");
+    if (setStudentResultStudent) setStudentResultStudent("");
+    if (setStudentResultExam) setStudentResultExam("");
+  };
+
+  const selectedClassIds = useMemo(() => {
+    if (Array.isArray(propClassIds)) return propClassIds;
+    if (studentResultClass) return [studentResultClass];
+    return [];
+  }, [propClassIds, studentResultClass]);
+
+  const handleClassChange = (newIds) => {
+    if (propSetClassIds) propSetClassIds(newIds);
+    else if (setStudentResultClass) setStudentResultClass(newIds[0] || "");
+    if (setStudentResultStudent) setStudentResultStudent("");
+    if (setStudentResultExam) setStudentResultExam("");
+  };
+
+  const selectedSectionIds = useMemo(() => {
+    if (Array.isArray(propSectionIds)) return propSectionIds;
+    if (studentResultSection && studentResultSection !== "*") return [studentResultSection];
+    return [];
+  }, [propSectionIds, studentResultSection]);
+
+  const handleSectionChange = (newIds) => {
+    if (propSetSectionIds) propSetSectionIds(newIds);
+    else if (setStudentResultSection) setStudentResultSection(newIds[0] || "");
+  };
+
   // Local State for Search
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -71,64 +123,115 @@ export const StudentResultsTab = ({
     queryFn: getSubjects,
   });
 
-  // Get available classes based on selected program
-  const availableClasses = studentResultProgram
-    ? classesData.filter((c) => extractId(c.programId) === studentResultProgram)
-    : classesData;
+  const programOptions = useMemo(() => {
+    return (
+      programs?.map((program) => {
+        const pId = extractId(program.id || program._id);
+        const dep = program.department?.name ? ` — ${program.department.name}` : "";
+        return {
+          value: pId,
+          label: `${program.name}${dep}`,
+        };
+      }) || []
+    );
+  }, [programs]);
 
-  // Selected class object & section allowance
-  const selectedClassObj = classesData.find(
-    (c) => extractId(c.id || c._id) === studentResultClass
-  );
-  const allowSections = selectedClassObj ? selectedClassObj.allowSections !== false : true;
+  // Get available classes based on selected program(s)
+  const availableClasses = useMemo(() => {
+    if (selectedProgIds.length === 0) return [];
+    return classesData.filter((c) => selectedProgIds.includes(extractId(c.programId || c.program)));
+  }, [classesData, selectedProgIds]);
 
-  // Auto clear section if class does not allow sections
+  const classOptions = useMemo(() => {
+    return availableClasses.map((cls) => ({
+      value: extractId(cls.id || cls._id),
+      label: cls.name || "Class",
+    }));
+  }, [availableClasses]);
+
+  // Selected class objects & section allowance
+  const selectedClasses = useMemo(() => {
+    return classesData.filter((c) => selectedClassIds.includes(extractId(c.id || c._id)));
+  }, [classesData, selectedClassIds]);
+
+  const allowSections = useMemo(() => {
+    if (selectedClasses.length === 0) return true;
+    return selectedClasses.some((c) => c.allowSections !== false);
+  }, [selectedClasses]);
+
+  // Auto clear section if classes do not allow sections
   useEffect(() => {
-    if (selectedClassObj && !allowSections && studentResultSection) {
-      setStudentResultSection("");
+    if (!allowSections && selectedSectionIds.length > 0) {
+      handleSectionChange([]);
     }
-  }, [selectedClassObj, allowSections, studentResultSection, setStudentResultSection]);
+  }, [allowSections, selectedSectionIds]);
 
-  // Get available sections based on selected class
-  const availableSections = (studentResultClass && allowSections)
-    ? sectionsData.filter((s) => extractId(s.classId) === studentResultClass)
-    : [];
+  // Get available sections based on selected classes
+  const availableSections = useMemo(() => {
+    if (selectedClassIds.length === 0 || !allowSections) return [];
+    return sectionsData.filter((s) => selectedClassIds.includes(extractId(s.classId || s.class)));
+  }, [selectedClassIds, allowSections, sectionsData]);
+
+  const sectionOptions = useMemo(() => {
+    return availableSections.map((sec) => ({
+      value: extractId(sec.id || sec._id),
+      label: sec.name || sec.sectionName || "Section",
+    }));
+  }, [availableSections]);
 
   // --- Data Fetching ---
 
-  // 1. Search Query
+  const searchTerm = debouncedSearch.trim();
+  const isSearchActive = searchTerm.length >= 2;
+
+  // 1. Search Query (across all student statuses)
   const { data: searchResultsData } = useQuery({
-    queryKey: ["searchStudent", debouncedSearch],
-    queryFn: () => searchStudent(debouncedSearch),
-    enabled: !!debouncedSearch && debouncedSearch.length > 2,
+    queryKey: ["searchStudent", searchTerm, "all"],
+    queryFn: () => searchStudent(searchTerm, { status: "all" }),
+    enabled: isSearchActive,
   });
 
   // 2. Class Students Query
   const { data: classStudentsData } = useQuery({
-    queryKey: ["classStudentsResultTab", studentResultProgram, studentResultClass, studentResultSection],
+    queryKey: [
+      "classStudentsResultTab",
+      selectedProgIds.join(","),
+      selectedClassIds.join(","),
+      selectedSectionIds.join(","),
+    ],
     queryFn: () =>
       getStudents({
-        programId: studentResultProgram || undefined,
-        classId: studentResultClass || undefined,
-        sectionId: allowSections && studentResultSection && studentResultSection !== "*" ? studentResultSection : undefined,
+        programId: selectedProgIds.length > 0 ? selectedProgIds.join(",") : undefined,
+        classId: selectedClassIds.length > 0 ? selectedClassIds.join(",") : undefined,
+        sectionId: allowSections && selectedSectionIds.length > 0 ? selectedSectionIds.join(",") : undefined,
         status: "ACTIVE",
         page: 1,
         limit: 1000,
       }),
-    enabled: !!studentResultClass && !debouncedSearch,
+    enabled: selectedClassIds.length > 0 && !isSearchActive,
   });
 
   // Determine which list to show
-  const rawList =
-    debouncedSearch && debouncedSearch.length > 2
-      ? Array.isArray(searchResultsData)
-        ? searchResultsData
-        : searchResultsData?.students || []
-      : Array.isArray(classStudentsData)
-      ? classStudentsData
-      : classStudentsData?.students || [];
+  const rawList = isSearchActive
+    ? Array.isArray(searchResultsData)
+      ? searchResultsData
+      : searchResultsData?.students || []
+    : Array.isArray(classStudentsData)
+    ? classStudentsData
+    : classStudentsData?.students || [];
 
-  const displayStudents = Array.isArray(rawList) ? rawList : [];
+  const displayStudents = (Array.isArray(rawList) ? rawList : [])
+    .filter((student) => isSearchActive || isStudentActive(student))
+    .filter((student) => {
+      if (!isSearchActive) return true;
+      const progId = extractId(student.programId || student.program?.id || student.program?._id);
+      const clsId = extractId(student.classId || student.class?.id || student.class?._id);
+      const secId = extractId(student.sectionId || student.section?.id || student.section?._id);
+      if (selectedProgIds.length > 0 && progId && !selectedProgIds.includes(progId)) return false;
+      if (selectedClassIds.length > 0 && clsId && !selectedClassIds.includes(clsId)) return false;
+      if (allowSections && selectedSectionIds.length > 0 && secId && !selectedSectionIds.includes(secId)) return false;
+      return true;
+    });
 
   // Get available exams for selected student (only exams for their class or program)
   const availableExams = studentResultStudent
@@ -175,7 +278,7 @@ export const StudentResultsTab = ({
         <div className="flex items-center space-x-2 bg-secondary/20 p-2 rounded-md border border-border">
           <Search className="w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search student by name or roll number..."
+            placeholder="Search student by name, father name, or roll number..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="border-none shadow-none focus-visible:ring-0 bg-transparent"
@@ -187,85 +290,50 @@ export const StudentResultsTab = ({
           {/* Program Filter */}
           <div className="space-y-2">
             <Label>Select Program *</Label>
-            <Select
-              value={studentResultProgram}
-              onValueChange={(v) => {
-                setStudentResultProgram(v);
+            <CheckboxMultiSelect
+              title="Programs"
+              placeholder="Select Programs"
+              allLabel="All Programs"
+              options={programOptions}
+              selected={selectedProgIds}
+              onChange={(v) => {
+                handleProgChange(v);
                 setSearchQuery("");
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select program" />
-              </SelectTrigger>
-              <SelectContent>
-                {programs?.map((program) => {
-                  const pId = extractId(program.id || program._id);
-                  return (
-                    <SelectItem key={pId} value={pId}>
-                      {program.name} {program.department?.name ? `— ${program.department.name}` : ""}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            />
           </div>
 
           {/* Class Filter */}
           <div className="space-y-2">
             <Label>Select Class *</Label>
-            <Select
-              value={studentResultClass}
-              onValueChange={setStudentResultClass}
-              disabled={!studentResultProgram}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={studentResultProgram ? "Select class" : "First select program"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {availableClasses.map((cls) => {
-                  const cId = extractId(cls.id || cls._id);
-                  return (
-                    <SelectItem key={cId} value={cId}>
-                      {cls.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            <CheckboxMultiSelect
+              title="Classes"
+              placeholder={selectedProgIds.length === 0 ? "Select program first" : "Select Classes"}
+              allLabel="All Classes"
+              options={classOptions}
+              selected={selectedClassIds}
+              onChange={handleClassChange}
+              disabled={selectedProgIds.length === 0}
+            />
           </div>
 
           {/* Section Filter (Optional) */}
           <div className="space-y-2">
             <Label>Select Section (Optional)</Label>
             {!allowSections ? (
-              <div className="h-10 px-3 py-2 border rounded-md bg-muted text-muted-foreground text-sm flex items-center">
+              <div className="h-9 px-3 py-2 border rounded-md bg-muted text-muted-foreground text-xs flex items-center">
                 Sections Not Applicable
               </div>
             ) : (
-              <Select
-                value={studentResultSection}
-                onValueChange={setStudentResultSection}
-                disabled={!studentResultClass}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={studentResultClass ? "All sections" : "First select class"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Sections</SelectItem>
-                  {availableSections.map((section) => {
-                    const sId = extractId(section.id || section._id);
-                    return (
-                      <SelectItem key={sId} value={sId}>
-                        {section.name}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <CheckboxMultiSelect
+                title="Sections"
+                placeholder={selectedClassIds.length === 0 ? "Select class first" : "All Sections"}
+                allLabel="All Sections"
+                options={sectionOptions}
+                selected={selectedSectionIds}
+                onChange={handleSectionChange}
+                disabled={selectedClassIds.length === 0}
+              />
             )}
           </div>
 
@@ -277,16 +345,21 @@ export const StudentResultsTab = ({
               onValueChange={(v) => {
                 setStudentResultStudent(v);
               }}
-              disabled={displayStudents.length === 0}
+              disabled={
+                (!isSearchActive && selectedClassIds.length === 0) ||
+                displayStudents.length === 0
+              }
             >
               <SelectTrigger>
                 <SelectValue
                   placeholder={
-                    debouncedSearch
-                      ? "Select from search results"
-                      : studentResultClass
+                    isSearchActive
+                      ? displayStudents.length > 0
+                        ? `Select from ${displayStudents.length} result${displayStudents.length === 1 ? "" : "s"}`
+                        : "No matching students found"
+                      : selectedClassIds.length > 0
                       ? "Select student"
-                      : "Select class or search"
+                      : "Select class or search above"
                   }
                 />
               </SelectTrigger>
@@ -294,9 +367,18 @@ export const StudentResultsTab = ({
                 {displayStudents.length > 0 ? (
                   displayStudents.map((student) => {
                     const sId = extractId(student.id || student._id);
+                    const fullName = getFullName
+                      ? getFullName(student)
+                      : formatNormalizedFullName(student?.fName, student?.lName);
+                    const statusCode = getStudentStatusCode(student);
+                    const statusLabel = formatStudentStatusLabel(statusCode);
+                    const { textClass } = getStudentStatusTextTone(statusCode);
                     return (
                       <SelectItem key={sId} value={sId}>
-                        {getFullName(student)} ({student.rollNumber || "No Roll #"})
+                        <span>{fullName} ({student.rollNumber || "No Roll #"})</span>
+                        <span className={`ml-1.5 text-[10px] font-medium ${textClass}`}>
+                          ({statusLabel})
+                        </span>
                       </SelectItem>
                     );
                   })
@@ -372,7 +454,12 @@ export const StudentResultsTab = ({
               <CardContent className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Name</p>
-                  <p className="font-medium">{getFullName(studentResultData.student)}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-medium">{getFullName(studentResultData.student)}</span>
+                    <span className={`text-[10px] font-medium ${getStudentStatusTextTone(getStudentStatusCode(studentResultData.student)).textClass}`}>
+                      ({formatStudentStatusLabel(getStudentStatusCode(studentResultData.student))})
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Roll Number</p>

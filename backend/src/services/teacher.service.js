@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { Staff, TeacherMapping, Subject, Class, Section, Student, Attendance, Holiday, AttendanceSkip, Leave, AcademicSession } = require('../models');
+const { ACTIVE_STUDENT_FILTER, getActiveStudentIds } = require('../utils/studentStatus');
 
 const isValidObjectId = (val) => {
   return val && val !== 'undefined' && val !== 'null' && val !== 'all' && mongoose.Types.ObjectId.isValid(val);
@@ -126,7 +127,7 @@ class TeacherService {
   }
 
   async getClassStudentsAttendance({ classId, sectionId, subjectId, date, sessionId }) {
-    const studentQuery = { status: { $in: ['ACTIVE', 'Active'] } };
+    const studentQuery = { ...ACTIVE_STUDENT_FILTER };
     if (isValidObjectId(classId)) studentQuery.classId = classId;
     if (isValidObjectId(sectionId)) studentQuery.sectionId = sectionId;
 
@@ -270,7 +271,15 @@ class TeacherService {
       if (activeSession) sessionId = activeSession._id;
     }
 
-    const rows = data.rows || data.attendanceRecords || [];
+    const rawRows = data.rows || data.attendanceRecords || [];
+    const requestedIds = (rawRows || []).map(r => r.studentId).filter(Boolean);
+    let rows = rawRows;
+    if (requestedIds.length > 0 && (mongoose.connection.readyState === 1 || Object.prototype.hasOwnProperty.call(Student, 'find'))) {
+      const activeIds = await getActiveStudentIds(Student, { _id: { $in: requestedIds } });
+      const activeSet = new Set(activeIds.map(id => String(id)));
+      rows = rawRows.filter(r => activeSet.has(String(r.studentId)));
+      if (rows.length === 0) return [];
+    }
     const studentIds = (rows || []).map(r => r.studentId).filter(Boolean);
 
     // Find any approved leaves to prevent overwriting them with Present or Absent

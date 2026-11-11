@@ -1,4 +1,5 @@
 import { getDefaultFeeChallanTemplate } from "@/services/api";
+import { isStudentActive } from "@/lib/studentStatus";
 
 export const toHostelAmount = (val) => {
   const n = Number(val);
@@ -105,9 +106,44 @@ export const addMonths = (year, month, count) => {
   return { year: y, month: m };
 };
 
+export const isHostelRegistrationActiveForBilling = (registration) => {
+  if (!registration) return false;
+  if (registration.status && registration.status !== 'active') return false;
+  const isInternal =
+    registration.registrationType === 'internal' ||
+    (!registration.registrationType && !!registration.studentId);
+  const linkedStudent =
+    registration.student ||
+    (typeof registration.studentId === 'object' ? registration.studentId : null);
+  if (isInternal && linkedStudent && !isStudentActive(linkedStudent)) return false;
+  return true;
+};
+
 export const validateChallanEligibility = (registration, targetYm, existingChallans = [], numberOfMonths = 1) => {
   if (!registration || !targetYm) {
     return { eligible: false, code: 'INVALID', reason: 'Invalid data', arrearsAmount: 0 };
+  }
+
+  if (registration.status && registration.status !== 'active') {
+    return {
+      eligible: false,
+      code: 'INACTIVE_REGISTRATION',
+      reason: `Registration is ${registration.status}`,
+      arrearsAmount: 0,
+    };
+  }
+
+  if (!isHostelRegistrationActiveForBilling(registration)) {
+    const linkedStudent =
+      registration.student ||
+      (typeof registration.studentId === 'object' ? registration.studentId : null);
+    const statusLabel = linkedStudent?.passedOut ? 'PASSED OUT' : (linkedStudent?.status || 'INACTIVE');
+    return {
+      eligible: false,
+      code: 'INACTIVE_STUDENT',
+      reason: `Student is ${statusLabel}`,
+      arrearsAmount: 0,
+    };
   }
 
   const regYm = parseYearMonth(registration.registrationDate || registration.createdAt) || targetYm;

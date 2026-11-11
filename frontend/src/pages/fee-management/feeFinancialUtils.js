@@ -264,6 +264,8 @@ export const normalizeChallan = (c) => {
     _normalized: true,
     student,
     studentId,
+    studentStatus: c.studentStatus ?? student?.status ?? (typeof c.studentId === 'object' ? c.studentId?.status : undefined),
+    studentPassedOut: c.studentPassedOut ?? student?.passedOut ?? (typeof c.studentId === 'object' ? c.studentId?.passedOut : undefined),
     month: c.month ?? inst.month ?? null,
     installmentNumber: isExtra ? 0 : (c.installmentNo ?? inst.installmentNumber ?? c.installmentNumber ?? 0),
     session: c.session ?? (typeof c.sessionId === 'object' ? c.sessionId?.name : null) ?? null,

@@ -65,6 +65,7 @@ import {
 import { hasPermission } from "@/lib/navigation.jsx";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import IndividualReportsTab from "./IndividualReportsTab.jsx";
+import { CheckboxMultiSelect } from "@/components/ui/CheckboxMultiSelect";
 
 const extractId = (val) => {
   if (!val) return "";
@@ -197,9 +198,9 @@ export default function AttendanceReportsTab({ onBack }) {
 
   const [reportStartDate, setReportStartDate] = useState(defaultStart);
   const [reportEndDate, setReportEndDate] = useState(defaultEnd);
-  const [reportProgramId, setReportProgramId] = useState("");
-  const [reportClassId, setReportClassId] = useState("");
-  const [reportSectionId, setReportSectionId] = useState("");
+  const [reportProgramIds, setReportProgramIds] = useState([]);
+  const [reportClassIds, setReportClassIds] = useState([]);
+  const [reportSectionIds, setReportSectionIds] = useState([]);
   const [reportSessionId, setReportSessionId] = useState("");
   const [studentSearchQuery, setStudentSearchQuery] = useState("");
 
@@ -307,56 +308,105 @@ export default function AttendanceReportsTab({ onBack }) {
     );
   }, [isTeacherScoped, teacherClassMappings]);
 
+  // Cascading Filter Handlers
+  const handleProgramsChange = (newProgramIds) => {
+    setReportProgramIds(newProgramIds);
+    setReportClassIds((prev) =>
+      prev.filter((cId) => {
+        const cls = (isTeacherScoped ? teacherClasses : allClasses).find((c) => extractId(c) === cId);
+        const pId = extractId(cls?.programId || cls?.program);
+        return newProgramIds.includes(pId);
+      })
+    );
+  };
+
+  const handleClassesChange = (newClassIds) => {
+    setReportClassIds(newClassIds);
+    setReportSectionIds((prev) =>
+      prev.filter((sId) => {
+        const sec = allSections.find((s) => extractId(s) === sId);
+        const cId = extractId(sec?.classId || sec?.class);
+        return newClassIds.includes(cId);
+      })
+    );
+  };
+
+  const programOptions = useMemo(() => {
+    return availablePrograms.map((p) => ({
+      value: extractId(p),
+      label: p.name || extractId(p),
+    }));
+  }, [availablePrograms]);
+
   // Program selection filters linked classes
   const reportFilteredClasses = useMemo(() => {
     const baseList = isTeacherScoped ? teacherClasses : allClasses;
-    if (!reportProgramId || reportProgramId === "*") return baseList;
+    if (reportProgramIds.length === 0) return [];
     return baseList.filter((c) => {
       const pId = extractId(c.programId || c.program);
-      return pId === reportProgramId;
+      return reportProgramIds.includes(pId);
     });
-  }, [isTeacherScoped, teacherClasses, allClasses, reportProgramId]);
+  }, [isTeacherScoped, teacherClasses, allClasses, reportProgramIds]);
 
-  const selectedClass = useMemo(() => {
-    return reportFilteredClasses.find((c) => extractId(c) === reportClassId) || null;
-  }, [reportFilteredClasses, reportClassId]);
+  const classOptions = useMemo(() => {
+    return reportFilteredClasses.map((c) => ({
+      value: extractId(c),
+      label: c.name || c.className || extractId(c),
+    }));
+  }, [reportFilteredClasses]);
 
-  const isSectionApplicable = selectedClass ? selectedClass.allowSections !== false : true;
+  const isSectionApplicable = useMemo(() => {
+    if (reportClassIds.length === 0) return true;
+    const selectedClasses = (isTeacherScoped ? teacherClasses : allClasses).filter((c) =>
+      reportClassIds.includes(extractId(c))
+    );
+    return selectedClasses.some((c) => c.allowSections !== false);
+  }, [reportClassIds, isTeacherScoped, teacherClasses, allClasses]);
 
   const availableSections = useMemo(() => {
-    if (!reportClassId || reportClassId === "*" || !isSectionApplicable) return [];
+    if (reportClassIds.length === 0 || !isSectionApplicable) return [];
     if (isTeacherScoped) {
-      const matching = teacherClassMappings.filter(
-        (m) => extractId(m.classId || m.class) === reportClassId
+      const matching = teacherClassMappings.filter((m) =>
+        reportClassIds.includes(extractId(m.classId || m.class))
       );
       const secs = matching.map((m) => m.sectionId || m.section).filter(Boolean);
       return secs.filter(
         (s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx
       );
     }
-    return allSections.filter((s) => extractId(s.classId || s.class) === reportClassId);
-  }, [reportClassId, isSectionApplicable, isTeacherScoped, teacherClassMappings, allSections]);
+    return allSections.filter((s) => reportClassIds.includes(extractId(s.classId || s.class)));
+  }, [reportClassIds, isSectionApplicable, isTeacherScoped, teacherClassMappings, allSections]);
 
-  const selectedSection = useMemo(() => {
-    return availableSections.find((s) => extractId(s) === reportSectionId) || null;
-  }, [availableSections, reportSectionId]);
+  const sectionOptions = useMemo(() => {
+    return availableSections.map((s) => ({
+      value: extractId(s),
+      label: s.name || s.sectionName || extractId(s),
+    }));
+  }, [availableSections]);
 
   const classSectionLabel = useMemo(() => {
-    if (!selectedClass) return "All Classes";
-    const cName = selectedClass.name || selectedClass.className || "Class";
-    if (selectedSection) {
-      return `In ${cName} - ${selectedSection.name || selectedSection.sectionName}`;
+    if (reportClassIds.length === 0) return "All Classes";
+    const names = reportClassIds
+      .map((cId) => (isTeacherScoped ? teacherClasses : allClasses).find((c) => extractId(c) === cId)?.name)
+      .filter(Boolean);
+    if (names.length === 1) {
+      if (reportSectionIds.length === 1) {
+        const secName = allSections.find((s) => extractId(s) === reportSectionIds[0])?.name;
+        return `In ${names[0]} - ${secName || "Section"}`;
+      }
+      if (reportSectionIds.length > 1) {
+        return `In ${names[0]} (${reportSectionIds.length} Sections)`;
+      }
+      return `In ${names[0]}`;
     }
-    return `In ${cName}`;
-  }, [selectedClass, selectedSection]);
+    return `In ${names.length} Classes`;
+  }, [reportClassIds, reportSectionIds, isTeacherScoped, teacherClasses, allClasses, allSections]);
 
   // Main Report Query (runs only when filters are actively selected)
   const isFilterReady = Boolean(
     reportStartDate &&
       reportEndDate &&
-      reportClassId &&
-      reportClassId !== "*" &&
-      reportClassId !== ""
+      reportClassIds.length > 0
   );
 
   const {
@@ -368,20 +418,20 @@ export default function AttendanceReportsTab({ onBack }) {
       "attendanceReport",
       reportStartDate,
       reportEndDate,
-      reportProgramId,
-      reportClassId,
-      reportSectionId,
+      reportProgramIds.join(","),
+      reportClassIds.join(","),
+      reportSectionIds.join(","),
       reportSessionId,
       activeSessionId,
     ],
     queryFn: () => {
-      const classParam = reportClassId === "*" ? "" : reportClassId;
-      const sectionParam = reportSectionId === "*" ? "" : reportSectionId;
+      const classParam = reportClassIds.join(",");
+      const sectionParam = reportSectionIds.join(",");
       const sessionParam =
         reportSessionId && reportSessionId !== "all"
           ? reportSessionId
           : (activeSessionId || undefined);
-      const programParam = reportProgramId === "*" ? "" : reportProgramId;
+      const programParam = reportProgramIds.join(",");
       return getAttendanceReport(
         reportStartDate,
         reportEndDate,
@@ -440,9 +490,9 @@ export default function AttendanceReportsTab({ onBack }) {
     setVisibleCount(BATCH_SIZE);
   }, [
     studentSearchQuery,
-    reportClassId,
-    reportSectionId,
-    reportProgramId,
+    reportClassIds,
+    reportSectionIds,
+    reportProgramIds,
     reportStartDate,
     reportEndDate,
   ]);
@@ -650,18 +700,25 @@ export default function AttendanceReportsTab({ onBack }) {
       sessionObj?.name ||
       (!reportSessionId || reportSessionId === "all" ? "All Sessions" : reportSessionId);
 
-    const progObj = availablePrograms.find((p) => extractId(p) === reportProgramId);
-    const programLabel =
-      progObj?.name || (!reportProgramId || reportProgramId === "*" ? "All Programs" : reportProgramId);
+    const programLabel = reportProgramIds.length === 0
+      ? "All Programs"
+      : reportProgramIds.length === 1
+      ? availablePrograms.find((p) => extractId(p) === reportProgramIds[0])?.name || reportProgramIds[0]
+      : `${reportProgramIds.length} Programs Selected`;
 
-    const classObj = reportFilteredClasses.find((c) => extractId(c) === reportClassId);
-    const classLabel =
-      classObj?.name || (!reportClassId || reportClassId === "*" ? "All Classes" : reportClassId);
+    const classLabel = reportClassIds.length === 0
+      ? "All Classes"
+      : reportClassIds.length === 1
+      ? (isTeacherScoped ? teacherClasses : allClasses).find((c) => extractId(c) === reportClassIds[0])?.name || reportClassIds[0]
+      : `${reportClassIds.length} Classes Selected`;
 
-    const secObj = availableSections.find((s) => extractId(s) === reportSectionId);
-    const sectionLabel = isSectionApplicable
-      ? secObj?.name || (!reportSectionId || reportSectionId === "*" ? "All Sections" : reportSectionId)
-      : "N/A (No Section)";
+    const sectionLabel = !isSectionApplicable
+      ? "N/A (No Section)"
+      : reportSectionIds.length === 0
+      ? "All Sections"
+      : reportSectionIds.length === 1
+      ? allSections.find((s) => extractId(s) === reportSectionIds[0])?.name || reportSectionIds[0]
+      : `${reportSectionIds.length} Sections Selected`;
 
     const formattedStartDate = reportStartDate
       ? new Date(`${reportStartDate}T00:00:00`).toLocaleDateString("en-US", {
@@ -977,26 +1034,14 @@ export default function AttendanceReportsTab({ onBack }) {
             <Label className="text-xs font-medium text-foreground">
               Program
             </Label>
-            <Select
-              value={reportProgramId}
-              onValueChange={(val) => {
-                setReportProgramId(val);
-                setReportClassId("");
-                setReportSectionId("");
-              }}
-            >
-              <SelectTrigger className="h-9 text-xs bg-background">
-                <SelectValue placeholder="Select Program" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="*">All Programs</SelectItem>
-                {availablePrograms.map((p) => (
-                  <SelectItem key={extractId(p)} value={extractId(p)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CheckboxMultiSelect
+              title="Programs"
+              placeholder="Select Program"
+              allLabel="All Programs"
+              options={programOptions}
+              selected={reportProgramIds}
+              onChange={handleProgramsChange}
+            />
           </div>
 
           {/* Class: lists classes belonging to the selected program */}
@@ -1004,24 +1049,15 @@ export default function AttendanceReportsTab({ onBack }) {
             <Label className="text-xs font-medium text-foreground">
               Class
             </Label>
-            <Select
-              value={reportClassId}
-              onValueChange={(val) => {
-                setReportClassId(val);
-                setReportSectionId("");
-              }}
-            >
-              <SelectTrigger className="h-9 text-xs bg-background">
-                <SelectValue placeholder="Select Class" />
-              </SelectTrigger>
-              <SelectContent>
-                {reportFilteredClasses.map((c) => (
-                  <SelectItem key={extractId(c)} value={extractId(c)}>
-                    {c.name || c.className}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CheckboxMultiSelect
+              title="Classes"
+              placeholder={reportProgramIds.length === 0 ? "Select program first" : "Select Class"}
+              allLabel="All Classes"
+              options={classOptions}
+              selected={reportClassIds}
+              onChange={handleClassesChange}
+              disabled={reportProgramIds.length === 0}
+            />
           </div>
 
           {/* Section: lists sections for the selected class */}
@@ -1029,26 +1065,21 @@ export default function AttendanceReportsTab({ onBack }) {
             <Label className="text-xs font-medium text-foreground">
               Section
             </Label>
-            <Select
-              value={reportSectionId}
-              onValueChange={setReportSectionId}
-              disabled={!reportClassId || !isSectionApplicable}
-            >
-              <SelectTrigger className="h-9 text-xs bg-background">
-                <SelectValue
-                  placeholder={!isSectionApplicable ? "Not Applicable" : "Select Section"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="*">All Sections</SelectItem>
-                {isSectionApplicable &&
-                  availableSections.map((s) => (
-                    <SelectItem key={extractId(s)} value={extractId(s)}>
-                      {s.name || s.sectionName}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <CheckboxMultiSelect
+              title="Sections"
+              placeholder={
+                !isSectionApplicable
+                  ? "Not Applicable"
+                  : reportClassIds.length === 0
+                  ? "Select class first"
+                  : "Select Section"
+              }
+              allLabel="All Sections"
+              options={sectionOptions}
+              selected={reportSectionIds}
+              onChange={setReportSectionIds}
+              disabled={reportClassIds.length === 0 || !isSectionApplicable}
+            />
           </div>
 
           {/* Date Range Popover */}
@@ -1190,7 +1221,7 @@ export default function AttendanceReportsTab({ onBack }) {
             Select Filters to Generate Report
           </h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-            Please select a Class and Date Range from the filters above to load the student attendance list.
+            Please select Program, Class, and Date Range from the filters above to load the student attendance list.
           </p>
         </Card>
       ) : (

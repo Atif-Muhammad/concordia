@@ -89,6 +89,7 @@ import {
   parseYearMonth,
   yearMonthToLabel,
   validateChallanEligibility,
+  isHostelRegistrationActiveForBilling,
 } from "./hostelFinancialUtils";
 
 export const FeesTab = ({ hostelRegistrations = [] }) => {
@@ -98,6 +99,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
 
   const [allChallansSearch, setAllChallansSearch] = useState("");
   const [allChallansStatus, setAllChallansStatus] = useState("all");
+  const [includeInactiveStudents, setIncludeInactiveStudents] = useState(false);
   const [allChallansPage, setAllChallansPage] = useState(1);
   const [selectedChallanReg, setSelectedChallanReg] = useState(null);
   const [challanRegSearch, setChallanRegSearch] = useState("");
@@ -156,9 +158,10 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
     refetch: refetchBoardings,
   } = useQuery({
     queryKey: ['hostelRegistrationsAllList'],
-    queryFn: () => getHostelRegistrations({ limit: 1000 }),
+    queryFn: () => getHostelRegistrations({ status: 'active', limit: 1000 }),
   });
-  const allBoardings = allRegistrationsData?.data || (Array.isArray(hostelRegistrations) && hostelRegistrations.length > 0 ? hostelRegistrations : []);
+  const rawAllBoardings = allRegistrationsData?.data || (Array.isArray(hostelRegistrations) && hostelRegistrations.length > 0 ? hostelRegistrations : []);
+  const allBoardings = rawAllBoardings.filter(isHostelRegistrationActiveForBilling);
 
   const editingRegId = editingHostelChallan?.registrationId || editingHostelChallan?.hostelRegistrationId;
   const { data: editingBoarderReg, isLoading: isEditingBoarderLoading } = useQuery({
@@ -186,12 +189,13 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
   const activeWallets = (walletsData?.wallets || (Array.isArray(walletsData) ? walletsData : [])).filter((w) => w.status === 'ACTIVE' || !w.status);
 
   const { data: allChallansResponse, isLoading: allChallansLoading } = useQuery({
-    queryKey: ['hostelChallansAll', allChallansPage, allChallansStatus, allChallansSearch],
+    queryKey: ['hostelChallansAll', allChallansPage, allChallansStatus, allChallansSearch, includeInactiveStudents],
     queryFn: () => getHostelChallansDedicated({
       page: allChallansPage,
       limit: 25,
       status: allChallansStatus !== 'all' ? allChallansStatus : undefined,
       search: allChallansSearch || undefined,
+      studentStatus: includeInactiveStudents ? 'all' : 'ACTIVE',
     }),
     enabled: !selectedChallanReg,
   });
@@ -327,6 +331,18 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
               <SelectItem value="SETTLED">Settled</SelectItem>
             </SelectContent>
           </Select>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none h-9 px-2">
+            <input
+              type="checkbox"
+              checked={includeInactiveStudents}
+              onChange={(e) => {
+                setIncludeInactiveStudents(e.target.checked);
+                setAllChallansPage(1);
+              }}
+              className="h-3.5 w-3.5 rounded border-input accent-primary"
+            />
+            Include inactive students
+          </label>
         </div>
         {canCreate && (
           <Button
@@ -335,7 +351,7 @@ export const FeesTab = ({ hostelRegistrations = [] }) => {
               setBulkGenTypeFilter("all");
               setGenerateChallanOpen(true);
               const fresh = await refetchBoardings();
-              const boardings = fresh?.data?.data || allBoardings;
+              const boardings = (fresh?.data?.data || allBoardings).filter(isHostelRegistrationActiveForBilling);
 
               const map = {};
               await Promise.all(

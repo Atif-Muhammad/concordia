@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -18,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trophy, Printer, SlidersHorizontal } from "lucide-react";
+import { Trophy, Printer, SlidersHorizontal, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   getExams,
@@ -29,6 +30,8 @@ import {
   getAcademicSessions,
 } from "@/services/api";
 import { extractId } from "@/lib/utils.jsx";
+import { isStudentActive } from "@/lib/studentStatus";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import usePermissions from "@/hooks/usePermissions";
 
 export const PositionsTab = () => {
@@ -39,6 +42,7 @@ export const PositionsTab = () => {
   const [positionsSessionFilter, setPositionsSessionFilter] = useState("");
   const [positionsFilterExam, setPositionsFilterExam] = useState("");
   const [positionsFilterClass, setPositionsFilterClass] = useState("");
+  const [positionsStudentSearch, setPositionsStudentSearch] = useState("");
   const [showPositionsFilters, setShowPositionsFilters] = useState(false);
 
   const { data: sessions = [] } = useQuery({
@@ -57,13 +61,13 @@ export const PositionsTab = () => {
   });
 
   const { data: rawStudents = [] } = useQuery({
-    queryKey: ["students"],
-    queryFn: () => getStudents("", "", "", ""),
+    queryKey: ["students", "ACTIVE"],
+    queryFn: () => getStudents({ status: "ACTIVE", limit: 1000 }),
   });
 
   const students = useMemo(() => {
-    if (Array.isArray(rawStudents)) return rawStudents;
-    return rawStudents?.students || [];
+    const list = Array.isArray(rawStudents) ? rawStudents : (rawStudents?.students || []);
+    return list.filter(isStudentActive);
   }, [rawStudents]);
 
   const sessionName = sessions.find((s) => extractId(s.id || s._id) === positionsSessionFilter)?.name;
@@ -106,7 +110,7 @@ export const PositionsTab = () => {
 
   const getFullName = (student) => {
     if (!student) return "N/A";
-    return `${student.fName || ""} ${student.lName || ""}`.trim() || "N/A";
+    return formatNormalizedFullName(student.fName, student.lName) || "N/A";
   };
 
   const formatDateDisplay = (dateString) => {
@@ -394,87 +398,121 @@ export const PositionsTab = () => {
             </p>
           </div>
         ) : (
-          (() => {
-            const groupedPositions = positions.reduce((acc, pos) => {
-              const examKey = `${pos.exam?.examName || pos.examName || "Exam"} - ${pos.exam?.session || pos.session || ""}`;
-              const classKey = pos.class?.name || pos.className || "All Classes";
+          <div className="space-y-4">
+            <div className="relative max-w-sm">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search student by name, father name, or roll no..."
+                value={positionsStudentSearch}
+                onChange={(e) => setPositionsStudentSearch(e.target.value)}
+                className="pl-9 h-9 text-sm"
+              />
+            </div>
+            {(() => {
+              const visiblePositions = positionsStudentSearch.trim()
+                ? positions.filter((pos) => {
+                    const s =
+                      pos.student ||
+                      students.find(
+                        (st) => extractId(st.id || st._id) === extractId(pos.studentId)
+                      );
+                    return matchesSearchTokens(positionsStudentSearch, [
+                      s ? getFullName(s) : pos.studentName,
+                      s?.fatherOrguardian,
+                      s?.rollNumber || pos.rollNumber,
+                    ]);
+                  })
+                : positions;
 
-              if (!acc[examKey]) acc[examKey] = {};
-              if (!acc[examKey][classKey]) acc[examKey][classKey] = [];
-              acc[examKey][classKey].push(pos);
+              if (visiblePositions.length === 0) {
+                return (
+                  <div className="text-center py-12 text-muted-foreground">
+                    No students found matching "{positionsStudentSearch}".
+                  </div>
+                );
+              }
 
-              return acc;
-            }, {});
+              const groupedPositions = visiblePositions.reduce((acc, pos) => {
+                const examKey = `${pos.exam?.examName || pos.examName || "Exam"} - ${pos.exam?.session || pos.session || ""}`;
+                const classKey = pos.class?.name || pos.className || "All Classes";
 
-            return Object.entries(groupedPositions).map(([examName, classes]) => (
-              <div key={examName} className="mb-6">
-                <h3 className="text-lg font-semibold mb-4">{examName}</h3>
-                {Object.entries(classes).map(([className, classPositions]) => {
-                  const sortedPositions = classPositions.sort((a, b) => a.position - b.position);
-                  return (
-                    <Card key={className} className="mb-4">
-                      <CardHeader>
-                        <CardTitle className="text-md">Class: {className}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="text-sm px-3 py-2 w-16">Position</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
-                              <TableHead className="text-sm px-3 py-2 text-right">Total</TableHead>
-                              <TableHead className="text-sm px-3 py-2 text-right">Obtained</TableHead>
-                              <TableHead className="text-sm px-3 py-2 text-right">%</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
-                              <TableHead className="text-sm px-3 py-2 text-right">GPA</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {sortedPositions.map((pos, idx) => {
-                              const student = pos.student || students.find((s) => extractId(s.id || s._id) === extractId(pos.studentId));
-                              return (
-                                <TableRow key={pos.id || idx}>
-                                  <TableCell className="text-sm px-3 py-2 font-bold">
-                                    {pos.position === 1
-                                      ? "🥇 1"
-                                      : pos.position === 2
-                                      ? "🥈 2"
-                                      : pos.position === 3
-                                      ? "🥉 3"
-                                      : pos.position}
-                                  </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">
-                                    {getFullName(student)}
-                                  </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">
-                                    {student?.rollNumber || "N/A"}
-                                  </TableCell>
-                                  <TableCell className="text-sm px-3 py-2 text-right">
-                                    {pos.totalMarks}
-                                  </TableCell>
-                                  <TableCell className="text-sm px-3 py-2 text-right">
-                                    {pos.obtainedMarks}
-                                  </TableCell>
-                                  <TableCell className="text-sm px-3 py-2 text-right">
-                                    {(pos.percentage || 0).toFixed(2)}%
-                                  </TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">{pos.grade || "N/A"}</TableCell>
-                                  <TableCell className="text-sm px-3 py-2 text-right">
-                                    {(pos.gpa || 0).toFixed(2)}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            ));
-          })()
+                if (!acc[examKey]) acc[examKey] = {};
+                if (!acc[examKey][classKey]) acc[examKey][classKey] = [];
+                acc[examKey][classKey].push(pos);
+
+                return acc;
+              }, {});
+
+              return Object.entries(groupedPositions).map(([examName, classes]) => (
+                <div key={examName} className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4">{examName}</h3>
+                  {Object.entries(classes).map(([className, classPositions]) => {
+                    const sortedPositions = classPositions.sort((a, b) => a.position - b.position);
+                    return (
+                      <Card key={className} className="mb-4">
+                        <CardHeader>
+                          <CardTitle className="text-md">Class: {className}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-sm px-3 py-2 w-16">Position</TableHead>
+                                <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
+                                <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-right">Total</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-right">Obtained</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-right">%</TableHead>
+                                <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-right">GPA</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortedPositions.map((pos, idx) => {
+                                const student = pos.student || students.find((s) => extractId(s.id || s._id) === extractId(pos.studentId));
+                                return (
+                                  <TableRow key={pos.id || idx}>
+                                    <TableCell className="text-sm px-3 py-2 font-bold">
+                                      {pos.position === 1
+                                        ? "🥇 1"
+                                        : pos.position === 2
+                                        ? "🥈 2"
+                                        : pos.position === 3
+                                        ? "🥉 3"
+                                        : pos.position}
+                                    </TableCell>
+                                    <TableCell className="py-2 px-3 text-sm">
+                                      {getFullName(student)}
+                                    </TableCell>
+                                    <TableCell className="py-2 px-3 text-sm">
+                                      {student?.rollNumber || "N/A"}
+                                    </TableCell>
+                                    <TableCell className="text-sm px-3 py-2 text-right">
+                                      {pos.totalMarks}
+                                    </TableCell>
+                                    <TableCell className="text-sm px-3 py-2 text-right">
+                                      {pos.obtainedMarks}
+                                    </TableCell>
+                                    <TableCell className="text-sm px-3 py-2 text-right">
+                                      {(pos.percentage || 0).toFixed(2)}%
+                                    </TableCell>
+                                    <TableCell className="py-2 px-3 text-sm">{pos.grade || "N/A"}</TableCell>
+                                    <TableCell className="text-sm px-3 py-2 text-right">
+                                      {(pos.gpa || 0).toFixed(2)}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
+          </div>
         )}
       </CardContent>
     </Card>

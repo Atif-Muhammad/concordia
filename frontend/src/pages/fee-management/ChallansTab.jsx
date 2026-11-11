@@ -54,6 +54,7 @@ import {
   DollarSign,
   Loader2,
 } from "lucide-react";
+import { isStudentActive } from "@/lib/studentStatus";
 import {
   getFeeChallans,
   getBulkChallans,
@@ -186,6 +187,7 @@ export const ChallansTab = ({
   const [selectedSection, setSelectedSection] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState("");
+  const [includeInactiveStudents, setIncludeInactiveStudents] = useState(false);
   const [limit] = useState(20);
   const setPage = () => {};
 
@@ -306,6 +308,7 @@ export const ChallansTab = ({
       selectedProgram,
       selectedClass,
       selectedSection,
+      includeInactiveStudents,
       limit,
     ],
     queryFn: ({ pageParam = 1, signal }) => {
@@ -321,6 +324,7 @@ export const ChallansTab = ({
       return getFeeChallans({
         search: challanSearch,
         status: challanFilter.length > 0 ? challanFilter.join(',') : undefined,
+        studentStatus: includeInactiveStudents ? 'all' : 'ACTIVE',
         sessionId: challanSessionFilter !== "all" ? challanSessionFilter : undefined,
         programId: selectedProgram !== "all" ? selectedProgram : undefined,
         classId: selectedClass !== "all" ? selectedClass : undefined,
@@ -538,6 +542,7 @@ export const ChallansTab = ({
 
       try {
         const studentList = await getInstallmentPlans({
+          status: "ACTIVE",
           ...(generateForm.programId && generateForm.programId !== "all" ? { programId: generateForm.programId } : {}),
           ...(generateForm.classId && generateForm.classId !== "all" ? { classId: generateForm.classId } : {}),
           ...(generateForm.sectionId && generateForm.sectionId !== "all" ? { sectionId: generateForm.sectionId } : {}),
@@ -657,8 +662,9 @@ export const ChallansTab = ({
 
         if (controller.signal.aborted) return;
 
-        setBulkStudents(eligibleStudents);
-        setSelectedBulkStudents(eligibleStudents.filter(s => !s.isBlocked).map(s => s.id));
+        const activeEligibleStudents = eligibleStudents.filter(isStudentActive);
+        setBulkStudents(activeEligibleStudents);
+        setSelectedBulkStudents(activeEligibleStudents.filter(s => !s.isBlocked).map(s => s.id));
 
         if (eligibleStudents.length > 0 && generateForm.month) {
           const [selYear, selMonth] = generateForm.month.split('-').map(Number);
@@ -1405,10 +1411,10 @@ export const ChallansTab = ({
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {/* Search */}
             <Input
-              placeholder="Challan #, name, roll..."
+              placeholder="Challan #, name, father name, roll..."
               value={challanSearch}
               onChange={(e) => { setChallanSearch(e.target.value); setPage(1); }}
-              className="w-full sm:w-[180px] h-9 text-xs"
+              className="w-full sm:w-[220px] h-9 text-xs"
             />
 
             {/* Program Filter */}
@@ -1493,14 +1499,14 @@ export const ChallansTab = ({
                   variant="outline"
                   size="sm"
                   className={`h-9 gap-1.5 ${
-                    (challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth)
+                    (challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth || includeInactiveStudents)
                       ? "border-primary text-primary"
                       : ""
                   }`}
                 >
                   <SlidersHorizontal className="w-4 h-4" />
                   Filters
-                  {(challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth) && (
+                  {(challanFilter.length > 0 || challanSessionFilter !== activeSessionId || selectedProgram !== "all" || selectedClass !== "all" || selectedSection !== "all" || selectedInstallment !== "all" || selectedMonth || includeInactiveStudents) && (
                     <span className="ml-0.5 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
                       {[
                         challanFilter.length > 0 ? 1 : 0,
@@ -1510,6 +1516,7 @@ export const ChallansTab = ({
                         selectedSection !== "all" ? 1 : 0,
                         selectedInstallment !== "all" ? 1 : 0,
                         selectedMonth ? 1 : 0,
+                        includeInactiveStudents ? 1 : 0,
                       ].reduce((a, b) => a + b, 0)}
                     </span>
                   )}
@@ -1695,6 +1702,17 @@ export const ChallansTab = ({
                     />
                   </div>
 
+                  {/* Inactive Students Toggle */}
+                  <label className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted cursor-pointer text-xs text-foreground select-none">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-input accent-primary"
+                      checked={includeInactiveStudents}
+                      onChange={(e) => { setIncludeInactiveStudents(e.target.checked); setPage(1); }}
+                    />
+                    Include inactive students (historical)
+                  </label>
+
                   {/* Reset */}
                   <Button
                     variant="ghost"
@@ -1709,6 +1727,7 @@ export const ChallansTab = ({
                       setSelectedSection("all");
                       setSelectedInstallment("all");
                       setSelectedMonth("");
+                      setIncludeInactiveStudents(false);
                       setPage(1);
                     }}
                   >
@@ -1720,6 +1739,14 @@ export const ChallansTab = ({
 
             {/* Active filter chips */}
             <div className="flex flex-wrap gap-1.5 flex-1">
+              {includeInactiveStudents && (
+                <span key="inactive" className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+                  Including Inactive Students
+                  <button onClick={() => { setIncludeInactiveStudents(false); setPage(1); }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
               {challanFilter.map(f => (
                 <span key={f} className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
                   {f.charAt(0).toUpperCase() + f.slice(1)}

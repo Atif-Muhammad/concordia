@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import {
@@ -45,6 +46,11 @@ import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getFeeChallans } from "@/services/api";
 import { normalizeChallan, getTotalArrears } from "./feeFinancialUtils";
+import {
+  getChallanStudentStatus,
+  formatStudentStatusLabel,
+  getStudentStatusTextTone,
+} from "@/lib/studentStatus";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -128,6 +134,7 @@ export const FeeDiscountReport = ({
       month: selectedMonth !== 'all' ? selectedMonth : undefined,
       programId: programParam,
       classId: classParam,
+      studentStatus: 'all',
       report: 'true',
       limit: 50000,
     }),
@@ -155,20 +162,16 @@ export const FeeDiscountReport = ({
       const discount = Number(c.discountAmount || c.discount || 0);
       if (discount <= 0) continue; // Only students with discount
 
-      const sName = c.studentName || `${raw.studentId?.fName || ''} ${raw.studentId?.lName || ''}`.trim() || 'N/A';
+      const normalizedStudentName = formatNormalizedFullName(raw.studentId?.fName, raw.studentId?.lName);
+      const sName = normalizedStudentName || c.studentName || 'N/A';
       const fName = c.fatherName || raw.studentId?.fatherOrguardian || '';
       const rollNo = c.rollNumber || raw.studentId?.rollNumber || '';
       const challanNo = c.challanNumber || c.challanNo || '';
+      const studentStatus = getChallanStudentStatus(c) || getChallanStudentStatus(raw) || 'ACTIVE';
+      const studentStatusLabel = formatStudentStatusLabel(studentStatus);
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = sName.toLowerCase().includes(q);
-        const matchesFather = fName.toLowerCase().includes(q);
-        const matchesRoll = rollNo.toLowerCase().includes(q);
-        const matchesChallan = challanNo.toLowerCase().includes(q);
-        if (!matchesName && !matchesFather && !matchesRoll && !matchesChallan) {
-          continue;
-        }
+      if (searchQuery.trim() && !matchesSearchTokens(searchQuery, [sName, fName, rollNo, challanNo])) {
+        continue;
       }
 
       const tuition = Number(c.basePayable || 0);
@@ -195,6 +198,8 @@ export const FeeDiscountReport = ({
         id: c.id || c._id,
         challanNo,
         studentName: sName,
+        studentStatus,
+        studentStatusLabel,
         fatherName: fName,
         rollNumber: rollNo,
         programName: progName,
@@ -301,6 +306,7 @@ export const FeeDiscountReport = ({
       const studentRows = itemizedRecords.map((r, idx) => ({
         "S.No": idx + 1,
         "Student Name": r.studentName,
+        "Student Status": r.studentStatusLabel,
         "Father Name": r.fatherName,
         "Roll Number": r.rollNumber,
         "Program & Class": r.progClassSec,
@@ -647,7 +653,10 @@ export const FeeDiscountReport = ({
                   <tr>
                     <td>${idx + 1}</td>
                     <td>
-                      <div class="font-bold">${r.studentName}</div>
+                      <div style="display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap;">
+                        <span class="font-bold">${r.studentName}</span>
+                        <span style="font-size: 8px; font-weight: 500; color: ${getStudentStatusTextTone(r.studentStatus).printColor};">(${r.studentStatusLabel})</span>
+                      </div>
                       <div style="font-size: 8.5px; color: #64748b;">${r.rollNumber ? 'Roll: ' + r.rollNumber : ''} ${r.fatherName ? '• S/O ' + r.fatherName : ''}</div>
                     </td>
                     <td>${r.progClassSec}</td>
@@ -844,7 +853,7 @@ export const FeeDiscountReport = ({
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Name, Roll #, Challan #..."
+                  placeholder="Name, Father, Roll #, Challan #..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-8 text-xs"
@@ -1041,7 +1050,12 @@ export const FeeDiscountReport = ({
                       <TableRow key={r.id || idx} className="hover:bg-muted/30">
                         <TableCell className="py-2 px-3 text-muted-foreground">{idx + 1}</TableCell>
                         <TableCell className="py-2 px-3">
-                          <div className="font-semibold text-foreground">{r.studentName}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-foreground">{r.studentName}</span>
+                            <span className={`text-[10px] font-medium ${getStudentStatusTextTone(r.studentStatus).textClass}`}>
+                              ({r.studentStatusLabel})
+                            </span>
+                          </div>
                           <div className="text-[11px] text-muted-foreground">
                             {r.rollNumber ? `Roll: ${r.rollNumber}` : ""} {r.fatherName ? `• S/O ${r.fatherName}` : ""}
                           </div>

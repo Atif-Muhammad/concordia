@@ -13,6 +13,11 @@ const {
   User,
   FeePaymentReceipt
 } = require('../models');
+const {
+  isStudentActive,
+  withActiveStudentFilter,
+  getActiveStudentIds,
+} = require('../utils/studentStatus');
 
 const MONTH_NAMES = [
   'january', 'february', 'march', 'april', 'may', 'june',
@@ -96,8 +101,15 @@ class HostelService {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   async getRooms() {
-    const rooms = await HostelRoom.find().sort({ roomNumber: 1 }).lean();
-    const allocations = await HostelAllocation.find({ status: 'active' }).lean();
+    const [rooms, rawAllocations, activeStudentIds] = await Promise.all([
+      HostelRoom.find().sort({ roomNumber: 1 }).lean(),
+      HostelAllocation.find({ status: 'active' }).lean(),
+      getActiveStudentIds(Student).catch(() => []),
+    ]);
+    const activeStudentSet = new Set((activeStudentIds || []).map(id => String(id)));
+    const allocations = rawAllocations.filter(
+      a => !a.studentId || activeStudentSet.has(String(a.studentId))
+    );
 
     const formattedRooms = rooms.map(room => {
       const roomAllocations = allocations.filter(
@@ -237,7 +249,16 @@ class HostelService {
 
   async syncRoomOccupancy(roomId) {
     if (!roomId) return;
-    const count = await HostelAllocation.countDocuments({ roomId, status: 'active' });
+    const activeStudentIds = await getActiveStudentIds(Student).catch(() => []);
+    const count = await HostelAllocation.countDocuments({
+      roomId,
+      status: 'active',
+      $or: [
+        { studentId: null },
+        { studentId: { $exists: false } },
+        { studentId: { $in: activeStudentIds } }
+      ]
+    });
     await HostelRoom.findByIdAndUpdate(roomId, { currentOccupancy: count });
   }
 
@@ -254,13 +275,18 @@ class HostelService {
       query.registrationType = filters.type.toLowerCase();
     }
 
+    const isActiveOnly = Boolean(filters.status && filters.status.toLowerCase() === 'active');
+
     if (filters.search) {
       const searchStr = filters.search.trim();
       const re = new RegExp(searchStr, 'i');
 
-      const matchingStudents = await Student.find({
+      const searchMatch = {
         $or: [{ fName: re }, { lName: re }, { rollNumber: re }]
-      }).select('_id');
+      };
+      const matchingStudents = await Student.find(
+        isActiveOnly ? withActiveStudentFilter(searchMatch) : searchMatch
+      ).select('_id');
       const studentIds = matchingStudents.map(s => s._id);
 
       query.$or = [
@@ -274,13 +300,17 @@ class HostelService {
       ];
     }
 
-    const registrations = await HostelRegistration.find(query)
+    const rawRegistrations = await HostelRegistration.find(query)
       .populate({
         path: 'studentId',
         populate: { path: 'programId' }
       })
       .populate('roomId')
       .sort({ createdAt: -1 });
+
+    const registrations = (isActiveOnly || filters.studentStatus === 'ACTIVE')
+      ? rawRegistrations.filter(reg => !reg.studentId || isStudentActive(reg.studentId))
+      : rawRegistrations;
 
     const regIds = registrations.map(r => r._id);
     const availableLedgers = await HostelCreditLedger.find({
@@ -333,12 +363,15 @@ class HostelService {
     if (!q || !q.trim()) return [];
     const re = new RegExp(q.trim(), 'i');
 
-    const matchingStudents = await Student.find({
-      $or: [{ fName: re }, { lName: re }, { rollNumber: re }]
-    }).select('_id');
+    const matchingStudents = await Student.find(
+      withActiveStudentFilter({
+        $or: [{ fName: re }, { lName: re }, { rollNumber: re }]
+      })
+    ).select('_id');
     const studentIds = matchingStudents.map(s => s._id);
 
     const query = {
+      status: { $in: ['active', 'ACTIVE'] },
       $or: [
         { studentId: { $in: studentIds } },
         { externalName: re },
@@ -348,7 +381,7 @@ class HostelService {
       ]
     };
 
-    const registrations = await HostelRegistration.find(query)
+    const rawRegistrations = await HostelRegistration.find(query)
       .populate({
         path: 'studentId',
         populate: { path: 'programId' }
@@ -356,6 +389,10 @@ class HostelService {
       .populate('roomId')
       .sort({ createdAt: -1 })
       .limit(20);
+
+    const registrations = rawRegistrations.filter(
+      reg => !reg.studentId || isStudentActive(reg.studentId)
+    );
 
     const regIds = registrations.map(r => r._id);
     const availableLedgers = await HostelCreditLedger.find({
@@ -457,6 +494,8 @@ class HostelService {
   }
 
   async getRoomByStudent(studentId) {
+    const stu = await Student.findById(studentId).select('status passedOut').lean();
+    if (stu && !isStudentActive(stu)) return null;
     const alloc = await HostelAllocation.findOne({ studentId, status: 'active' }).populate('roomId');
     if (alloc && alloc.roomId) return alloc.roomId;
     const reg = await HostelRegistration.findOne({ studentId, status: { $in: ['active', 'ACTIVE'] } }).populate('roomId');
@@ -464,6 +503,14 @@ class HostelService {
   }
 
   async createRegistration(data) {
+    if (data.studentId) {
+      const stu = await Student.findById(data.studentId).select('status passedOut').lean();
+      if (stu && !isStudentActive(stu)) {
+        const err = new Error(`Cannot register inactive student for hostel (${stu.status || 'INACTIVE'})`);
+        err.status = 400;
+        throw err;
+      }
+    }
     const regData = {
       ...data,
       status: (data.status || 'active').toLowerCase(),
@@ -1251,12 +1298,23 @@ class HostelService {
       };
     });
 
+    const includeOnlyActiveStudents =
+      filters.studentStatus && String(filters.studentStatus).toUpperCase() === 'ACTIVE';
+    const resultChallans = includeOnlyActiveStudents
+      ? formatted.filter((item) => {
+          const reg = item.hostelRegistration;
+          if (reg && reg.registrationType === 'external') return true;
+          if (!item.student) return true;
+          return isStudentActive(item.student);
+        })
+      : formatted;
+
     if (filters.page || filters.limit) {
       const page = Number(filters.page || 1);
       const limit = Number(filters.limit || 25);
-      const total = formatted.length;
+      const total = resultChallans.length;
       const lastPage = Math.ceil(total / limit) || 1;
-      const pagedData = formatted.slice((page - 1) * limit, page * limit);
+      const pagedData = resultChallans.slice((page - 1) * limit, page * limit);
       return {
         data: pagedData,
         meta: {
@@ -1269,11 +1327,11 @@ class HostelService {
     }
 
     return {
-      data: formatted,
+      data: resultChallans,
       meta: {
-        total: formatted.length,
+        total: resultChallans.length,
         page: 1,
-        limit: formatted.length,
+        limit: resultChallans.length,
         lastPage: 1
       }
     };
@@ -1302,6 +1360,21 @@ class HostelService {
 
     const reg = await HostelRegistration.findById(regId);
     if (!reg) throw new Error('Hostel registration not found');
+
+    const regStatus = (reg.status || 'active').toLowerCase();
+    if (['terminated', 'withdrawn', 'inactive'].includes(regStatus)) {
+      const err = new Error(`Cannot generate challan for ${regStatus} hostel registration`);
+      err.status = 400;
+      throw err;
+    }
+    if (reg.studentId) {
+      const stu = await Student.findById(reg.studentId).select('status passedOut').lean();
+      if (stu && !isStudentActive(stu)) {
+        const err = new Error(`Cannot generate hostel challan for inactive student (${stu.status || 'INACTIVE'})`);
+        err.status = 400;
+        throw err;
+      }
+    }
 
     const targetYm = parseYearMonth(data.month);
     if (!targetYm) throw new Error('Valid month is required (e.g. September 2026 or 2026-09)');
@@ -2089,9 +2162,13 @@ class HostelService {
       const lateFee = Number(c.lateFeeFine || c.fineAmount || 0);
       const discount = Number(c.discount || 0);
 
+      const reg = c.registrationId;
+      const isInactiveInternalStudent = Boolean(reg?.studentId) && !isStudentActive(reg.studentId);
+      const effectiveBalance = isInactiveInternalStudent ? 0 : balance;
+
       if (!isVoidOrSuperseded) {
         totalCollected += paid;
-        totalOutstanding += balance;
+        totalOutstanding += effectiveBalance;
         totalBaseFee += base;
         totalHeads += heads;
         totalLateFees += lateFee;
@@ -2102,7 +2179,6 @@ class HostelService {
       if (!monthlyMap[m]) monthlyMap[m] = 0;
       monthlyMap[m] += paid;
 
-      const reg = c.registrationId;
       const regId = reg ? reg._id.toString() : (c.hostelRegNumber || 'Unknown');
       const studentName = reg?.studentId
         ? `${reg.studentId.fName} ${reg.studentId.lName || ''}`.trim()
@@ -2129,7 +2205,7 @@ class HostelService {
         perStudentMap[regId].discountAmount += discount;
         perStudentMap[regId].totalBilled += total;
         perStudentMap[regId].totalPaid += paid;
-        perStudentMap[regId].outstanding += balance;
+        perStudentMap[regId].outstanding += effectiveBalance;
       }
     }
 
@@ -2153,8 +2229,18 @@ class HostelService {
   }
 
   async getReportsAnalytics(filters = {}) {
-    const rooms = await HostelRoom.find().lean();
-    const activeAllocationsCount = await HostelAllocation.countDocuments({ status: 'active' });
+    const [rooms, activeStudentIds] = await Promise.all([
+      HostelRoom.find().lean(),
+      getActiveStudentIds(Student).catch(() => []),
+    ]);
+    const activeAllocationsCount = await HostelAllocation.countDocuments({
+      status: 'active',
+      $or: [
+        { studentId: null },
+        { studentId: { $exists: false } },
+        { studentId: { $in: activeStudentIds } }
+      ]
+    });
     const totalCapacity = rooms.reduce((acc, r) => acc + (r.capacity || 0), 0);
     const occupied = activeAllocationsCount;
     const vacant = Math.max(0, totalCapacity - occupied);

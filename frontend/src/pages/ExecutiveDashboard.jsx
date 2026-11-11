@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModernTooltip, ChartLegendPills, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 import { MODULE_BY_LABEL } from "@/lib/navigation.jsx";
+import { getStudentStatusCounts } from "@/lib/studentStatus";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
@@ -340,7 +341,7 @@ const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown,
               )}
             </div>
             <h3 className="text-sm sm:text-lg font-semibold truncate">{value}</h3>
-            {change && <p className="text-[9px] sm:text-[10px] text-muted-foreground truncate">{change}</p>}
+            {change && <p className="text-[9px] sm:text-[10px] text-muted-foreground leading-tight">{change}</p>}
           </div>
           <div className="flex items-start gap-1 shrink-0">
             {onClick && <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground mt-0.5" />}
@@ -451,11 +452,16 @@ const ExecutiveDashboard = () => {
     { name: "Coaching",     value: students?.byProgram?.coaching || 0,     fill: "hsl(var(--destructive))" },
   ] : [];
 
+  const studentCounts = getStudentStatusCounts(students);
   const studentStatusData = students ? [
-    { name: "Active",      value: students?.byStatus?.active ?? students?.activeStudents ?? students?.active ?? 0, fill: "hsl(var(--success))" },
-    { name: "Expelled",    value: students?.byStatus?.expelled ?? 0,                                              fill: "hsl(var(--destructive))" },
-    { name: "Passed Out",  value: students?.byStatus?.passedOut ?? 0,                                             fill: "hsl(var(--primary))" },
+    { name: "Active",      value: studentCounts.active,     fill: "hsl(var(--success))" },
+    { name: "Expelled",    value: studentCounts.expelled,   fill: "hsl(var(--destructive))" },
+    { name: "Struck Off",  value: studentCounts.struckOff,  fill: "#f59e0b" },
+    { name: "Passed Out",  value: studentCounts.passedOut,  fill: "hsl(var(--primary))" },
   ] : [];
+  const studentStatusSummary = studentStatusData
+    .map((s) => `${Number(s.value || 0).toLocaleString()} ${s.name.toLowerCase()}`)
+    .join(" · ");
 
   const feeStatusData = fees ? [
     { name: "Paid",    value: fees?.byStatus?.paid ?? 0,    fill: "hsl(var(--success))" },
@@ -609,8 +615,8 @@ const ExecutiveDashboard = () => {
             onClick={() => go(DASHBOARD_ROUTES.students)}
             color="text-primary" bgColor="bg-primary/10"
             loading={studentsLoading}
-            value={students ? (students.totalStudents ?? students.total ?? 0).toString() : "-"}
-            change={students ? `${students.activeStudents ?? students.active ?? 0} active` : ""}
+            value={students ? studentCounts.active.toString() : "-"}
+            change={students ? studentStatusSummary : ""}
           />
           <StatCard
             title="Installment Fees" icon={DollarSign}
@@ -811,11 +817,14 @@ const ExecutiveDashboard = () => {
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
-                      <div className="w-[110px] flex flex-col gap-1 justify-center">
+                      <div className="w-[130px] flex flex-col gap-1.5 justify-center">
                         {data.map((d, i) => (
-                          <div key={`${d.name}-${i}`} className="text-[11px] flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.fill }} />
-                            <span className="text-muted-foreground truncate">{d.name}</span>
+                          <div key={`${d.name}-${i}`} className="text-[11px] flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 min-w-0">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.fill }} />
+                              <span className="text-muted-foreground truncate">{d.name}</span>
+                            </span>
+                            <span className="font-medium shrink-0">{Number(d.value || 0).toLocaleString()}</span>
                           </div>
                         ))}
                       </div>
@@ -838,7 +847,7 @@ const ExecutiveDashboard = () => {
             <CardContent>
               <div className="space-y-3">
                 {[
-                  { action: "Students",       detail: studentsLoading   ? null : `${students?.totalStudents ?? students?.total ?? 0} total · ${students?.activeStudents ?? students?.active ?? 0} active` },
+                  { action: "Students",         detail: studentsLoading   ? null : studentStatusSummary },
                   { action: "Installment Fees", detail: feesLoading     ? null : `${formatPKR(feeBreakdown.installment.collected)} collected - ${formatPKR(feeBreakdown.installment.outstanding)} pending` },
                   { action: "Hostel Fees",      detail: feesLoading     ? null : `${formatPKR(feeBreakdown.hostel.collected)} collected - ${formatPKR(feeBreakdown.hostel.outstanding)} pending` },
                   { action: "Extra Challans",   detail: feesLoading     ? null : `${formatPKR(feeBreakdown.extraChallans.collected)} collected - ${formatPKR(feeBreakdown.extraChallans.outstanding)} pending` },

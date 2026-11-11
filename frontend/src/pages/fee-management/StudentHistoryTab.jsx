@@ -88,7 +88,7 @@ export const StudentHistoryTab = () => {
     }
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const results = await searchStudents(query);
+        const results = await searchStudents(query, { status: "all" });
         setStudentSearchResults(results || []);
       } catch (error) {
         console.error(error);
@@ -179,7 +179,7 @@ export const StudentHistoryTab = () => {
                 <PopoverContent className="w-[400px] p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
-                      placeholder="Type name or roll number..."
+                      placeholder="Type name, father name, or roll number..."
                       onValueChange={handleStudentSearch}
                     />
                     <CommandList>

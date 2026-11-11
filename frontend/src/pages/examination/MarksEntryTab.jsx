@@ -37,6 +37,7 @@ import {
   Edit,
   Trash2,
   Loader2,
+  Search,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -54,6 +55,8 @@ import {
 } from "@/services/api";
 import { hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 import { extractId } from "@/lib/utils.jsx";
+import { isStudentActive } from "@/lib/studentStatus";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import usePermissions from "@/hooks/usePermissions";
 
 export const MarksEntryTab = () => {
@@ -65,6 +68,7 @@ export const MarksEntryTab = () => {
   const [marksFilterExam, setMarksFilterExam] = useState("");
   const [marksFilterSection, setMarksFilterSection] = useState("");
   const [marksSessionFilter, setMarksSessionFilter] = useState("");
+  const [marksStudentSearch, setMarksStudentSearch] = useState("");
   const [showMarksFilters, setShowMarksFilters] = useState(true);
   const sessionInitializedRef = React.useRef(false);
 
@@ -379,6 +383,15 @@ export const MarksEntryTab = () => {
       );
       if (secId && secId !== marksFilterSection) return false;
     }
+    if (marksStudentSearch.trim()) {
+      const mStudent = mark.student || (typeof mark.studentId === "object" ? mark.studentId : null);
+      const matched = matchesSearchTokens(marksStudentSearch, [
+        mStudent ? formatNormalizedFullName(mStudent.fName, mStudent.lName) : "",
+        mStudent?.fatherOrguardian,
+        mStudent?.rollNumber,
+      ]);
+      if (!matched) return false;
+    }
     return true;
   });
 
@@ -521,7 +534,8 @@ export const MarksEntryTab = () => {
   });
 
   const getFullName = (student) => {
-    return `${student.fName} ${student.lName || ""}`.trim();
+    if (!student) return "";
+    return formatNormalizedFullName(student.fName, student.lName);
   };
 
   const formatDateDisplay = (dateString) => {
@@ -691,24 +705,35 @@ export const MarksEntryTab = () => {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2 mt-2">
-          {canEnterMarks && (
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setBulkExamId(marksFilterExam !== "*" ? marksFilterExam : "");
-                setBulkSectionId(isSectionApplicable && marksFilterSection !== "*" ? marksFilterSection : (isSectionApplicable ? "*" : ""));
-                setBulkMarksData({});
-                setBulkAbsentees({});
-                setBulkMarksEditMode(false);
-                setBulkMarksDialog(true);
-              }}
-            >
-              <LayoutGrid className="w-4 h-4 mr-2" />
-              Bulk Marks Entry
-            </Button>
-          )}
+        <div className="flex flex-wrap justify-between items-center gap-3 mt-3">
+          <div className="relative flex-1 min-w-[240px] max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search student by name, father name, or roll no..."
+              value={marksStudentSearch}
+              onChange={(e) => setMarksStudentSearch(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            {canEnterMarks && (
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setBulkExamId(marksFilterExam !== "*" ? marksFilterExam : "");
+                  setBulkSectionId(isSectionApplicable && marksFilterSection !== "*" ? marksFilterSection : (isSectionApplicable ? "*" : ""));
+                  setBulkMarksData({});
+                  setBulkAbsentees({});
+                  setBulkMarksEditMode(false);
+                  setBulkMarksDialog(true);
+                }}
+              >
+                <LayoutGrid className="w-4 h-4 mr-2" />
+                Bulk Marks Entry
+              </Button>
+            )}
+          </div>
         </div>
 
         <Dialog
@@ -837,7 +862,7 @@ export const MarksEntryTab = () => {
                         ? studentsForMarksEntry
                         : studentsForMarksEntry?.students || [];
                       const sectionStudents = studentsList
-                        .filter((s) => s && s.status === "ACTIVE")
+                        .filter(isStudentActive)
                         .sort((a, b) => (a.rollNumber || "").localeCompare(b.rollNumber || ""));
 
                       const scheduleList = exam.schedule || exam.schedules || [];
@@ -1138,8 +1163,11 @@ export const MarksEntryTab = () => {
                       ? studentsForMarksEntry
                       : studentsForMarksEntry?.students || [];
                     const sectionStudents = studentsList
-                      .filter((s) => s && s.status === "ACTIVE")
+                      .filter(isStudentActive)
                       .sort((a, b) => (a.rollNumber || "").localeCompare(b.rollNumber || ""));
+                    const activeStudentIds = new Set(
+                      sectionStudents.map((s) => extractId(s.id || s._id || s))
+                    );
 
                     const payload = [];
                     const processedPairs = new Set();
@@ -1202,7 +1230,7 @@ export const MarksEntryTab = () => {
                     // Include any other student marks stored in bulkMarksData
                     Object.entries(bulkMarksData).forEach(([rawStudentId, subjectMarks]) => {
                       const studentId = extractId(rawStudentId);
-                      if (!studentId || studentId === "[object Object]") return;
+                      if (!studentId || studentId === "[object Object]" || !activeStudentIds.has(studentId)) return;
 
                       Object.entries(subjectMarks || {}).forEach(([subjId, mVal]) => {
                         const subj = filteredExamSubjects.find((es) => es.id === subjId || es.name === subjId);
@@ -1234,7 +1262,7 @@ export const MarksEntryTab = () => {
                     // Include any other absentees
                     Object.entries(bulkAbsentees).forEach(([rawStudentId, subjectAbs]) => {
                       const studentId = extractId(rawStudentId);
-                      if (!studentId || studentId === "[object Object]") return;
+                      if (!studentId || studentId === "[object Object]" || !activeStudentIds.has(studentId)) return;
 
                       Object.entries(subjectAbs || {}).forEach(([subjId, isAbsent]) => {
                         if (!isAbsent) return;

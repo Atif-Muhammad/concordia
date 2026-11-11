@@ -19,6 +19,17 @@ const {
   AcademicSession,
   Attendance
 } = require('../models');
+const {
+  ACTIVE_STUDENT_FILTER,
+  buildStudentStatusCondition,
+  isStudentActive,
+  withActiveStudentFilter,
+  getActiveStudentIds,
+} = require('../utils/studentStatus');
+const {
+  buildFlexibleWhitespaceRegex,
+  buildStudentSearchCondition,
+} = require('../utils/studentSearch');
 
 const getPreviousMonthInfo = (monthInput) => {
   const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -186,20 +197,28 @@ class FeeService {
       studentFilter.sectionId = sIds.length > 1 ? { $in: sIds } : sIds[0];
     }
 
+    const studentConditions = [];
     if (Object.keys(studentFilter).length > 0) {
-      const matchingStudents = await Student.find(studentFilter).select('_id').lean();
+      studentConditions.push(studentFilter);
+    }
+    if (filters.studentStatus && filters.studentStatus !== 'all') {
+      studentConditions.push(buildStudentStatusCondition(filters.studentStatus));
+    }
+
+    const combinedStudentQuery = studentConditions.length === 1
+      ? studentConditions[0]
+      : (studentConditions.length > 1 ? { $and: studentConditions } : null);
+
+    if (combinedStudentQuery) {
+      const matchingStudents = await Student.find(combinedStudentQuery).select('_id').lean();
       const filteredStudentIds = matchingStudents.map(s => s._id);
 
-      if (filters.search) {
-        const searchRegex = new RegExp(filters.search.trim(), 'i');
-        const searchStudents = await Student.find({
-          ...studentFilter,
-          $or: [
-            { fName: searchRegex },
-            { lName: searchRegex },
-            { rollNumber: searchRegex }
-          ]
-        }).select('_id').lean();
+      if (filters.search && filters.search.trim()) {
+        const searchRegex = buildFlexibleWhitespaceRegex(filters.search);
+        const searchMatch = buildStudentSearchCondition(filters.search);
+        const searchStudents = await Student.find(
+          searchMatch ? { $and: [...studentConditions, searchMatch] } : { $and: studentConditions }
+        ).select('_id').lean();
         const searchStudentIds = searchStudents.map(s => s._id);
 
         query.$and = query.$and || [];
@@ -212,22 +231,22 @@ class FeeService {
       } else {
         query.studentId = { $in: filteredStudentIds };
       }
-    } else if (filters.search) {
-      const searchRegex = new RegExp(filters.search.trim(), 'i');
-      const matchingStudents = await Student.find({
-        $or: [
-          { fName: searchRegex },
-          { lName: searchRegex },
-          { rollNumber: searchRegex }
-        ]
-      }).select('_id').lean();
+    } else if (filters.search && filters.search.trim()) {
+      const searchRegex = buildFlexibleWhitespaceRegex(filters.search);
+      const searchMatch = buildStudentSearchCondition(filters.search);
+      const matchingStudents = searchMatch
+        ? await Student.find(searchMatch).select('_id').lean()
+        : [];
 
       const matchingStudentIds = matchingStudents.map(s => s._id);
 
-      query.$or = [
-        { challanNo: searchRegex },
-        { studentId: { $in: matchingStudentIds } }
-      ];
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { challanNo: searchRegex },
+          { studentId: { $in: matchingStudentIds } }
+        ]
+      });
     }
 
     const isReportMode = filters.report === 'true' || filters.report === true || filters.summary === 'true' || filters.summary === true;
@@ -244,7 +263,7 @@ class FeeService {
       )
       .populate({
         path: 'studentId',
-        select: '_id fName lName fatherOrguardian rollNumber programId classId sectionId',
+        select: '_id fName lName fatherOrguardian rollNumber status passedOut programId classId sectionId',
         populate: [
           { path: 'programId', select: '_id name code duration' },
           { path: 'classId', select: '_id name' },
@@ -633,6 +652,8 @@ class FeeService {
         id: c._id?.toString(),
         student,
         studentId: student?._id?.toString() || c.studentId?.toString(),
+        studentStatus: student?.status || c.studentStatus || null,
+        studentPassedOut: Boolean(student?.passedOut ?? c.studentPassedOut),
         studentClass: student?.classId || c.classId,
         studentProgram: student?.programId,
         studentSection: student?.sectionId,
@@ -909,13 +930,23 @@ class FeeService {
   }
 
   async createChallan(data) {
+    let targetStudent = null;
+    if (data.studentId) {
+      targetStudent = await Student.findById(data.studentId).lean();
+      if (targetStudent && !isStudentActive(targetStudent)) {
+        const err = new Error(`Cannot create challan for inactive student (${targetStudent.status || 'INACTIVE'})`);
+        err.status = 400;
+        throw err;
+      }
+    }
+
     if (!data.challanNo) {
       data.challanNo = await this.generate8DigitChallanNo();
     }
 
     // Block generation if a prior installment in the student's plan has no associated challan
     if (data.studentId && (data.installmentNumber || data.month)) {
-      const student = await Student.findById(data.studentId).lean();
+      const student = targetStudent || await Student.findById(data.studentId).lean();
       if (student && Array.isArray(student.installments) && student.installments.length > 0) {
         const sortedPlan = [...student.installments].sort((a, b) => {
           const numA = Number(a.installmentNumber || 0);
@@ -1420,8 +1451,12 @@ class FeeService {
 
   async runLateFeeCronJob() {
     try {
-      const feeSettings = await FeeSettings.findOne().lean().catch(() => null);
+      const [feeSettings, activeStudentIds] = await Promise.all([
+        FeeSettings.findOne().lean().catch(() => null),
+        getActiveStudentIds(Student).catch(() => []),
+      ]);
       const defaultLateFeeRate = Number(feeSettings?.lateFeeRatePerDay || 0);
+      const activeStudentSet = new Set((activeStudentIds || []).map(id => String(id)));
 
       const pktFormatter = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Karachi',
@@ -1442,6 +1477,8 @@ class FeeService {
 
       let updatedCount = 0;
       for (const c of eligibleChallans) {
+        const studentIdStr = String(c.studentId?._id || c.studentId || '');
+        if (!studentIdStr || !activeStudentSet.has(studentIdStr)) continue;
         const statusUpper = (c.status || '').toUpperCase();
         if (['PAID', 'SETTLED', 'VOID', 'SUPERSEDED'].includes(statusUpper)) continue;
         if (c.supersededBy || c.settledByChallanId) continue;
@@ -1519,6 +1556,8 @@ class FeeService {
           });
           let extraUpdated = 0;
           for (const ec of eligibleExtraChallans) {
+            const extraStudentIdStr = String(ec.studentId?._id || ec.studentId || '');
+            if (!extraStudentIdStr || !activeStudentSet.has(extraStudentIdStr)) continue;
             const st = (ec.status || '').toUpperCase();
             if (['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes(st)) continue;
             if (ec.paidDate || Number(ec.paidAmount || 0) > 0) continue;
@@ -1558,6 +1597,8 @@ class FeeService {
           });
           let hostelUpdated = 0;
           for (const hc of eligibleHostelChallans) {
+            const hostelStudentIdStr = hc.studentId ? String(hc.studentId._id || hc.studentId) : '';
+            if (hostelStudentIdStr && !activeStudentSet.has(hostelStudentIdStr)) continue;
             const st = (hc.status || '').toUpperCase();
             if (['PAID', 'VOID', 'SETTLED', 'SUPERSEDED'].includes(st)) continue;
             if (hc.supersededBy || hc.settledByChallanId) continue;
@@ -2542,22 +2583,37 @@ class FeeService {
     if (filters.status && filters.status !== 'all') {
       query.status = { $regex: new RegExp(`^${filters.status}$`, 'i') };
     }
+
+    let allowedStudentIds = null;
+    if (filters.studentStatus && filters.studentStatus !== 'all') {
+      const allowedStudents = await Student.find(buildStudentStatusCondition(filters.studentStatus)).select('_id').lean();
+      allowedStudentIds = allowedStudents.map(s => s._id);
+    }
+
     if (filters.search && filters.search.trim()) {
-      const searchRegex = new RegExp(filters.search.trim(), 'i');
-      const matchingStudents = await Student.find({
-        $or: [
-          { fName: searchRegex },
-          { lName: searchRegex },
-          { rollNumber: searchRegex }
-        ]
-      }).select('_id');
+      const searchRegex = buildFlexibleWhitespaceRegex(filters.search);
+      const searchCond = buildStudentSearchCondition(filters.search);
+      const studentSearchQuery = allowedStudentIds !== null
+        ? (searchCond ? { $and: [searchCond, { _id: { $in: allowedStudentIds } }] } : { _id: { $in: allowedStudentIds } })
+        : searchCond;
+      const matchingStudents = studentSearchQuery
+        ? await Student.find(studentSearchQuery).select('_id').lean()
+        : [];
       const studentIds = matchingStudents.map(s => s._id);
 
-      query.$or = [
+      const searchOr = [
         { challanNo: searchRegex },
         { remarks: searchRegex },
         { studentId: { $in: studentIds } }
       ];
+      if (allowedStudentIds !== null) {
+        query.$and = query.$and || [];
+        query.$and.push({ studentId: { $in: allowedStudentIds } }, { $or: searchOr });
+      } else {
+        query.$or = searchOr;
+      }
+    } else if (allowedStudentIds !== null && !query.studentId) {
+      query.studentId = { $in: allowedStudentIds };
     }
 
     const page = parseInt(filters.page) || 1;
@@ -2627,6 +2683,15 @@ class FeeService {
       const effectiveDueDate = data.dueDate ? new Date(data.dueDate) : new Date();
 
       for (const student of students) {
+        if (!isStudentActive(student)) {
+          results.push({
+            studentId: student._id.toString(),
+            studentName: `${student.fName} ${student.lName || ''}`.trim(),
+            status: 'FAILED',
+            error: `Cannot create extra challan for inactive student (${student.status || 'INACTIVE'})`,
+          });
+          continue;
+        }
         try {
           const challanNo = await this.generate8DigitChallanNo();
 
@@ -2698,6 +2763,15 @@ class FeeService {
         }
       }
       return results;
+    }
+
+    if (data.studentId) {
+      const targetStudent = await Student.findById(data.studentId).select('status passedOut').lean();
+      if (targetStudent && !isStudentActive(targetStudent)) {
+        const err = new Error(`Cannot create extra challan for inactive student (${targetStudent.status || 'INACTIVE'})`);
+        err.status = 400;
+        throw err;
+      }
     }
 
     if (!data.challanNo) {
@@ -3016,9 +3090,13 @@ class FeeService {
   async syncAbsenteeFineRateAcrossCollectableChallans(newRate) {
     if (!Number.isFinite(newRate) || newRate < 0) return { updatedCount: 0 };
 
+    const activeStudentIds = await getActiveStudentIds(Student).catch(() => []);
+    if (activeStudentIds.length === 0) return { updatedCount: 0 };
+
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
     const challans = await FeeChallan.find({
+      studentId: { $in: activeStudentIds },
       status: { $in: ['PENDING', 'PARTIAL', 'SUPERSEDED'] }
     }).lean();
 
@@ -3199,8 +3277,10 @@ class FeeService {
 
   async syncStudentAbsenteeFineForMonth(studentIds, dateStr) {
     if (!studentIds || !dateStr) return;
-    const sIdList = (Array.isArray(studentIds) ? studentIds : [studentIds])
+    const rawIdList = (Array.isArray(studentIds) ? studentIds : [studentIds])
       .map(id => id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id)));
+    const sIdList = await Student.find(withActiveStudentFilter({ _id: { $in: rawIdList } })).distinct('_id');
+    if (sIdList.length === 0) return;
 
     const dateMonthStr = String(dateStr).slice(0, 7);
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -3424,14 +3504,14 @@ class FeeService {
       ];
     }
 
-    const [challans, extraChallans, hostelChallans, rawExpelledIds] = await Promise.all([
+    const [challans, extraChallans, hostelChallans, rawActiveIds] = await Promise.all([
       FeeChallan.find(challanFilter).lean().catch(() => []),
       ExtraChallan.find(extraFilter).lean().catch(() => []),
       HostelChallan.find(hostelFilter).lean().catch(() => []),
-      Student.find({ status: { $regex: /^expelled$/i } }).distinct('_id').catch(() => [])
+      getActiveStudentIds(Student).catch(() => [])
     ]);
 
-    const expelledStudentIds = new Set((rawExpelledIds || []).map(id => id.toString()));
+    const activeStudentSet = new Set((rawActiveIds || []).map(id => id.toString()));
 
     const hasDateFilter = Boolean(dateFrom || dateTo);
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : -Infinity;
@@ -3454,8 +3534,8 @@ class FeeService {
         regularCollected += paid;
       }
       const sId = (c.studentId?._id || c.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
-      if (!['PAID', 'SETTLED'].includes(c.status) && !isExpelled) {
+      const isInactive = !sId || !activeStudentSet.has(sId);
+      if (!['PAID', 'SETTLED'].includes(c.status) && !isInactive) {
         regularPending += Math.max(0, total - paid);
       }
     }
@@ -3463,15 +3543,15 @@ class FeeService {
     let extraCollected = 0;
     let extraPending = 0;
     for (const ec of extraChallans) {
-      if (ec.status === 'VOID') continue;
+      if (ec.status === 'VOID' || ec.status === 'SUPERSEDED') continue;
       const paid = Number(ec.paidAmount || 0);
       const total = Number(ec.totalAmount || ec.amount || 0);
       if (paid > 0 && matchesDate(ec)) {
         extraCollected += paid;
       }
       const sId = (ec.studentId?._id || ec.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
-      if (ec.status !== 'PAID' && !isExpelled) {
+      const isInactive = !sId || !activeStudentSet.has(sId);
+      if (ec.status !== 'PAID' && !isInactive) {
         extraPending += Math.max(0, total - paid);
       }
     }
@@ -3486,8 +3566,8 @@ class FeeService {
         hostelCollected += paid;
       }
       const sId = (hc.studentId?._id || hc.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
-      if (!['PAID', 'SETTLED'].includes(hc.status) && !isExpelled) {
+      const isInactive = Boolean(sId) && !activeStudentSet.has(sId);
+      if (!['PAID', 'SETTLED'].includes(hc.status) && !isInactive) {
         hostelPending += Math.max(0, total - paid);
       }
     }
@@ -3605,16 +3685,22 @@ class FeeService {
     // 1. Fetch classes with their program (Program -> Class relationship)
     const allClasses = await Class.find().populate('programId').lean().catch(() => []);
 
-    // 2. Fetch all students matching session filter (Student belongs to classId, programId, optional sectionId)
-    const students = await Student.find(sessionStudentFilter)
-      .select('_id classId programId sectionId')
-      .populate('programId', 'name')
-      .lean()
-      .catch(() => []);
+    // 2. Fetch active students matching session filter for enrollment & outstanding dues,
+    //    and all session students if session-filtered so historical collections stay accurate.
+    const [students, sessionAllStudentIds] = await Promise.all([
+      Student.find(withActiveStudentFilter(sessionStudentFilter))
+        .select('_id classId programId sectionId')
+        .populate('programId', 'name')
+        .lean()
+        .catch(() => []),
+      sessionId
+        ? Student.find(studentSessionMatch).distinct('_id').catch(() => [])
+        : Promise.resolve([])
+    ]);
 
-    const studentIds = students.map(s => s._id);
+    const activeStudentSet = new Set(students.map(s => s._id.toString()));
 
-    // Map student to classId and programName
+    // Map active student to classId and programName
     const studentClassMap = new Map();
     const studentProgramMap = new Map();
     for (const s of students) {
@@ -3633,15 +3719,15 @@ class FeeService {
     if (sessionId) {
       challanFilter.$or = [
         { sessionId: sessionMatch.sessionId },
-        { studentId: { $in: studentIds } }
+        { studentId: { $in: sessionAllStudentIds } }
       ];
     }
 
     const extraFilter = {
-      status: { $ne: 'VOID' }
+      status: { $nin: ['VOID', 'SUPERSEDED'] }
     };
     if (sessionId) {
-      extraFilter.studentId = { $in: studentIds };
+      extraFilter.studentId = { $in: sessionAllStudentIds };
     }
 
     const [challans, extraChallans] = await Promise.all([
@@ -3698,7 +3784,8 @@ class FeeService {
       const total = Number(c.totalAmount || c.netPayable || c.amount || 0);
       stat.collected += paid;
 
-      if (!['PAID', 'SETTLED'].includes(c.status)) {
+      const sIdStr = c.studentId ? c.studentId.toString() : '';
+      if (!['PAID', 'SETTLED'].includes(c.status) && sIdStr && activeStudentSet.has(sIdStr)) {
         stat.outstanding += Math.max(0, total - paid);
       }
     }
@@ -3726,7 +3813,8 @@ class FeeService {
       const total = Number(ec.totalAmount || ec.amount || 0);
       stat.collected += paid;
 
-      if (ec.status !== 'PAID') {
+      const sIdStr = ec.studentId ? ec.studentId.toString() : '';
+      if (ec.status !== 'PAID' && sIdStr && activeStudentSet.has(sIdStr)) {
         stat.outstanding += Math.max(0, total - paid);
       }
     }
@@ -3762,14 +3850,14 @@ class FeeService {
 
   // Optimized Lean Report API for Student Installment Reports
   async getStudentInstallmentReport(filters = {}) {
-    const query = {};
+    const andConditions = [];
     if (filters.status && filters.status !== 'all') {
-      const s = String(filters.status).trim();
-      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
-    } else if (!filters.status) {
-      query.status = { $regex: /^active$/i };
+      andConditions.push(buildStudentStatusCondition(filters.status));
+    } else if (filters.status !== 'all') {
+      andConditions.push(ACTIVE_STUDENT_FILTER);
     }
 
+    const query = {};
     if (filters.studentId) {
       query._id = filters.studentId;
     }
@@ -3808,18 +3896,17 @@ class FeeService {
 
     const search = (filters.search || filters.searchQuery || '').trim();
     if (search) {
-      const re = new RegExp(search, 'i');
-      query.$or = [
-        { fName: re },
-        { lName: re },
-        { rollNumber: re },
-        { fatherOrguardian: re }
-      ];
+      const searchCond = buildStudentSearchCondition(search);
+      if (searchCond) andConditions.push(searchCond);
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
     }
 
     // Lean, targeted projection - only fetch needed fields!
     const students = await Student.find(query)
-      .select('fName lName fatherOrguardian rollNumber tuitionFee numberOfInstallments installments programId classId sectionId sessionId status')
+      .select('fName lName fatherOrguardian rollNumber tuitionFee numberOfInstallments installments programId classId sectionId sessionId status passedOut isScholarship100')
       .populate('programId', 'name')
       .populate('classId', 'name allowSections')
       .populate('sectionId', 'name')
@@ -3832,7 +3919,7 @@ class FeeService {
       const fatherName = s.fatherOrguardian || '-';
       const rollNumber = (s.rollNumber ?? '').toString() || '-';
 
-      const isExpelled = String(s.status || '').toUpperCase() === 'EXPELLED';
+      const isActive = isStudentActive(s);
       const installments = (s.installments || []).map(inst => ({
         id: inst._id?.toString() || `${s._id}-inst-${inst.installmentNumber}`,
         installmentNumber: inst.installmentNumber,
@@ -3840,7 +3927,7 @@ class FeeService {
         dueDate: inst.dueDate,
         amount: Number(inst.amount ?? inst.basePayable ?? 0),
         paidAmount: Number(inst.paidAmount ?? 0),
-        pendingAmount: isExpelled ? 0 : Number(inst.pendingAmount ?? 0),
+        pendingAmount: isActive ? Number(inst.pendingAmount ?? 0) : 0,
         status: (inst.status || 'PENDING').toUpperCase()
       })).sort((a, b) => a.installmentNumber - b.installmentNumber);
 
@@ -3851,6 +3938,8 @@ class FeeService {
 
       return {
         id: s._id.toString(),
+        status: s.status || null,
+        passedOut: Boolean(s.passedOut),
         studentName: fullName,
         fatherName,
         rollNumber,
@@ -3879,10 +3968,9 @@ class FeeService {
     }
     const query = {};
     if (filters.status && filters.status !== 'all') {
-      const s = String(filters.status).trim();
-      query.status = { $regex: new RegExp(`^${s}$`, 'i') };
+      Object.assign(query, buildStudentStatusCondition(filters.status));
     } else if (filters.status !== 'all') {
-      query.status = { $regex: /^active$/i };
+      Object.assign(query, ACTIVE_STUDENT_FILTER);
     }
 
     if (filters.studentId) {
@@ -3915,13 +4003,11 @@ class FeeService {
 
     const search = (filters.search || filters.searchQuery || '').trim();
     if (search) {
-      const re = new RegExp(search, 'i');
-      query.$or = [
-        { fName: re },
-        { lName: re },
-        { rollNumber: re },
-        { fatherOrguardian: re }
-      ];
+      const searchCond = buildStudentSearchCondition(search);
+      if (searchCond) {
+        query.$and = query.$and || [];
+        query.$and.push(searchCond);
+      }
     }
 
     const students = await Student.find(query)
@@ -4158,6 +4244,15 @@ class FeeService {
     });
 
     for (const student of students) {
+      if (!isStudentActive(student)) {
+        results.push({
+          studentId: student._id.toString(),
+          studentName: `${student.fName || ''} ${student.lName || ''}`.trim(),
+          status: 'BLOCKED',
+          reason: `Cannot generate challan for inactive student (${student.status || 'INACTIVE'})`
+        });
+        continue;
+      }
       try {
         let matchingInst = (student.installments || []).find(inst => {
           const mMatch = monthName && (inst.month || '').trim().toLowerCase() === monthName.toLowerCase();

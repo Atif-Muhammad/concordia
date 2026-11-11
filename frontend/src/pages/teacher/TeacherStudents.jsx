@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, Users, Search, GraduationCap, School, Layers, BookOpen } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { userWho, refreshTokens, getTeacherClasses, getStudents, getAcademicSessions } from '../../../config/apis';
+import { isStudentActive } from '@/lib/studentStatus';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -215,10 +216,14 @@ export default function TeacherStudents() {
 
   const students = useMemo(() => {
     if (!studentsResponse) return [];
-    if (Array.isArray(studentsResponse)) return studentsResponse;
-    if (Array.isArray(studentsResponse?.students)) return studentsResponse.students;
-    if (Array.isArray(studentsResponse?.data)) return studentsResponse.data;
-    return [];
+    const list = Array.isArray(studentsResponse)
+      ? studentsResponse
+      : Array.isArray(studentsResponse?.students)
+      ? studentsResponse.students
+      : Array.isArray(studentsResponse?.data)
+      ? studentsResponse.data
+      : [];
+    return list.filter(isStudentActive);
   }, [studentsResponse]);
 
   // Filter students by local search

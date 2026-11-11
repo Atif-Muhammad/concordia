@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatNormalizedFullName } from "@/lib/studentSearch";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import {
@@ -48,6 +49,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { cn } from "@/lib/utils";
+import { isStudentActive } from "@/lib/studentStatus";
 import { getStudentInstallmentReport } from "@/services/api";
 
 const extractId = (val) => {
@@ -361,7 +363,7 @@ export const StudentInstallmentReportsTab = ({
         classId: selectedClasses.length > 0 ? selectedClasses.join(",") : undefined,
         sectionId: selectedSections.length > 0 ? selectedSections.join(",") : undefined,
         searchQuery: debouncedSearch || undefined,
-        status: "all",
+        status: "ACTIVE",
       };
       const res = await getStudentInstallmentReport(filters);
       return Array.isArray(res) ? res : res?.data || res?.students || [];
@@ -374,10 +376,10 @@ export const StudentInstallmentReportsTab = ({
   const processedStudents = useMemo(() => {
     if (!rawStudentsData || rawStudentsData.length === 0) return [];
 
-    return rawStudentsData.map((s) => {
+    return rawStudentsData.filter(isStudentActive).map((s) => {
       const sId = extractId(s) || s.rollNumber || "";
-      const fullName = s.fName
-        ? `${s.fName} ${s.lName || ""}`.trim()
+      const fullName = (s.fName || s.lName)
+        ? formatNormalizedFullName(s.fName, s.lName) || "Unknown Student"
         : s.name || s.studentName || "Unknown Student";
       const fatherName = s.fatherOrguardian || s.fatherName || "-";
       const rollNumber = (s.rollNumber ?? "").toString() || "-";
@@ -416,8 +418,7 @@ export const StudentInstallmentReportsTab = ({
         const dueDate = inst.dueDate;
         const amount = Number(inst.amount ?? inst.basePayable ?? inst.totalAmount ?? 0);
         const paidAmount = Number(inst.paidAmount ?? 0);
-        const isExpelled = String(s.status || '').toUpperCase() === 'EXPELLED';
-        const pendingAmount = isExpelled ? 0 : Number(
+        const pendingAmount = !isStudentActive(s) ? 0 : Number(
           inst.pendingAmount ?? Math.max(0, amount - paidAmount)
         );
         const status = (inst.status || "PENDING").toUpperCase();
@@ -1132,7 +1133,7 @@ export const StudentInstallmentReportsTab = ({
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Name or roll no..."
+                  placeholder="Name, father name, or roll no..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-8 pr-7 text-xs bg-background"

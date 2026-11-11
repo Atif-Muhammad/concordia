@@ -22,8 +22,8 @@ const Boarding = () => {
   const activeTab = getRouteSubmoduleId(location.pathname, "Boarding", "registration");
 
   const { data: regPages } = useInfiniteQuery({
-    queryKey: ['hostelRegistrations', '', 'all', 'all'],
-    queryFn: ({ pageParam = 1 }) => getHostelRegistrations({ page: pageParam, limit: 1 }),
+    queryKey: ['hostelRegistrations', '', 'active', 'all'],
+    queryFn: ({ pageParam = 1 }) => getHostelRegistrations({ page: pageParam, limit: 1, status: 'active' }),
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
     initialPageParam: 1,
   });

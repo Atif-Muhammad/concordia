@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import {
@@ -47,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getFeeChallans } from "@/services/api";
 import { normalizeChallan, format12HourDateTime, safeFormatDate, getTotalArrears } from "./feeFinancialUtils";
+import { isChallanStudentActive } from "@/lib/studentStatus";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -170,20 +172,14 @@ export const FeeCollectionReport = ({
       }
 
       // Filter by search query (challanNo, student name, roll number)
-      const sName = c.studentName || `${raw.studentId?.fName || ''} ${raw.studentId?.lName || ''}`.trim() || 'N/A';
+      const normalizedStudentName = formatNormalizedFullName(raw.studentId?.fName, raw.studentId?.lName);
+      const sName = normalizedStudentName || c.studentName || 'N/A';
       const fName = c.fatherName || raw.studentId?.fatherOrguardian || '';
       const rollNo = c.rollNumber || raw.studentId?.rollNumber || '';
       const challanNo = c.challanNumber || c.challanNo || '';
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = sName.toLowerCase().includes(q);
-        const matchesFather = fName.toLowerCase().includes(q);
-        const matchesRoll = rollNo.toLowerCase().includes(q);
-        const matchesChallan = challanNo.toLowerCase().includes(q);
-        if (!matchesName && !matchesFather && !matchesRoll && !matchesChallan) {
-          continue;
-        }
+      if (searchQuery.trim() && !matchesSearchTokens(searchQuery, [sName, fName, rollNo, challanNo])) {
+        continue;
       }
 
       const tuition = Number(c.basePayable || 0);
@@ -194,7 +190,7 @@ export const FeeCollectionReport = ({
       const calculatedGross = tuition + heads + arrears + lateFee;
       const calculatedNet = Math.max(0, calculatedGross - discount);
       const billed = Number(c.netPayable || c.totalAmount || calculatedNet);
-      const balance = Math.max(0, billed - paid);
+      const balance = isChallanStudentActive(c) ? Math.max(0, billed - paid) : 0;
 
       const progName = getName(c.studentProgram || raw.studentId?.programId) || "N/A";
       const clsName = getName(c.studentClass || raw.studentId?.classId) || "N/A";
@@ -839,7 +835,7 @@ export const FeeCollectionReport = ({
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Challan #, Name, Roll..."
+                  placeholder="Challan #, Name, Father, Roll..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-8 text-xs"

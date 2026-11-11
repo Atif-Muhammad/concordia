@@ -26,6 +26,7 @@ import {
   bulkCreateMarks,
   getStudents
 } from '../../../config/apis';
+import { isStudentActive } from '@/lib/studentStatus';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -279,10 +280,14 @@ export default function TeacherExamination() {
 
   const studentsList = useMemo(() => {
     if (!studentsResponse) return [];
-    if (Array.isArray(studentsResponse)) return studentsResponse;
-    if (Array.isArray(studentsResponse?.students)) return studentsResponse.students;
-    if (Array.isArray(studentsResponse?.data)) return studentsResponse.data;
-    return [];
+    const list = Array.isArray(studentsResponse)
+      ? studentsResponse
+      : Array.isArray(studentsResponse?.students)
+      ? studentsResponse.students
+      : Array.isArray(studentsResponse?.data)
+      ? studentsResponse.data
+      : [];
+    return list.filter(isStudentActive);
   }, [studentsResponse]);
 
   // Fetch existing marks for this exam and section

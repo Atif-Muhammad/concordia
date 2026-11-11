@@ -73,7 +73,11 @@ class StudentController {
 
   async search(req, res, next) {
     try {
-      const students = await studentService.getStudents(req.query);
+      const filters = {
+        ...req.query,
+        status: req.query.status || 'ACTIVE',
+      };
+      const students = await studentService.getStudents(filters);
       res.json(students);
     } catch (err) {
       next(err);

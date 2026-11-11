@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { Exam, ExamMarks, ExamResult, Student, Subject, Class } = require('../models');
+const { ACTIVE_STUDENT_FILTER, isStudentActive, getActiveStudentIds } = require('../utils/studentStatus');
 
 class ExaminationService {
   // Exams
@@ -142,6 +143,10 @@ class ExaminationService {
       .populate('examId')
       .populate('subjectId');
 
+    if (filters.includeInactive !== true && filters.includeInactive !== 'true') {
+      list = list.filter(m => !m.studentId || typeof m.studentId !== 'object' || isStudentActive(m.studentId));
+    }
+
     if (filters.sectionId && filters.sectionId !== '*' && mongoose.Types.ObjectId.isValid(filters.sectionId)) {
       const targetSec = filters.sectionId.toString();
       list = list.filter(m => {
@@ -214,7 +219,17 @@ class ExaminationService {
         return mongoose.Types.ObjectId.isValid(str) ? str : null;
       };
       const cleanStudent = extractCleanId(data.studentId || data.student);
-      if (cleanStudent) data.studentId = cleanStudent;
+      if (cleanStudent) {
+        data.studentId = cleanStudent;
+        if (mongoose.connection.readyState === 1 || Object.prototype.hasOwnProperty.call(Student, 'findById')) {
+          const targetStudent = await Student.findById(cleanStudent).select('status passedOut').lean();
+          if (targetStudent && !isStudentActive(targetStudent)) {
+            const err = new Error(`Cannot record marks for inactive student (${targetStudent.status || 'INACTIVE'})`);
+            err.status = 400;
+            throw err;
+          }
+        }
+      }
       const cleanExam = extractCleanId(data.examId || data.exam);
       if (cleanExam) data.examId = cleanExam;
       const cleanSubject = extractCleanId(data.subjectId);
@@ -281,9 +296,19 @@ class ExaminationService {
       }
     }
 
-    const validRecords = list.filter(r => r.examId && r.studentId && r.subjectId);
+    let validRecords = list.filter(r => r.examId && r.studentId && r.subjectId);
     if (validRecords.length === 0) {
       return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
+    }
+
+    if (mongoose.connection.readyState === 1 || Object.prototype.hasOwnProperty.call(Student, 'find')) {
+      const candidateStudentIds = [...new Set(validRecords.map(r => r.studentId))];
+      const activeIds = await getActiveStudentIds(Student, { _id: { $in: candidateStudentIds } });
+      const activeSet = new Set(activeIds.map(id => String(id)));
+      validRecords = validRecords.filter(r => activeSet.has(String(r.studentId)));
+      if (validRecords.length === 0) {
+        return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
+      }
     }
 
     const ops = validRecords.map(r => ({
@@ -306,21 +331,90 @@ class ExaminationService {
 
   // Results
   async getResults(filters = {}) {
-    const query = {};
-    if (filters.examId && mongoose.Types.ObjectId.isValid(filters.examId)) query.examId = filters.examId;
-    if (filters.studentId && mongoose.Types.ObjectId.isValid(filters.studentId)) query.studentId = filters.studentId;
+    const parseIds = (input) => {
+      if (!input || input === '*' || input === 'all' || input === '__all__') return [];
+      if (Array.isArray(input)) {
+        return input
+          .map(s => (s && s._id ? String(s._id) : (s && s.id ? String(s.id) : String(s))))
+          .filter(s => mongoose.Types.ObjectId.isValid(s));
+      }
+      if (typeof input === 'string') {
+        return input
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => mongoose.Types.ObjectId.isValid(s));
+      }
+      if (mongoose.Types.ObjectId.isValid(input)) return [String(input)];
+      return [];
+    };
 
-    if (filters.sessionId && mongoose.Types.ObjectId.isValid(filters.sessionId)) {
+    const query = {};
+
+    const examIds = parseIds(filters.examId);
+    if (examIds.length === 1) {
+      query.examId = examIds[0];
+    } else if (examIds.length > 1) {
+      query.examId = { $in: examIds };
+    }
+
+    const studentIds = parseIds(filters.studentId);
+    if (studentIds.length === 1) {
+      query.studentId = studentIds[0];
+    } else if (studentIds.length > 1) {
+      query.studentId = { $in: studentIds };
+    }
+
+    if (
+      filters.sessionId &&
+      filters.sessionId !== '*' &&
+      filters.sessionId !== 'all' &&
+      filters.sessionId !== '__all__' &&
+      mongoose.Types.ObjectId.isValid(filters.sessionId)
+    ) {
       const exams = await Exam.find({ sessionId: filters.sessionId }).select('_id');
-      const examIds = exams.map(e => e._id);
+      const sessionExamIds = exams.map(e => e._id.toString());
       if (query.examId) {
-        // preserve query.examId
+        if (query.examId.$in) {
+          query.examId.$in = query.examId.$in.filter(id => sessionExamIds.includes(String(id)));
+        } else {
+          if (!sessionExamIds.includes(String(query.examId))) {
+            query.examId = { $in: [] };
+          }
+        }
       } else {
-        query.examId = { $in: examIds };
+        query.examId = { $in: sessionExamIds };
       }
     }
 
-    const results = await ExamResult.find(query)
+    const progIds = parseIds(filters.programId);
+    const clsIds = parseIds(filters.classId);
+    const secIds = parseIds(filters.sectionId);
+
+    if (progIds.length > 0 || clsIds.length > 0 || secIds.length > 0) {
+      const studentFilter = filters.includeInactive ? {} : { ...ACTIVE_STUDENT_FILTER };
+      if (progIds.length === 1) studentFilter.programId = progIds[0];
+      else if (progIds.length > 1) studentFilter.programId = { $in: progIds };
+
+      if (clsIds.length === 1) studentFilter.classId = clsIds[0];
+      else if (clsIds.length > 1) studentFilter.classId = { $in: clsIds };
+
+      if (secIds.length === 1) studentFilter.sectionId = secIds[0];
+      else if (secIds.length > 1) studentFilter.sectionId = { $in: secIds };
+
+      if (query.studentId) {
+        if (query.studentId.$in) {
+          studentFilter._id = { $in: query.studentId.$in };
+        } else {
+          studentFilter._id = query.studentId;
+        }
+      }
+
+      const matchingStudents = await Student.find(studentFilter).select('_id');
+      const matchingStudentIds = matchingStudents.map(s => s._id);
+      query.studentId = { $in: matchingStudentIds };
+    }
+
+    let results = await ExamResult.find(query)
       .populate({
         path: 'studentId',
         populate: [{ path: 'classId' }, { path: 'sectionId' }, { path: 'programId' }]
@@ -330,6 +424,10 @@ class ExaminationService {
         populate: [{ path: 'classId' }, { path: 'programId' }]
       })
       .sort({ position: 1 });
+
+    if (filters.includeInactive !== true && filters.includeInactive !== 'true') {
+      results = results.filter(r => !r.studentId || typeof r.studentId !== 'object' || isStudentActive(r.studentId));
+    }
 
     return results.map(r => {
       const obj = r.toObject();
@@ -365,10 +463,24 @@ class ExaminationService {
 
     const targetClassId = classId || exam.classId;
 
-    const studentQuery = { status: 'ACTIVE' };
+    const studentQuery = { ...ACTIVE_STUDENT_FILTER };
     if (targetClassId) studentQuery.classId = targetClassId;
     if (exam.programId) studentQuery.programId = exam.programId;
     const students = await Student.find(studentQuery);
+
+    // Clean up any stale ExamResult rows for students in this class/exam who are no longer active
+    const inactiveQuery = {
+      $or: [
+        { passedOut: true },
+        { status: { $not: { $regex: /^active$/i } } },
+      ],
+    };
+    if (targetClassId) inactiveQuery.classId = targetClassId;
+    if (exam.programId) inactiveQuery.programId = exam.programId;
+    const inactiveStudents = await Student.find(inactiveQuery).distinct('_id').catch(() => []);
+    if (inactiveStudents.length > 0 && typeof ExamResult.deleteMany === 'function') {
+      await ExamResult.deleteMany({ examId: exam._id, studentId: { $in: inactiveStudents } }).catch(() => null);
+    }
 
     if (students.length === 0) {
       return [];
@@ -599,6 +711,10 @@ class ExaminationService {
         populate: [{ path: 'classId' }, { path: 'programId' }]
       })
       .sort({ position: 1 });
+
+    if (filters.includeInactive !== true && filters.includeInactive !== 'true') {
+      results = results.filter(r => !r.studentId || typeof r.studentId !== 'object' || isStudentActive(r.studentId));
+    }
 
     if (filters.classId) {
       results = results.filter(r => {

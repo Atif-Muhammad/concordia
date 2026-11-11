@@ -25,8 +25,20 @@ const {
   FinanceExpense,
   Wallet,
 } = require('../models');
+const {
+  buildStudentStatusCondition,
+  withActiveStudentFilter,
+  getActiveStudentIds,
+} = require('../utils/studentStatus');
 
 class DashboardService {
+  _isInactiveInternalChallan(challan, activeStudentSet, allowExternalNull = false) {
+    const rawId = challan?.studentId?._id || challan?.studentId;
+    const sId = rawId ? String(rawId) : '';
+    if (!sId) return !allowExternalNull;
+    return !activeStudentSet.has(sId);
+  }
+
   _buildSessionFilters(sessionId) {
     const sessionMatch = {};
     const studentSessionMatch = {};
@@ -51,13 +63,23 @@ class DashboardService {
    */
   async getStudentsStats(sessionId) {
     const { studentSessionMatch } = this._buildSessionFilters(sessionId);
+    const hasSessionMatch = Object.keys(studentSessionMatch).length > 0;
+    const withSession = (condition) => (hasSessionMatch ? { $and: [studentSessionMatch, condition] } : condition);
 
-    const [totalStudents, activeStudents, expelledStudents, passedOutStudents, studentsWithProg] = await Promise.all([
+    const [
+      enrolledTotal,
+      activeStudents,
+      expelledStudents,
+      struckOffStudents,
+      passedOutStudents,
+      studentsWithProg,
+    ] = await Promise.all([
       Student.countDocuments(studentSessionMatch).catch(() => 0),
-      Student.countDocuments({ ...studentSessionMatch, status: { $regex: /^active$/i } }).catch(() => 0),
-      Student.countDocuments({ ...studentSessionMatch, status: { $regex: /^expelled$/i } }).catch(() => 0),
-      Student.countDocuments({ ...studentSessionMatch, status: { $regex: /^passed|^graduated/i } }).catch(() => 0),
-      Student.find(studentSessionMatch).select('programId status').populate('programId', 'name level').lean().catch(() => []),
+      Student.countDocuments(withActiveStudentFilter(studentSessionMatch)).catch(() => 0),
+      Student.countDocuments(withSession(buildStudentStatusCondition('EXPELLED'))).catch(() => 0),
+      Student.countDocuments(withSession(buildStudentStatusCondition('STRUCK_OFF'))).catch(() => 0),
+      Student.countDocuments(withSession(buildStudentStatusCondition('GRADUATED'))).catch(() => 0),
+      Student.find(withActiveStudentFilter(studentSessionMatch)).select('programId status').populate('programId', 'name level').lean().catch(() => []),
     ]);
 
     const byProgram = { intermediate: 0, diploma: 0, bs: 0, shortCourse: 0, coaching: 0 };
@@ -92,15 +114,21 @@ class DashboardService {
     }));
 
     return {
-      totalStudents,
+      totalStudents: activeStudents,
+      enrolledStudents: enrolledTotal,
       activeStudents,
       expelledStudents,
+      struckOffStudents,
       passedOutStudents,
-      total: totalStudents,
+      total: activeStudents,
       active: activeStudents,
+      expelled: expelledStudents,
+      struckOff: struckOffStudents,
+      passedOut: passedOutStudents,
       byStatus: {
         active: activeStudents,
         expelled: expelledStudents,
+        struckOff: struckOffStudents,
         passedOut: passedOutStudents
       },
       byProgram,
@@ -126,14 +154,14 @@ class DashboardService {
       ]
     } : {};
 
-    const [challans, extraChallans, hostelChallans, rawExpelledIds] = await Promise.all([
+    const [challans, extraChallans, hostelChallans, rawActiveStudentIds] = await Promise.all([
       FeeChallan.find(sessionMatch).lean().catch(() => []),
       ExtraChallan.find(extraFilter).lean().catch(() => []),
       HostelChallan.find(sessionMatch).lean().catch(() => []),
-      Student.find({ status: { $regex: /^expelled$/i } }).distinct('_id').catch(() => [])
+      getActiveStudentIds(Student).catch(() => [])
     ]);
 
-    const expelledStudentIds = new Set((rawExpelledIds || []).map(id => id.toString()));
+    const activeStudentSet = new Set((rawActiveStudentIds || []).map(id => id.toString()));
 
     let regularCollected = 0;
     let regularPending = 0;
@@ -144,11 +172,11 @@ class DashboardService {
     for (const c of challans) {
       const isPaid = ['PAID', 'SETTLED'].includes(c.status);
       const isOverdue = c.status === 'OVERDUE';
-      const sId = (c.studentId?._id || c.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
+      const isVoidOrSuperseded = ['VOID', 'SUPERSEDED'].includes(c.status);
+      const isInactive = this._isInactiveInternalChallan(c, activeStudentSet, false);
 
       if (isPaid) paidCount++;
-      else if (!isExpelled) {
+      else if (!isVoidOrSuperseded && !isInactive) {
         if (isOverdue) overdueCount++;
         else pendingCount++;
       }
@@ -156,7 +184,7 @@ class DashboardService {
       const paid = Number(c.paidAmount || 0);
       const total = Number(c.totalAmount || c.netPayable || c.amount || 0);
       regularCollected += paid;
-      if (!isPaid && c.status !== 'VOID' && c.status !== 'SUPERSEDED' && !isExpelled) {
+      if (!isPaid && !isVoidOrSuperseded && !isInactive) {
         regularPending += Math.max(0, total - paid);
       }
     }
@@ -166,11 +194,11 @@ class DashboardService {
     for (const ec of extraChallans) {
       const isPaid = ec.status === 'PAID';
       const isOverdue = ec.status === 'OVERDUE';
-      const sId = (ec.studentId?._id || ec.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
+      const isVoid = ec.status === 'VOID' || ec.status === 'SUPERSEDED';
+      const isInactive = this._isInactiveInternalChallan(ec, activeStudentSet, false);
 
       if (isPaid) paidCount++;
-      else if (!isExpelled) {
+      else if (!isVoid && !isInactive) {
         if (isOverdue) overdueCount++;
         else pendingCount++;
       }
@@ -178,7 +206,7 @@ class DashboardService {
       const paid = Number(ec.paidAmount || 0);
       const total = Number(ec.totalAmount || ec.amount || 0);
       extraCollected += paid;
-      if (!isPaid && ec.status !== 'VOID' && !isExpelled) {
+      if (!isPaid && !isVoid && !isInactive) {
         extraPending += Math.max(0, total - paid);
       }
     }
@@ -188,11 +216,12 @@ class DashboardService {
     for (const hc of hostelChallans) {
       const isPaid = ['PAID', 'SETTLED'].includes(hc.status);
       const isOverdue = hc.status === 'OVERDUE';
-      const sId = (hc.studentId?._id || hc.studentId || '').toString();
-      const isExpelled = expelledStudentIds.has(sId);
+      const isVoidOrSuperseded = ['VOID', 'SUPERSEDED'].includes(hc.status);
+      // External hostel boarders have no studentId; only exclude inactive internal students
+      const isInactive = this._isInactiveInternalChallan(hc, activeStudentSet, true);
 
       if (isPaid) paidCount++;
-      else if (!isExpelled) {
+      else if (!isVoidOrSuperseded && !isInactive) {
         if (isOverdue) overdueCount++;
         else pendingCount++;
       }
@@ -200,7 +229,7 @@ class DashboardService {
       const paid = Number(hc.paidAmount || 0);
       const total = Number(hc.totalAmount || hc.amount || hc.hostelFee || 0);
       hostelCollected += paid;
-      if (!isPaid && hc.status !== 'VOID' && hc.status !== 'SUPERSEDED' && !isExpelled) {
+      if (!isPaid && !isVoidOrSuperseded && !isInactive) {
         hostelPending += Math.max(0, total - paid);
       }
     }
@@ -250,17 +279,14 @@ class DashboardService {
   async getAttendanceStats(sessionId) {
     const { studentSessionMatch } = this._buildSessionFilters(sessionId);
 
-    let attnFilter = {};
-    if (sessionId && sessionId !== 'all') {
-      const studentIds = await Student.find(studentSessionMatch).distinct('_id').catch(() => []);
-      attnFilter = {
-        $or: [
-          { studentId: { $in: studentIds } },
-          { studentId: { $exists: false } },
-          { studentId: null }
-        ]
-      };
-    }
+    const activeStudentIds = await getActiveStudentIds(Student, studentSessionMatch).catch(() => []);
+    const attnFilter = {
+      $or: [
+        { studentId: { $in: activeStudentIds } },
+        { role: { $ne: 'STUDENT' }, studentId: { $exists: false } },
+        { role: { $ne: 'STUDENT' }, studentId: null },
+      ]
+    };
 
     const allAttn = await Attendance.find(attnFilter).lean().catch(() => []);
     const today = new Date().toISOString().split('T')[0];
@@ -379,11 +405,23 @@ class DashboardService {
       ]
     } : {};
 
+    const [rawActiveStudentIds, activeSessionAttendanceIds] = await Promise.all([
+      getActiveStudentIds(Student).catch(() => []),
+      getActiveStudentIds(Student, studentSessionMatch).catch(() => []),
+    ]);
+    const activeStudentSet = new Set((rawActiveStudentIds || []).map(id => id.toString()));
+
     const [challans, extraChallans, hostelChallans, allAttn] = await Promise.all([
       FeeChallan.find(sessionMatch).lean().catch(() => []),
       ExtraChallan.find(extraFilter).lean().catch(() => []),
       HostelChallan.find(sessionMatch).lean().catch(() => []),
-      Attendance.find().lean().catch(() => []),
+      Attendance.find({
+        $or: [
+          { studentId: { $in: activeSessionAttendanceIds } },
+          { role: { $ne: 'STUDENT' }, studentId: { $exists: false } },
+          { role: { $ne: 'STUDENT' }, studentId: null },
+        ]
+      }).lean().catch(() => []),
     ]);
 
     const academicMonths = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'];
@@ -392,7 +430,13 @@ class DashboardService {
       monthlyMap[m] = { month: m, collected: 0, pending: 0 };
     }
 
-    for (const c of [...challans, ...extraChallans, ...hostelChallans]) {
+    const taggedChallans = [
+      ...challans.map(c => ({ c, allowExternalNull: false })),
+      ...extraChallans.map(c => ({ c, allowExternalNull: false })),
+      ...hostelChallans.map(c => ({ c, allowExternalNull: true })),
+    ];
+
+    for (const { c, allowExternalNull } of taggedChallans) {
       let mName = null;
       if (c.month) {
         const match = c.month.match(/Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i);
@@ -410,8 +454,9 @@ class DashboardService {
         const paid = Number(c.paidAmount || 0);
         const isPaid = ['PAID', 'SETTLED'].includes(c.status);
         const total = Number(c.totalAmount || c.netPayable || c.amount || c.hostelFee || 0);
+        const isInactive = this._isInactiveInternalChallan(c, activeStudentSet, allowExternalNull);
         monthlyMap[mName].collected += paid;
-        if (!isPaid && c.status !== 'VOID' && c.status !== 'SUPERSEDED') {
+        if (!isPaid && c.status !== 'VOID' && c.status !== 'SUPERSEDED' && !isInactive) {
           monthlyMap[mName].pending += Math.max(0, total - paid);
         }
       }
@@ -459,7 +504,7 @@ class DashboardService {
    * 7. Class-wise Average Tuition Fee
    */
   async getAverageTuitionByClass(sessionId) {
-    const match = { status: { $regex: /^active$/i } };
+    const match = withActiveStudentFilter();
     if (sessionId && sessionId !== 'all') {
       try {
         const sId = new mongoose.Types.ObjectId(sessionId);
@@ -502,12 +547,13 @@ class DashboardService {
    * 8. Comprehensive Stats (combines all modules)
    */
   async getStats(sessionId) {
-    const [studentsStats, feesStats, attendanceStats, staffStats, financeStats] = await Promise.all([
+    const [studentsStats, feesStats, attendanceStats, staffStats, financeStats, activeStudentIds] = await Promise.all([
       this.getStudentsStats(sessionId),
       this.getFeesStats(sessionId),
       this.getAttendanceStats(sessionId),
       this.getStaffStats(sessionId),
       this.getFinanceStats(sessionId),
+      getActiveStudentIds(Student).catch(() => []),
     ]);
 
     const [
@@ -536,10 +582,16 @@ class DashboardService {
       Section.countDocuments().catch(() => 0),
       Subject.countDocuments().catch(() => 0),
       HostelRoom.countDocuments().catch(() => 0),
-      HostelRegistration.countDocuments({ status: { $in: ['ACTIVE', 'Active', 'active'] } }).catch(() => 0),
+      HostelRegistration.countDocuments({
+        status: { $in: ['ACTIVE', 'Active', 'active'] },
+        $or: [{ studentId: null }, { studentId: { $exists: false } }, { studentId: { $in: activeStudentIds } }]
+      }).catch(() => 0),
       InventoryItem.countDocuments().catch(() => 0),
       InventoryItem.countDocuments({ $expr: { $lte: ['$quantity', '$alertQuantity'] } }).catch(() => 0),
-      Leave.countDocuments({ status: { $in: ['Pending', 'PENDING'] } }).catch(() => 0),
+      Leave.countDocuments({
+        status: { $in: ['Pending', 'PENDING'] },
+        $or: [{ applicantType: { $ne: 'STUDENT' } }, { studentId: { $in: activeStudentIds } }]
+      }).catch(() => 0),
       AdvanceSalary.countDocuments({ status: { $in: ['Pending', 'PENDING'] } }).catch(() => 0),
       Exam.countDocuments().catch(() => 0),
     ]);

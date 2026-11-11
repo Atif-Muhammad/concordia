@@ -47,6 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getFeeChallans } from "@/services/api";
 import { normalizeChallan, getTotalArrears } from "./feeFinancialUtils";
+import { isChallanStudentActive } from "@/lib/studentStatus";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -166,13 +167,16 @@ export const FeeSummaryReport = ({
       if (!c) continue;
       if (['VOID', 'SUPERSEDED'].includes(c.status)) continue;
 
+      const paid = Number(c.paidAmount || c.directPaidAmount || 0);
+      const studentActive = isChallanStudentActive(c);
+      if (!studentActive && paid <= 0) continue;
+
       totalChallans += 1;
 
       const tuition = Number(c.basePayable || 0);
       const arrears = Number(c.arrearsAmount > 0 ? c.arrearsAmount : (getTotalArrears(c) || 0));
       const lateFee = Number(c.lateFeeAmount || c.snapshotLateFee || c.fineAmount || 0);
       const discount = Number(c.discountAmount || c.discount || 0);
-      const paid = Number(c.paidAmount || c.directPaidAmount || 0);
 
       // Process unified fee heads (both predefined & custom heads)
       const headsList = Array.isArray(c.challanHeads) && c.challanHeads.length > 0
@@ -207,16 +211,9 @@ export const FeeSummaryReport = ({
       totalLateFee += lateFee;
       totalDiscount += discount;
 
-      const isExpelledStudent = String(
-        c.studentStatus ||
-        c.student?.status ||
-        c.studentId?.status ||
-        ''
-      ).toUpperCase() === 'EXPELLED';
-
       const challanGross = tuition + challanHeadsTotal + arrears + lateFee;
       const challanNet = Math.max(0, challanGross - discount);
-      const challanPending = isExpelledStudent ? 0 : Math.max(0, challanNet - paid);
+      const challanPending = studentActive ? Math.max(0, challanNet - paid) : 0;
 
       totalGross += challanGross;
       totalNet += challanNet;

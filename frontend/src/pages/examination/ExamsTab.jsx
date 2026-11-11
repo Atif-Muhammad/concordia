@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { matchesSearchTokens } from "@/lib/studentSearch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -529,11 +530,14 @@ export function ExamsTab() {
       if (!startMatches && !scheduleMatches) return false;
     }
     if (examSearch.trim()) {
-      const q = examSearch.toLowerCase();
-      const nameMatches = exam.examName?.toLowerCase().includes(q);
-      const progMatches = (exam.program?.name || exam.programId?.name || "").toLowerCase().includes(q);
-      const classMatches = (exam.class?.name || exam.classId?.name || "").toLowerCase().includes(q);
-      if (!nameMatches && !progMatches && !classMatches) return false;
+      const matched = matchesSearchTokens(examSearch, [
+        exam.examName,
+        exam.program?.name || exam.programId?.name,
+        exam.class?.name || exam.classId?.name,
+        exam.type,
+        exam.session,
+      ]);
+      if (!matched) return false;
     }
     return true;
   });

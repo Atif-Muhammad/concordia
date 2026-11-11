@@ -16,6 +16,11 @@ const {
   AcademicSession
 } = require('../models');
 const academicsService = require('./academics.service');
+const {
+  ACTIVE_STUDENT_FILTER,
+  isStudentActive,
+  getActiveStudentIds,
+} = require('../utils/studentStatus');
 
 const getDateRangeStrings = (startStr, endStr) => {
   const dates = [];
@@ -46,7 +51,7 @@ class AttendanceService {
     }
     const allowSections = classDoc ? classDoc.allowSections !== false : true;
 
-    const filter = { classId, status: { $in: ['ACTIVE', 'Active'] } };
+    const filter = { classId, ...ACTIVE_STUDENT_FILTER };
     // If class does NOT allow sections, ignore sectionId completely (direct link to class and student)
     if (allowSections && sectionId && sectionId !== '*' && sectionId !== 'all') {
       filter.sectionId = sectionId;
@@ -184,7 +189,18 @@ class AttendanceService {
     const effectiveUserId = userId || user?.id || user?._id || teacherId || null;
     const effectiveStaffId = staffId || user?.refId || (user?.isStaff ? (user?.refId || user?.id) : null) || null;
 
-    const ops = studentList.map(item => {
+    const requestedStudentIds = studentList.map(item => item.studentId || item.id).filter(Boolean);
+    let targetStudentList = studentList;
+    if (requestedStudentIds.length > 0 && (mongoose.connection.readyState === 1 || Object.prototype.hasOwnProperty.call(Student, 'find'))) {
+      const activeIds = await getActiveStudentIds(Student, { _id: { $in: requestedStudentIds } });
+      const activeSet = new Set(activeIds.map(id => String(id)));
+      targetStudentList = studentList.filter(item => activeSet.has(String(item.studentId || item.id)));
+      if (targetStudentList.length === 0) {
+        return [];
+      }
+    }
+
+    const ops = targetStudentList.map(item => {
       const studentId = item.studentId || item.id;
       const status = String(item.status || 'PRESENT').toUpperCase();
       const query = {
@@ -213,7 +229,7 @@ class AttendanceService {
 
     // Auto-sync open collectable challans for affected students
     try {
-      const studentIds = studentList.map(item => item.studentId || item.id).filter(Boolean);
+      const studentIds = targetStudentList.map(item => item.studentId || item.id).filter(Boolean);
       if (studentIds.length > 0 && date) {
         const feeService = require('./fee.service');
         feeService.syncStudentAbsenteeFineForMonth(studentIds, date).catch(err => {
@@ -290,33 +306,43 @@ class AttendanceService {
       })
       .sort({ fromDate: -1 });
 
-    const formatted = leaves.map(l => {
-      const stud = l.studentId;
-      const stf = l.staffId;
-      const baseObj = l.toObject ? l.toObject() : l;
-      return {
-        ...baseObj,
-        id: l._id ? l._id.toHexString() : l.id,
-        applicantType: l.applicantType || (stud ? 'STUDENT' : 'STAFF'),
-        student: stud && typeof stud === 'object' ? {
-          id: stud._id ? stud._id.toHexString() : stud.id,
-          fName: stud.fName,
-          lName: stud.lName,
-          rollNumber: stud.rollNumber,
-          class: stud.classId ? { name: stud.classId.name } : null
-        } : null,
-        staff: stf && typeof stf === 'object' ? {
-          id: stf._id ? stf._id.toHexString() : stf.id,
-          name: stf.name,
-          employeeId: stf.employeeId,
-          role: stf.role,
-          designation: stf.designation,
-          department: stf.departmentId?.name || stf.empDepartment || '',
-          isTeaching: !!stf.isTeaching,
-          isNonTeaching: !!stf.isNonTeaching
-        } : null
-      };
-    });
+    const formatted = leaves
+      .filter(l => {
+        const applicantType = l.applicantType || (l.studentId ? 'STUDENT' : 'STAFF');
+        if (applicantType !== 'STUDENT') return true;
+        const stud = l.studentId;
+        if (!stud || typeof stud !== 'object') return false;
+        return isStudentActive(stud);
+      })
+      .map(l => {
+        const stud = l.studentId;
+        const stf = l.staffId;
+        const baseObj = l.toObject ? l.toObject() : l;
+        return {
+          ...baseObj,
+          id: l._id ? l._id.toHexString() : l.id,
+          applicantType: l.applicantType || (stud ? 'STUDENT' : 'STAFF'),
+          student: stud && typeof stud === 'object' ? {
+            id: stud._id ? stud._id.toHexString() : stud.id,
+            fName: stud.fName,
+            lName: stud.lName,
+            rollNumber: stud.rollNumber,
+            status: stud.status,
+            passedOut: Boolean(stud.passedOut),
+            class: stud.classId ? { name: stud.classId.name } : null
+          } : null,
+          staff: stf && typeof stf === 'object' ? {
+            id: stf._id ? stf._id.toHexString() : stf.id,
+            name: stf.name,
+            employeeId: stf.employeeId,
+            role: stf.role,
+            designation: stf.designation,
+            department: stf.departmentId?.name || stf.empDepartment || '',
+            isTeaching: !!stf.isTeaching,
+            isNonTeaching: !!stf.isNonTeaching
+          } : null
+        };
+      });
 
     return { data: formatted, total: formatted.length };
   }
@@ -339,6 +365,18 @@ class AttendanceService {
   }
 
   async updateLeave(id, data) {
+    if (String(data?.status || '').toUpperCase() === 'APPROVED') {
+      const existingLeave = await Leave.findById(id).lean();
+      if (existingLeave && existingLeave.applicantType === 'STUDENT' && existingLeave.studentId) {
+        const student = await Student.findById(existingLeave.studentId).select('status passedOut').lean();
+        if (student && !isStudentActive(student)) {
+          const err = new Error(`Cannot approve leave for inactive student (${student.status || 'INACTIVE'})`);
+          err.status = 400;
+          throw err;
+        }
+      }
+    }
+
     const leave = await Leave.findByIdAndUpdate(id, data, { new: true });
     if (!leave) return null;
 
@@ -348,7 +386,7 @@ class AttendanceService {
     if (statusUpper === 'APPROVED' && leave.applicantType === 'STUDENT' && leave.studentId) {
       try {
         const student = await Student.findById(leave.studentId);
-        if (student) {
+        if (student && isStudentActive(student)) {
           const classDoc = student.classId ? await Class.findById(student.classId) : null;
           const allowSections = classDoc ? classDoc.allowSections !== false : true;
           const sectionId = allowSections ? (student.sectionId || null) : null;
@@ -945,11 +983,10 @@ class AttendanceService {
       }
     }
 
-    const studentFilter = {};
+    const studentFilter = { ...ACTIVE_STUDENT_FILTER };
     if (studentId) {
       studentFilter._id = studentId;
     } else {
-      studentFilter.status = { $in: ['ACTIVE', 'Active'] };
       if (classId && classId !== '*' && classId !== 'all') {
         if (typeof classId === 'string' && classId.includes(',')) {
           studentFilter.classId = { $in: classId.split(',').map(s => s.trim()).filter(Boolean) };
@@ -1169,11 +1206,12 @@ class AttendanceService {
     });
 
     // Query active students count per class and section with optional sessionId
-    const studentQuery = { classId: { $in: classIds }, status: { $in: ['ACTIVE', 'Active'] } };
+    const studentQuery = { classId: { $in: classIds }, ...ACTIVE_STUDENT_FILTER };
     if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
       studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
     }
     const allStudents = await Student.find(studentQuery, '_id classId sectionId');
+    const studentIds = allStudents.map(s => s._id);
 
     const studentsByClassSec = new Map();
     allStudents.forEach(s => {
@@ -1188,15 +1226,14 @@ class AttendanceService {
       studentsByClassSec.set(cKey, studentsByClassSec.get(cKey) + 1);
     });
 
-    // Attendance records for date (day-wise)
+    // Attendance records for date (day-wise, active students only)
     const dateRegex = new RegExp(`^${targetDate}`);
     const attRecords = await Attendance.find(
-      { classId: { $in: classIds }, date: { $regex: dateRegex }, role: 'STUDENT' },
+      { classId: { $in: classIds }, date: { $regex: dateRegex }, role: 'STUDENT', studentId: { $in: studentIds } },
       '_id studentId classId sectionId status'
     );
 
     // Approved leaves for date
-    const studentIds = allStudents.map(s => s._id);
     const approvedLeaves = await Leave.find({
       studentId: { $in: studentIds },
       applicantType: 'STUDENT',
@@ -1383,7 +1420,7 @@ class AttendanceService {
       sectionDoc = await Section.findById(effectiveSectionId);
     }
 
-    const studentQuery = { classId, status: { $in: ['ACTIVE', 'Active'] } };
+    const studentQuery = { classId, ...ACTIVE_STUDENT_FILTER };
     if (effectiveSectionId) {
       studentQuery.sectionId = effectiveSectionId;
     }
@@ -1481,7 +1518,7 @@ class AttendanceService {
     }
 
     // Active students in this class/section
-    const studentQuery = { classId, status: { $in: ['ACTIVE', 'Active'] } };
+    const studentQuery = { classId, ...ACTIVE_STUDENT_FILTER };
     if (effectiveSectionId) {
       studentQuery.sectionId = effectiveSectionId;
     }
@@ -1645,7 +1682,7 @@ class AttendanceService {
       sectionsByClass.get(cId).push(s);
     });
 
-    const studentQuery = { classId: { $in: classIds }, status: { $in: ['ACTIVE', 'Active'] } };
+    const studentQuery = { classId: { $in: classIds }, ...ACTIVE_STUDENT_FILTER };
     if (sessionId && sessionId !== 'all' && sessionId !== 'none' && sessionId !== 'undefined') {
       studentQuery.$or = [{ sessionId }, { 'academicRecords.sessionId': sessionId }];
     }

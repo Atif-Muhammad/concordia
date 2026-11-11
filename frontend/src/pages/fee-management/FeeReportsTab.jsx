@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hasPermission } from "@/lib/navigation.jsx";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import {
@@ -75,6 +76,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
+import { isChallanStudentActive } from "@/lib/studentStatus";
 import { StudentInstallmentReportsTab } from "./StudentInstallmentReportsTab";
 import { FeeSummaryReport } from "./FeeSummaryReport";
 import { FeeCollectionReport } from "./FeeCollectionReport";
@@ -265,6 +267,7 @@ export const FeeReportsTab = ({
       sectionId: sectionParam,
       month: selectedMonth !== 'all' ? selectedMonth : undefined,
       status: 'PENDING,PARTIAL,OVERDUE',
+      studentStatus: 'ACTIVE',
       limit: 10000,
       report: 'true',
     }),
@@ -284,8 +287,7 @@ export const FeeReportsTab = ({
       const c = normalizeChallan(raw);
       if (!c) continue;
       if (['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) continue;
-      const studentStatus = String(c.studentStatus || c.student?.status || c.studentId?.status || '').toUpperCase();
-      if (studentStatus === 'EXPELLED') continue;
+      if (!isChallanStudentActive(c)) continue;
 
       // Exact late fee fine, arrears, advance and gross totals matching ChallansTab
       const isSettledOrVoid = ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status);
@@ -373,11 +375,13 @@ export const FeeReportsTab = ({
     let list = Array.from(studentsMap.values());
 
     if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      list = list.filter(s =>
-        s.studentName.toLowerCase().includes(q) ||
-        s.rollNumber.toLowerCase().includes(q) ||
-        s.fatherName.toLowerCase().includes(q)
+      list = list.filter((s) =>
+        matchesSearchTokens(searchQuery, [
+          s.studentName,
+          s.rollNumber,
+          s.fatherName,
+          ...(s.pendingChallans || []).map((pc) => pc.challanNo),
+        ])
       );
     }
 
@@ -1250,7 +1254,7 @@ export const FeeReportsTab = ({
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Name or roll no..."
+                  placeholder="Name, father, roll, or challan #..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-8 text-xs"

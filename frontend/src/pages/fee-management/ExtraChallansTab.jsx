@@ -66,6 +66,7 @@ import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { PaymentDialog } from "./PaymentDialog";
 import { ChallanDetailsDialog } from "./ChallanDetailsDialog";
 import usePermissions from "@/hooks/usePermissions";
+import { isStudentActive } from "@/lib/studentStatus";
 
 const extractId = (val) => {
   if (!val) return "";
@@ -108,6 +109,7 @@ export const ExtraChallansTab = ({
   const [extraLimit] = useState(10);
   const [extraSearch, setExtraSearch] = useState("");
   const [extraStatusFilter, setExtraStatusFilter] = useState("all");
+  const [includeInactiveStudents, setIncludeInactiveStudents] = useState(false);
 
   // Dialog states
   const [createExtraChallanOpen, setCreateExtraChallanOpen] = useState(false);
@@ -210,11 +212,12 @@ export const ExtraChallansTab = ({
 
   // Extra Challans Query
   const { data: extraChallansData = { data: [], meta: {} }, isLoading: isExtraLoading } = useQuery({
-    queryKey: ['extraChallans', extraSearch, extraStatusFilter, extraPage, extraLimit],
+    queryKey: ['extraChallans', extraSearch, extraStatusFilter, includeInactiveStudents, extraPage, extraLimit],
     queryFn: () => {
       return getExtraChallansDedicated({
         search: extraSearch,
         status: extraStatusFilter,
+        studentStatus: includeInactiveStudents ? 'all' : 'ACTIVE',
         page: extraPage,
         limit: extraLimit,
       });
@@ -257,7 +260,7 @@ export const ExtraChallansTab = ({
     const fetchStudents = async () => {
       setIsFetchingBulkStudents(true);
       try {
-        const queryParams = {};
+        const queryParams = { status: 'ACTIVE' };
         if (bulkFilters.programId && bulkFilters.programId !== "all") {
           queryParams.programId = bulkFilters.programId;
         }
@@ -269,7 +272,7 @@ export const ExtraChallansTab = ({
         }
 
         const list = await getInstallmentPlans(queryParams);
-        const mappedList = (list || []).map(s => {
+        const mappedList = (list || []).filter(isStudentActive).map(s => {
           const sId = extractId(s);
           const progName = s.program?.name || (typeof s.programId === "object" && s.programId ? s.programId.name : "") || "";
           const clsName = s.class?.name || (typeof s.classId === "object" && s.classId ? s.classId.name : "") || "";
@@ -610,10 +613,10 @@ export const ExtraChallansTab = ({
             <div className="space-y-1">
               <Label className="text-xs">Search</Label>
               <Input
-                placeholder="Challan #, name, roll..."
+                placeholder="Challan #, name, father name, roll..."
                 value={extraSearch}
                 onChange={(e) => { setExtraSearch(e.target.value); setExtraPage(1); }}
-                className="w-[200px]"
+                className="w-[240px]"
               />
             </div>
             <div className="space-y-1">
@@ -632,10 +635,19 @@ export const ExtraChallansTab = ({
                 </SelectContent>
               </Select>
             </div>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none h-9 px-2">
+              <input
+                type="checkbox"
+                checked={includeInactiveStudents}
+                onChange={(e) => { setIncludeInactiveStudents(e.target.checked); setExtraPage(1); }}
+                className="h-3.5 w-3.5 rounded border-input accent-primary"
+              />
+              Include inactive students
+            </label>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setExtraSearch(""); setExtraStatusFilter("all"); setExtraPage(1); }}
+              onClick={() => { setExtraSearch(""); setExtraStatusFilter("all"); setIncludeInactiveStudents(false); setExtraPage(1); }}
               className="h-9 px-2 text-muted-foreground"
             >
               Reset
@@ -907,7 +919,7 @@ export const ExtraChallansTab = ({
                   </PopoverTrigger>
                   <PopoverContent className="w-full p-0" align="start">
                     <Command shouldFilter={false}>
-                      <CommandInput placeholder="Search by name or roll..." onValueChange={v => handleStudentSearch(v, setExtraStudentResults)} />
+                      <CommandInput placeholder="Search by name, father name, or roll..." onValueChange={v => handleStudentSearch(v, setExtraStudentResults)} />
                       <CommandList>
                         <CommandEmpty>No student found.</CommandEmpty>
                         <CommandGroup>

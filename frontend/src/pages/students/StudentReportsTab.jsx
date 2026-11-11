@@ -168,9 +168,9 @@ export const StudentReportsTab = ({
     searchTimeoutRef.current = setTimeout(async () => {
       try {
         let results = [];
-        // First try the specialized student search endpoint
+        // First try the specialized student search endpoint (explicit status=all so archive profiles stay searchable)
         try {
-          const res = await searchStudent(trimmed);
+          const res = await searchStudent(trimmed, { status: "all" });
           if (Array.isArray(res)) {
             results = res;
           } else if (res && Array.isArray(res.students)) {
@@ -451,7 +451,7 @@ export const StudentReportsTab = ({
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
                 type="text"
-                placeholder="Search student by name or roll number..."
+                placeholder="Search by student name, father name, or roll number..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-10 h-10 text-sm bg-white dark:bg-background border-slate-200 dark:border-border rounded-xl shadow-xs"

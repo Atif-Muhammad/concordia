@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -26,9 +27,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Award, PlusCircle, Printer, SlidersHorizontal, Loader2 } from "lucide-react";
+import { Award, PlusCircle, Printer, SlidersHorizontal, Loader2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { StudentResultsTab } from "../StudentResultsTab";
+import { CheckboxMultiSelect } from "@/components/ui/CheckboxMultiSelect";
 import {
   getExams,
   getClasses,
@@ -44,6 +46,8 @@ import {
   getSubjects,
 } from "@/services/api";
 import { extractId } from "@/lib/utils.jsx";
+import { isStudentActive } from "@/lib/studentStatus";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import { hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 import usePermissions from "@/hooks/usePermissions";
 
@@ -53,18 +57,19 @@ export const ResultsTab = () => {
   const { canCreate, canUpdate } = usePermissions("Examination", "results");
 
   const [resultDialog, setResultDialog] = useState(false);
-  const [resultFilterProgram, setResultFilterProgram] = useState("");
-  const [resultFilterClass, setResultFilterClass] = useState("");
-  const [resultFilterSection, setResultFilterSection] = useState("");
-  const [resultFilterExam, setResultFilterExam] = useState("");
+  const [selectedProgramIds, setSelectedProgramIds] = useState([]);
+  const [selectedClassIds, setSelectedClassIds] = useState([]);
+  const [selectedSectionIds, setSelectedSectionIds] = useState([]);
+  const [selectedExamIds, setSelectedExamIds] = useState([]);
   const [resultsSessionFilter, setResultsSessionFilter] = useState("");
+  const [resultsStudentSearch, setResultsStudentSearch] = useState("");
   const [showResultsFilters, setShowResultsFilters] = useState(true);
   const sessionInitializedRef = React.useRef(false);
 
   // Student Results filters
-  const [studentResultProgram, setStudentResultProgram] = useState("");
-  const [studentResultClass, setStudentResultClass] = useState("");
-  const [studentResultSection, setStudentResultSection] = useState("");
+  const [studentResultProgramIds, setStudentResultProgramIds] = useState([]);
+  const [studentResultClassIds, setStudentResultClassIds] = useState([]);
+  const [studentResultSectionIds, setStudentResultSectionIds] = useState([]);
   const [studentResultStudent, setStudentResultStudent] = useState("");
   const [studentResultExam, setStudentResultExam] = useState("");
   const [studentResultData, setStudentResultData] = useState(null);
@@ -82,55 +87,72 @@ export const ResultsTab = () => {
     remarks: "",
   });
 
-  // Cascading filter resets
-  useEffect(() => {
-    setResultFilterClass("");
-    setResultFilterSection("");
-    setResultFilterExam("");
-  }, [resultFilterProgram]);
+  // Cascading filter resets for Examination Results
+  const handleProgramsChange = (newProgramIds) => {
+    setSelectedProgramIds(newProgramIds);
+    setSelectedClassIds((prev) =>
+      prev.filter((cId) => {
+        const cls = classesData.find((c) => extractId(c.id || c._id) === cId);
+        const pId = extractId(cls?.programId || cls?.program);
+        return newProgramIds.includes(pId);
+      })
+    );
+  };
 
-  useEffect(() => {
-    setResultFilterSection("");
-    setResultFilterExam("");
-  }, [resultFilterClass]);
+  const handleClassesChange = (newClassIds) => {
+    setSelectedClassIds(newClassIds);
+    setSelectedSectionIds((prev) =>
+      prev.filter((sId) => {
+        const sec = sectionsData.find((s) => extractId(s.id || s._id) === sId);
+        const cId = extractId(sec?.classId || sec?.class);
+        return newClassIds.includes(cId);
+      })
+    );
+    setSelectedExamIds((prev) =>
+      prev.filter((eId) => {
+        const exam = exams.find((e) => extractId(e.id || e._id) === eId);
+        const cId = extractId(exam?.classId || exam?.class);
+        return newClassIds.includes(cId);
+      })
+    );
+  };
 
-  useEffect(() => {
-    setResultFilterProgram("");
-    setResultFilterClass("");
-    setResultFilterSection("");
-    setResultFilterExam("");
-  }, [resultsSessionFilter]);
+  const handleSessionChange = (v) => {
+    setResultsSessionFilter(v === "__all__" ? "" : v);
+    setSelectedProgramIds([]);
+    setSelectedClassIds([]);
+    setSelectedSectionIds([]);
+    setSelectedExamIds([]);
+  };
 
   // Student Results cascading resets
-  useEffect(() => {
-    setStudentResultClass("");
-    setStudentResultSection("");
+  const handleStudentProgramsChange = (newProgIds) => {
+    setStudentResultProgramIds(newProgIds);
+    setStudentResultClassIds((prev) =>
+      prev.filter((cId) => {
+        const cls = classesData.find((c) => extractId(c.id || c._id) === cId);
+        const pId = extractId(cls?.programId || cls?.program);
+        return newProgIds.includes(pId);
+      })
+    );
     setStudentResultStudent("");
     setStudentResultExam("");
     setStudentResultData(null);
-  }, [studentResultProgram]);
+  };
 
-  useEffect(() => {
-    setStudentResultSection("");
+  const handleStudentClassesChange = (newClassIds) => {
+    setStudentResultClassIds(newClassIds);
+    setStudentResultSectionIds((prev) =>
+      prev.filter((sId) => {
+        const sec = sectionsData.find((s) => extractId(s.id || s._id) === sId);
+        const cId = extractId(sec?.classId || sec?.class);
+        return newClassIds.includes(cId);
+      })
+    );
     setStudentResultStudent("");
     setStudentResultExam("");
     setStudentResultData(null);
-  }, [studentResultClass]);
-
-  useEffect(() => {
-    setStudentResultStudent("");
-    setStudentResultExam("");
-    setStudentResultData(null);
-  }, [studentResultSection]);
-
-  useEffect(() => {
-    setStudentResultExam("");
-    setStudentResultData(null);
-  }, [studentResultStudent]);
-
-  useEffect(() => {
-    setStudentResultData(null);
-  }, [studentResultExam]);
+  };
 
   // Role checking
   const currentUser = queryClient.getQueryData(["currentUser"]);
@@ -162,13 +184,13 @@ export const ResultsTab = () => {
   });
 
   const { data: rawStudents = [] } = useQuery({
-    queryKey: ["students"],
-    queryFn: () => getStudents("", "", "", ""),
+    queryKey: ["students", "ACTIVE"],
+    queryFn: () => getStudents({ status: "ACTIVE", limit: 1000 }),
   });
 
   const students = useMemo(() => {
-    if (Array.isArray(rawStudents)) return rawStudents;
-    return rawStudents?.students || [];
+    const list = Array.isArray(rawStudents) ? rawStudents : (rawStudents?.students || []);
+    return list.filter(isStudentActive);
   }, [rawStudents]);
 
   const { data: allSubjects = [] } = useQuery({
@@ -203,8 +225,22 @@ export const ResultsTab = () => {
   });
 
   const { data: results = [], isLoading: isLoadingResults } = useQuery({
-    queryKey: ["results", resultsSessionFilter],
-    queryFn: () => getResults(resultsSessionFilter || undefined),
+    queryKey: [
+      "results",
+      resultsSessionFilter,
+      selectedProgramIds.join(","),
+      selectedClassIds.join(","),
+      selectedSectionIds.join(","),
+      selectedExamIds.join(","),
+    ],
+    queryFn: () =>
+      getResults({
+        sessionId: resultsSessionFilter || undefined,
+        programId: selectedProgramIds.length > 0 ? selectedProgramIds.join(",") : undefined,
+        classId: selectedClassIds.length > 0 ? selectedClassIds.join(",") : undefined,
+        sectionId: selectedSectionIds.length > 0 ? selectedSectionIds.join(",") : undefined,
+        examId: selectedExamIds.length > 0 ? selectedExamIds.join(",") : undefined,
+      }),
   });
 
   const resultsSessionObj = sessions.find((s) => extractId(s.id || s._id) === resultsSessionFilter);
@@ -220,29 +256,75 @@ export const ResultsTab = () => {
       })
     : exams;
 
-  const selectedResultClassObj = classesData.find(
-    (c) => extractId(c.id || c._id) === resultFilterClass
-  );
-  const allowSections = selectedResultClassObj ? selectedResultClassObj.allowSections !== false : true;
+  const programOptions = useMemo(() => {
+    return (
+      programs
+        ?.filter((p) =>
+          isTeacher
+            ? teacherClassMappings.some((m) => extractId(m.class?.programId) === extractId(p.id || p._id))
+            : true
+        )
+        ?.map((p) => {
+          const pId = extractId(p.id || p._id);
+          const dep = p.department?.name ? ` — ${p.department.name}` : "";
+          return {
+            value: pId,
+            label: `${p.name}${dep}`,
+          };
+        }) || []
+    );
+  }, [programs, isTeacher, teacherClassMappings]);
+
+  const availableClasses = useMemo(() => {
+    if (selectedProgramIds.length === 0) return [];
+    return classesData.filter((c) => {
+      const pId = extractId(c.programId || c.program);
+      const inProg = selectedProgramIds.includes(pId);
+      if (!inProg) return false;
+      if (isTeacher) {
+        return teacherClassMappings.some((m) => extractId(m.classId) === extractId(c.id || c._id));
+      }
+      return true;
+    });
+  }, [classesData, selectedProgramIds, isTeacher, teacherClassMappings]);
+
+  const classOptions = useMemo(() => {
+    return availableClasses.map((cls) => ({
+      value: extractId(cls.id || cls._id),
+      label: cls.name || "Class",
+    }));
+  }, [availableClasses]);
+
+  const selectedClasses = useMemo(() => {
+    return classesData.filter((c) => selectedClassIds.includes(extractId(c.id || c._id)));
+  }, [classesData, selectedClassIds]);
+
+  const allowSections = useMemo(() => {
+    if (selectedClasses.length === 0) return true;
+    return selectedClasses.some((c) => c.allowSections !== false);
+  }, [selectedClasses]);
 
   const availableSections = useMemo(() => {
-    if (!resultFilterClass || !allowSections) return [];
+    if (selectedClassIds.length === 0 || !allowSections) return [];
     if (isTeacher) {
-      const matching = teacherClassMappings.filter(
-        (m) => extractId(m.classId || m.class) === resultFilterClass
+      const matching = teacherClassMappings.filter((m) =>
+        selectedClassIds.includes(extractId(m.classId || m.class))
       );
       const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
-      const unique = secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
-      if (unique.length > 0) return unique;
-      if (matching.some((m) => !(m.sectionId || m.section)) && selectedResultClassObj?.sections?.length) {
-        return selectedResultClassObj.sections;
-      }
-      return [];
+      return secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
     }
-    return sectionsData.filter((s) => extractId(s.classId || s.class) === resultFilterClass);
-  }, [allowSections, isTeacher, teacherClassMappings, resultFilterClass, selectedResultClassObj, sectionsData]);
+    return sectionsData.filter((s) => selectedClassIds.includes(extractId(s.classId || s.class)));
+  }, [selectedClassIds, allowSections, isTeacher, teacherClassMappings, sectionsData]);
+
+  const sectionOptions = useMemo(() => {
+    return availableSections.map((sec) => ({
+      value: extractId(sec.id || sec._id || sec),
+      label: sec.name || sec.sectionName || "Section",
+    }));
+  }, [availableSections]);
 
   const availableFilterExams = useMemo(() => {
+    if (selectedClassIds.length === 0) return [];
     return resultsSessionFilteredExams.filter((exam) => {
       const examClassId = extractId(exam.classId || exam.class);
       const examProgId = extractId(exam.programId || exam.program);
@@ -251,15 +333,22 @@ export const ResultsTab = () => {
         if (!teacherClassMappings.some((m) => extractId(m.classId || m.class) === examClassId)) return false;
       }
 
-      if (resultFilterProgram && resultFilterProgram !== "*") {
-        if (examProgId && examProgId !== resultFilterProgram) return false;
+      if (selectedProgramIds.length > 0) {
+        if (examProgId && !selectedProgramIds.includes(examProgId)) return false;
       }
-      if (resultFilterClass && resultFilterClass !== "*") {
-        if (examClassId && examClassId !== resultFilterClass) return false;
+      if (selectedClassIds.length > 0) {
+        if (examClassId && !selectedClassIds.includes(examClassId)) return false;
       }
       return true;
     });
-  }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings, resultFilterProgram, resultFilterClass]);
+  }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings, selectedProgramIds, selectedClassIds]);
+
+  const examOptions = useMemo(() => {
+    return availableFilterExams.map((exam) => ({
+      value: extractId(exam.id || exam._id),
+      label: `${exam.examName} - ${exam.session}${exam.startDate ? ` (${formatDateDisplay(exam.startDate)})` : ""}`,
+    }));
+  }, [availableFilterExams]);
 
   const formatDateDisplay = (dateString) => {
     if (!dateString) return "";
@@ -280,7 +369,7 @@ export const ResultsTab = () => {
   };
 
   const getFullName = (student) => {
-    return `${student?.fName || ""} ${student?.lName || ""}`.trim() || student?.name || "Student";
+    return formatNormalizedFullName(student?.fName, student?.lName) || student?.name || "Student";
   };
 
   const calculateGrade = (percentage) => {
@@ -331,24 +420,24 @@ export const ResultsTab = () => {
     let filtered = results
       .filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === extractId(examId));
 
-    if (resultFilterProgram && resultFilterProgram !== "*") {
+    if (selectedProgramIds.length > 0) {
       filtered = filtered.filter((r) => {
         const progId = extractId(r.student?.programId || r.student?.program?.id || r.student?.program?._id || r.programId);
-        return progId === resultFilterProgram;
+        return selectedProgramIds.includes(progId);
       });
     }
 
-    if (resultFilterClass && resultFilterClass !== "*") {
+    if (selectedClassIds.length > 0) {
       filtered = filtered.filter((r) => {
         const clsId = extractId(r.student?.classId || r.student?.class?.id || r.student?.class?._id || r.classId);
-        return clsId === resultFilterClass;
+        return selectedClassIds.includes(clsId);
       });
     }
 
-    if (allowSections && resultFilterSection && resultFilterSection !== "*") {
+    if (allowSections && selectedSectionIds.length > 0) {
       filtered = filtered.filter((r) => {
         const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
-        return secId === resultFilterSection;
+        return selectedSectionIds.includes(secId);
       });
     }
 
@@ -360,9 +449,11 @@ export const ResultsTab = () => {
     const passPercentage = totalStudents > 0 ? ((passedStudents / totalStudents) * 100).toFixed(1) : "0";
 
     const progName = exam.program?.name || "";
-    const className = exam.class?.name || (resultFilterClass && classesData.find(c => extractId(c) === resultFilterClass)?.name) || "All Classes";
-    const sectionName = (resultFilterSection && resultFilterSection !== "*")
-      ? (sectionsData.find(s => extractId(s) === resultFilterSection)?.name || "")
+    const className = exam.class?.name || (selectedClassIds.length === 1 && classesData.find(c => extractId(c) === selectedClassIds[0])?.name) || "All Classes";
+    const sectionName = (selectedSectionIds.length === 1)
+      ? (sectionsData.find(s => extractId(s) === selectedSectionIds[0])?.name || "")
+      : selectedSectionIds.length > 1
+      ? `${selectedSectionIds.length} Sections`
       : "";
 
     const printWin = window.open("", "_blank");
@@ -1132,7 +1223,7 @@ export const ResultsTab = () => {
                   <Label>Session Filter</Label>
                   <Select
                     value={resultsSessionFilter || "__all__"}
-                    onValueChange={(v) => setResultsSessionFilter(v === "__all__" ? "" : v)}
+                    onValueChange={handleSessionChange}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="All Sessions" />
@@ -1159,123 +1250,68 @@ export const ResultsTab = () => {
                 </div>
                 <div className="flex-1">
                   <Label>Filter by Program</Label>
-                  <Select
-                    value={resultFilterProgram}
-                    onValueChange={setResultFilterProgram}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Programs" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="*">All Programs</SelectItem>
-                      {programs
-                        ?.filter((p) =>
-                          isTeacher
-                            ? teacherClassMappings.some((m) => extractId(m.class?.programId) === extractId(p.id || p._id))
-                            : true
-                        )
-                        ?.map((p) => {
-                          const pId = extractId(p.id || p._id);
-                          return (
-                            <SelectItem key={pId} value={pId}>
-                              {p.name} {p.department?.name ? `— ${p.department.name} ` : ""}
-                            </SelectItem>
-                          );
-                        })}
-                    </SelectContent>
-                  </Select>
+                  <CheckboxMultiSelect
+                    title="Programs"
+                    placeholder="All Programs"
+                    allLabel="All Programs"
+                    options={programOptions}
+                    selected={selectedProgramIds}
+                    onChange={handleProgramsChange}
+                  />
                 </div>
                 <div className="flex-1">
                   <Label>Filter by Class</Label>
-                  <Select
-                    value={resultFilterClass}
-                    onValueChange={setResultFilterClass}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Classes" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="*">All Classes</SelectItem>
-                      {(() => {
-                        const available = resultFilterProgram && resultFilterProgram !== "*"
-                          ? classesData.filter((c) => extractId(c.programId) === resultFilterProgram)
-                          : classesData;
-                        return available
-                          .filter((cls) =>
-                            isTeacher
-                              ? teacherClassMappings.some((m) => extractId(m.classId) === extractId(cls.id || cls._id))
-                              : true
-                          )
-                          .map((cls) => {
-                            const cId = extractId(cls.id || cls._id);
-                            return (
-                              <SelectItem key={cId} value={cId}>
-                                {cls.name}
-                              </SelectItem>
-                            );
-                          });
-                      })()}
-                    </SelectContent>
-                  </Select>
+                  <CheckboxMultiSelect
+                    title="Classes"
+                    placeholder={selectedProgramIds.length === 0 ? "Select program first" : "All Classes"}
+                    allLabel="All Classes"
+                    options={classOptions}
+                    selected={selectedClassIds}
+                    onChange={handleClassesChange}
+                    disabled={selectedProgramIds.length === 0}
+                  />
                 </div>
                 <div className="flex-1">
                   <Label>Filter by Section</Label>
-                  <Select
-                    value={!allowSections ? "" : resultFilterSection}
-                    onValueChange={setResultFilterSection}
-                    disabled={!allowSections || !resultFilterClass || resultFilterClass === "*"}
-                  >
-                    <SelectTrigger>
-                      <SelectValue
-                        placeholder={
-                          !allowSections
-                            ? "Not Applicable"
-                            : resultFilterClass && resultFilterClass !== "*"
-                            ? "All Sections"
-                            : "Select class first"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {!allowSections ? (
-                        <SelectItem value="">Not Applicable</SelectItem>
-                      ) : (
-                        <>
-                          <SelectItem value="*">All Sections</SelectItem>
-                          {availableSections.map((section) => {
-                            const secId = extractId(section.id || section._id || section);
-                            return (
-                              <SelectItem key={secId} value={secId}>
-                                {section.name || section.sectionName || "Section"}
-                              </SelectItem>
-                            );
-                          })}
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <CheckboxMultiSelect
+                    title="Sections"
+                    placeholder={
+                      !allowSections
+                        ? "Not Applicable"
+                        : selectedClassIds.length === 0
+                        ? "Select class first"
+                        : "All Sections"
+                    }
+                    allLabel="All Sections"
+                    options={sectionOptions}
+                    selected={selectedSectionIds}
+                    onChange={setSelectedSectionIds}
+                    disabled={selectedClassIds.length === 0 || !allowSections}
+                  />
                 </div>
                 <div className="flex-1">
                   <Label>Filter by Exam</Label>
-                  <Select
-                    value={resultFilterExam}
-                    onValueChange={setResultFilterExam}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Exams" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="*">All Exams</SelectItem>
-                      {availableFilterExams.map((exam) => {
-                        const eId = extractId(exam.id || exam._id);
-                        return (
-                          <SelectItem key={eId} value={eId}>
-                            {exam.examName} - {exam.session} {exam.startDate ? `(${formatDateDisplay(exam.startDate)})` : ""}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
+                  <CheckboxMultiSelect
+                    title="Exams"
+                    placeholder={selectedClassIds.length === 0 ? "Select class first" : "All Exams"}
+                    allLabel="All Exams"
+                    options={examOptions}
+                    selected={selectedExamIds}
+                    onChange={setSelectedExamIds}
+                    disabled={selectedClassIds.length === 0}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 max-w-sm">
+                <Label>Search Student</Label>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search student by name, father name, or roll no..."
+                    value={resultsStudentSearch}
+                    onChange={(e) => setResultsStudentSearch(e.target.value)}
+                    className="pl-9 h-9 text-sm"
+                  />
                 </div>
               </div>
             </div>
@@ -1286,7 +1322,7 @@ export const ResultsTab = () => {
                 <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
                 <p className="text-sm">Loading examination results...</p>
               </div>
-            ) : !resultFilterProgram && !resultsSessionFilter ? (
+            ) : selectedProgramIds.length === 0 && !resultsSessionFilter ? (
               <div className="text-center py-16">
                 <p className="text-4xl mb-4">📊</p>
                 <p className="text-lg font-medium text-muted-foreground">
@@ -1309,8 +1345,17 @@ export const ResultsTab = () => {
                 {resultsSessionFilteredExams
                   ?.filter((exam) => {
                     const examIdStr = extractId(exam.id || exam._id);
-                    if (resultFilterExam && resultFilterExam !== "*") {
-                      if (examIdStr !== resultFilterExam) return false;
+                    const examProgId = extractId(exam.programId || exam.program);
+                    const examClassId = extractId(exam.classId || exam.class);
+
+                    if (selectedProgramIds.length > 0 && examProgId && !selectedProgramIds.includes(examProgId)) {
+                      return false;
+                    }
+                    if (selectedClassIds.length > 0 && examClassId && !selectedClassIds.includes(examClassId)) {
+                      return false;
+                    }
+                    if (selectedExamIds.length > 0 && !selectedExamIds.includes(examIdStr)) {
+                      return false;
                     }
                     return true;
                   })
@@ -1318,25 +1363,34 @@ export const ResultsTab = () => {
                   const examIdStr = extractId(exam.id || exam._id);
                   let examResults = results.filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === examIdStr);
 
-                  if (resultFilterProgram && resultFilterProgram !== "*") {
+                  if (selectedProgramIds.length > 0) {
                     examResults = examResults.filter((r) => {
                       const progId = extractId(r.student?.programId || r.student?.program?.id || r.student?.program?._id || r.programId);
-                      return progId === resultFilterProgram;
+                      return selectedProgramIds.includes(progId);
                     });
                   }
 
-                  if (resultFilterClass && resultFilterClass !== "*") {
+                  if (selectedClassIds.length > 0) {
                     examResults = examResults.filter((r) => {
                       const clsId = extractId(r.student?.classId || r.student?.class?.id || r.student?.class?._id || r.classId);
-                      return clsId === resultFilterClass;
+                      return selectedClassIds.includes(clsId);
                     });
                   }
 
-                  if (allowSections && resultFilterSection && resultFilterSection !== "*") {
+                  if (allowSections && selectedSectionIds.length > 0) {
                     examResults = examResults.filter((r) => {
                       const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
-                      return secId === resultFilterSection;
+                      return selectedSectionIds.includes(secId);
                     });
+                  }
+                  if (resultsStudentSearch.trim()) {
+                    examResults = examResults.filter((r) =>
+                      matchesSearchTokens(resultsStudentSearch, [
+                        r.student ? getFullName(r.student) : "",
+                        r.student?.fatherOrguardian,
+                        r.student?.rollNumber,
+                      ])
+                    );
                   }
                   if (examResults.length === 0) return null;
                   return (
@@ -1454,12 +1508,12 @@ export const ResultsTab = () => {
           classesData={classesData}
           students={students}
           exams={exams}
-          studentResultProgram={studentResultProgram}
-          setStudentResultProgram={setStudentResultProgram}
-          studentResultClass={studentResultClass}
-          setStudentResultClass={setStudentResultClass}
-          studentResultSection={studentResultSection}
-          setStudentResultSection={setStudentResultSection}
+          studentResultProgramIds={studentResultProgramIds}
+          setStudentResultProgramIds={handleStudentProgramsChange}
+          studentResultClassIds={studentResultClassIds}
+          setStudentResultClassIds={handleStudentClassesChange}
+          studentResultSectionIds={studentResultSectionIds}
+          setStudentResultSectionIds={setStudentResultSectionIds}
           studentResultStudent={studentResultStudent}
           setStudentResultStudent={setStudentResultStudent}
           studentResultExam={studentResultExam}

@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "https://beams.hayatfoundation.org.pk/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "https://beams.hayatfoundation.org.pk/api";
 
 // Attach token as fallback header in case cookies are blocked
 axios.interceptors.request.use((config) => {
@@ -1733,7 +1733,7 @@ export const getPassedOutStudents = async (programId, classId, sectionId, search
   try {
     const limitParam = limit !== undefined && limit !== null && limit !== '' ? limit : 20;
     const summaryParam = summary ? '&summary=true' : '';
-    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}${summaryParam}`, {
+    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${encodeURIComponent(searchQuery || '')}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}${summaryParam}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1766,7 +1766,7 @@ export const getStudents = async (programId, classId, sectionId, searchQuery, st
     const summaryParam = summary ? '&summary=true' : '';
     const genderParam = gender && gender !== 'all' ? `&gender=${encodeURIComponent(gender)}` : '';
     const fieldsParam = fields ? `&fields=${encodeURIComponent(fields)}` : '';
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}${genderParam}${fieldsParam}`, {
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${encodeURIComponent(searchQuery || '')}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limitParam}&startDate=${startDate || ''}&endDate=${endDate || ''}${summaryParam}${genderParam}${fieldsParam}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1959,9 +1959,13 @@ export const rejoinStudent = async (studentID, reason, details = {}) => {
 };
 
 // Search students by name or roll number
-export const searchStudents = async (query) => {
+export const searchStudents = async (query, options = {}) => {
   try {
-    const { data } = await axios.get(`${base_url}/student/search?search=${encodeURIComponent(query)}&searchFor=${encodeURIComponent(query)}`, {
+    const params = new URLSearchParams();
+    params.append("search", query ?? "");
+    params.append("searchFor", query ?? "");
+    params.append("status", options?.status ?? "ACTIVE");
+    const { data } = await axios.get(`${base_url}/student/search?${params.toString()}`, {
       withCredentials: true,
     });
     return data.students || data || [];
@@ -2155,11 +2159,13 @@ export const deleteLeave = async (id) => {
 };
 
 // search student
-export const searchStudent = async (searchQuery) => {
-  console.log(searchQuery)
+export const searchStudent = async (searchQuery, options = {}) => {
   try {
+    const params = new URLSearchParams();
+    params.append("searchFor", searchQuery ?? "");
+    params.append("status", options?.status ?? "ACTIVE");
     const { data } = await axios.get(
-      `${base_url}/student/search?searchFor=${searchQuery}`,
+      `${base_url}/student/search?${params.toString()}`,
       {
         withCredentials: true,
       }
@@ -3453,19 +3459,49 @@ export const delResult = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getResults = async (sessionId) => {
-  const validSessionId =
-    sessionId && typeof sessionId === "object"
-      ? (sessionId.queryKey ? undefined : sessionId.id || sessionId._id || undefined)
-      : sessionId;
+export const getResults = async (arg1, arg2) => {
+  let filters = {};
+  if (arg1 && typeof arg1 === "object" && !arg1._id && !arg1.id) {
+    if (!arg1.queryKey) {
+      filters = { ...arg1 };
+    }
+  } else {
+    if (arg1) filters.sessionId = arg1;
+    if (arg2 && typeof arg2 === "object") {
+      filters = { ...filters, ...arg2 };
+    }
+  }
+
+  const formatParam = (val) => {
+    if (!val || val === "*" || val === "all" || val === "__all__") return null;
+    if (Array.isArray(val)) return val.length ? val.map((x) => (x && typeof x === "object" ? x._id || x.id : x)).filter(Boolean).join(",") : null;
+    if (typeof val === "object") return val._id || val.id || null;
+    return String(val);
+  };
 
   const params = new URLSearchParams();
-  if (validSessionId && validSessionId !== "*" && validSessionId !== "all" && validSessionId !== "__all__") {
-    params.append('sessionId', validSessionId);
-  }
+  const sessionIdVal = formatParam(filters.sessionId);
+  if (sessionIdVal) params.append("sessionId", sessionIdVal);
+
+  const programIdVal = formatParam(filters.programId);
+  if (programIdVal) params.append("programId", programIdVal);
+
+  const classIdVal = formatParam(filters.classId);
+  if (classIdVal) params.append("classId", classIdVal);
+
+  const sectionIdVal = formatParam(filters.sectionId);
+  if (sectionIdVal) params.append("sectionId", sectionIdVal);
+
+  const examIdVal = formatParam(filters.examId);
+  if (examIdVal) params.append("examId", examIdVal);
+
+  const studentIdVal = formatParam(filters.studentId);
+  if (studentIdVal) params.append("studentId", studentIdVal);
+
   try {
+    const qs = params.toString();
     const { data } = await axios.get(
-      `${base_url}/exams/result/all${params.toString() ? '?' + params.toString() : ''}`,
+      `${base_url}/exams/result/all${qs ? "?" + qs : ""}`,
       {
         withCredentials: true,
       }

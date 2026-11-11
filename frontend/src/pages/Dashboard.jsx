@@ -20,6 +20,7 @@ import {
   refreshTokens,
 } from "../../config/apis";
 import { hasModuleAccess, MODULE_BY_LABEL } from "@/lib/navigation.jsx";
+import { getStudentStatusCounts } from "@/lib/studentStatus";
 
 const subRoute = (moduleLabel, subModuleId) => {
   const module = MODULE_BY_LABEL[moduleLabel];
@@ -211,22 +212,26 @@ const Dashboard = () => {
           <div className="grid gap-2 sm:gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 
             {/* Students Module */}
-            {canSeeStudents && (
-              <StatCard
-                title="Students"
-                icon={GraduationCap}
-                value={stats?.students?.total ?? stats?.totalStudents ?? 0}
-                subtitle={`${sessionName} · Enrolled`}
-                isLoading={isStatsLoading}
-                onClick={() => navigate(MODULE_ROUTES.Students)}
-                accentColor="border-l-blue-600"
-                extraValues={[
-                  { label: "Active", value: stats?.students?.active ?? stats?.activeStudents ?? 0 },
-                  { label: "Expelled", value: stats?.students?.expelled ?? 0 },
-                  { label: "Passed Out", value: stats?.students?.passedOut ?? 0 },
-                ]}
-              />
-            )}
+            {canSeeStudents && (() => {
+              const studentCounts = getStudentStatusCounts(stats);
+              return (
+                <StatCard
+                  title="Students"
+                  icon={GraduationCap}
+                  value={studentCounts.active}
+                  subtitle={`${sessionName} · Active`}
+                  isLoading={isStatsLoading}
+                  onClick={() => navigate(MODULE_ROUTES.Students)}
+                  accentColor="border-l-blue-600"
+                  extraValues={[
+                    { label: "Active", value: studentCounts.active },
+                    { label: "Expelled", value: studentCounts.expelled },
+                    { label: "Struck Off", value: studentCounts.struckOff },
+                    { label: "Passed Out", value: studentCounts.passedOut },
+                  ]}
+                />
+              );
+            })()}
 
             {/* Attendance Module */}
             {canSeeAttendance && (

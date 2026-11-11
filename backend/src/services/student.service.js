@@ -14,8 +14,19 @@ const {
   AcademicSession,
   InstituteSettings,
   FrontOfficeInquiry,
-  Staff
+  Staff,
+  HostelRegistration,
+  HostelAllocation,
+  HostelRoom,
 } = require('../models');
+const {
+  buildStudentStatusCondition,
+  isStudentActive,
+} = require('../utils/studentStatus');
+const {
+  buildFlexibleWhitespaceRegex,
+  buildStudentSearchCondition,
+} = require('../utils/studentSearch');
 
 function getPrefix(pPrefix, cPrefix) {
   const p = (pPrefix || '').trim();
@@ -25,37 +36,51 @@ function getPrefix(pPrefix, cPrefix) {
 }
 
 class StudentService {
+  async _deactivateStudentHostelRecords(studentId, reason) {
+    if (!HostelRegistration || !HostelAllocation) return;
+    const activeRegs = await HostelRegistration.find({
+      studentId,
+      status: { $in: ['active', 'ACTIVE'] }
+    });
+    const touchedRoomIds = new Set();
+
+    for (const reg of activeRegs) {
+      const prevStatus = reg.status || 'active';
+      reg.status = 'terminated';
+      if (reg.roomId) {
+        touchedRoomIds.add(String(reg.roomId));
+        reg.roomId = null;
+      }
+      if (!Array.isArray(reg.history)) reg.history = [];
+      reg.history.push({
+        action: 'terminated',
+        previousStatus: prevStatus,
+        reason,
+        timestamp: new Date(),
+      });
+      await reg.save();
+    }
+
+    const activeAllocs = await HostelAllocation.find({ studentId, status: 'active' });
+    for (const alloc of activeAllocs) {
+      if (alloc.roomId) touchedRoomIds.add(String(alloc.roomId));
+      alloc.status = 'inactive';
+      await alloc.save();
+    }
+
+    if (HostelRoom) {
+      for (const roomId of touchedRoomIds) {
+        const count = await HostelAllocation.countDocuments({ roomId, status: 'active' });
+        await HostelRoom.findByIdAndUpdate(roomId, { currentOccupancy: count });
+      }
+    }
+  }
+
   async getStudents(filters = {}) {
     const andConditions = [];
 
     if (filters.status && filters.status !== 'all') {
-      const s = String(filters.status).trim().toUpperCase();
-      if (s === 'ACTIVE') {
-        andConditions.push({
-          status: { $regex: /^active$/i },
-          passedOut: { $ne: true }
-        });
-      } else if (s === 'GRADUATED') {
-        andConditions.push({
-          $or: [
-            { status: { $regex: /^(graduated|passed[ _-]out)$/i } },
-            { passedOut: true, status: { $nin: ['EXPELLED', 'STRUCK_OFF', 'Expelled', 'Struck Off'] } }
-          ]
-        });
-      } else if (s === 'EXPELLED') {
-        andConditions.push({
-          status: { $regex: /^expelled$/i }
-        });
-      } else if (s === 'STRUCK_OFF') {
-        andConditions.push({
-          status: { $regex: /^struck[ _-]off$/i }
-        });
-      } else {
-        const pattern = filters.status.replace(/[_\s-]+/g, '[ _-]');
-        andConditions.push({
-          status: { $regex: new RegExp(`^${pattern}$`, 'i') }
-        });
-      }
+      andConditions.push(buildStudentStatusCondition(filters.status));
     }
 
     if (filters.classId && filters.classId !== 'all') {
@@ -134,16 +159,12 @@ class StudentService {
 
     const search = (filters.search || filters.searchQuery || filters.searchFor || '').trim();
     if (search) {
-      const re = new RegExp(search, 'i');
-      andConditions.push({
-        $or: [
-          { fName: re },
-          { lName: re },
-          { rollNumber: re },
-          { fatherOrguardian: re },
-          { parentOrGuardianPhone: re }
-        ]
+      const searchCondition = buildStudentSearchCondition(search, {
+        extraFields: ['parentOrGuardianPhone'],
       });
+      if (searchCondition) {
+        andConditions.push(searchCondition);
+      }
     }
 
     const query = andConditions.length > 0 ? { $and: andConditions } : {};
@@ -320,8 +341,8 @@ class StudentService {
       err.status = 404;
       throw err;
     }
-    if (student.passedOut || student.status === 'GRADUATED') {
-      const err = new Error('Student already passed out');
+    if (!isStudentActive(student)) {
+      const err = new Error(`Cannot promote inactive student (status: ${student.status || 'UNKNOWN'})`);
       err.status = 400;
       throw err;
     }
@@ -577,8 +598,8 @@ class StudentService {
       err.status = 404;
       throw err;
     }
-    if (student.passedOut || student.status === 'GRADUATED') {
-      const err = new Error('Student already passed out');
+    if (!isStudentActive(student)) {
+      const err = new Error(`Cannot demote inactive student (status: ${student.status || 'UNKNOWN'})`);
       err.status = 400;
       throw err;
     }
@@ -706,12 +727,6 @@ class StudentService {
       err.status = 404;
       throw err;
     }
-    if (student.passedOut || student.status === 'GRADUATED') {
-      const err = new Error('Student already passed out');
-      err.status = 400;
-      throw err;
-    }
-
     // Check for remaining arrears before allowing passout
     const unpaidInstallments = (student.installments || []).filter((inst) => {
       const st = String(inst.status || '').toUpperCase();
@@ -759,6 +774,7 @@ class StudentService {
     student.graduationDate = new Date();
 
     await student.save();
+    await this._deactivateStudentHostelRecords(student._id, 'Student passed out / graduated');
     return student;
   }
 
@@ -785,6 +801,7 @@ class StudentService {
     student.statusDate = new Date();
 
     await student.save();
+    await this._deactivateStudentHostelRecords(student._id, reason || 'Student expelled');
     return student;
   }
 
@@ -811,6 +828,7 @@ class StudentService {
     student.statusDate = new Date();
 
     await student.save();
+    await this._deactivateStudentHostelRecords(student._id, reason || 'Student struck off');
     return student;
   }
 
@@ -1382,8 +1400,8 @@ class StudentService {
     // 7. Search Filter (studentName, fatherName, contact, CNIC, email)
     const search = (filters.search || filters.searchQuery || '').trim();
     if (search) {
-      const qRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      inquiryQuery.$or = [
+      const qRegex = buildFlexibleWhitespaceRegex(search);
+      const searchOrBranches = [
         { studentName: qRegex },
         { fatherName: qRegex },
         { contactNumber: qRegex },
@@ -1392,6 +1410,29 @@ class StudentService {
         { email: qRegex },
         { referenceBody: qRegex },
       ];
+
+      const studentSearchCond = buildStudentSearchCondition(search);
+      if (studentSearchCond) {
+        const matchedStudents = await Student.find(studentSearchCond)
+          .select('inquiryId parentOrGuardianPhone studentCnic')
+          .lean();
+        const matchedInquiryIds = matchedStudents.map((s) => s.inquiryId).filter(Boolean);
+        const matchedPhones = matchedStudents.map((s) => s.parentOrGuardianPhone).filter(Boolean);
+        const matchedCnics = matchedStudents.map((s) => s.studentCnic).filter(Boolean);
+
+        if (matchedInquiryIds.length > 0) {
+          searchOrBranches.push({ _id: { $in: matchedInquiryIds } });
+        }
+        if (matchedPhones.length > 0) {
+          searchOrBranches.push({ contactNumber: { $in: matchedPhones } });
+        }
+        if (matchedCnics.length > 0) {
+          searchOrBranches.push({ studentCnic: { $in: matchedCnics } });
+        }
+      }
+
+      inquiryQuery.$and = inquiryQuery.$and || [];
+      inquiryQuery.$and.push({ $or: searchOrBranches });
     }
 
     // Query matching inquiries
@@ -1522,7 +1563,7 @@ class StudentService {
         studentDetails: student ? {
           studentId: student._id.toString(),
           rollNumber: student.rollNumber || '—',
-          fullName: `${student.fName || ''} ${student.lName || ''}`.trim() || student.rollNumber,
+          fullName: [student.fName, student.lName].map(p => String(p || '').trim()).filter(Boolean).join(' ') || student.rollNumber,
           admissionDate: student.admissionDate || student.createdAt,
           programName: student.programId?.name || '—',
           className: student.classId?.name || '—',

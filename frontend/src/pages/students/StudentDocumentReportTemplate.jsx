@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getStudents } from "../../../config/apis";
 import { extractId } from "./StudentProfilePrintTemplate";
+import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 
 const STUDENT_DOCUMENT_FIELDS = [
   '_id', 'fName', 'lName', 'fatherOrguardian', 'fatherName', 'rollNumber',
@@ -1176,14 +1177,14 @@ export const StudentDocumentReportDialog = ({
   // Search filter within pending students list
   const filteredResolvedStudents = useMemo(() => {
     if (!dialogSearch.trim()) return pendingStudents;
-    const q = dialogSearch.toLowerCase().trim();
-    return pendingStudents.filter(
-      (s) =>
-        s.studentName.toLowerCase().includes(q) ||
-        s.fatherName.toLowerCase().includes(q) ||
-        s.rollNumber.toLowerCase().includes(q) ||
-        s.programName.toLowerCase().includes(q) ||
-        s.className.toLowerCase().includes(q)
+    return pendingStudents.filter((s) =>
+      matchesSearchTokens(dialogSearch, [
+        s.studentName,
+        s.fatherName,
+        s.rollNumber,
+        s.programName,
+        s.className,
+      ])
     );
   }, [pendingStudents, dialogSearch]);
 
@@ -1328,7 +1329,7 @@ export const StudentDocumentReportDialog = ({
             <div className="relative w-40 sm:w-48 hidden md:block">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
-                placeholder="Search pending..."
+                placeholder="Search name, father, roll..."
                 value={dialogSearch}
                 onChange={(e) => setDialogSearch(e.target.value)}
                 className="h-8 pl-8 text-xs"

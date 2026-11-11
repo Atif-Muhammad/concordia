@@ -47,13 +47,14 @@ import { useToast } from "@/hooks/use-toast";
 import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { getStudents } from "../../../config/apis";
 import { extractId, formatDateSafe, formatAmountSafe } from "./StudentProfilePrintTemplate";
+import { isStudentActive } from "@/lib/studentStatus";
 
 const STUDENT_EXPORT_FIELDS = [
   '_id', 'fName', 'lName', 'rollNumber', 'fatherOrguardian', 'motherName', 'gender', 'dob',
   'bloodGroup', 'religion', 'studentCnic', 'parentCNIC', 'parentOrGuardianPhone',
   'contactNumber', 'emergencyContact', 'parentOrGuardianEmail', 'email', 'address',
   'presentAddress', 'admissionDate', 'admissionFormNumber', 'sessionId', 'session',
-  'programId', 'classId', 'sectionId', 'status', 'previousBoardName',
+  'programId', 'classId', 'sectionId', 'status', 'passedOut', 'previousBoardName',
   'previousBoardRollNumber', 'obtainedMarks', 'totalMarks', 'tuitionFee',
   'numberOfInstallments', 'lateFeeFine', 'installments'
 ].join(' ');
@@ -88,7 +89,7 @@ export const StudentDataExportDialog = ({
     const active = academicSessions.find((s) => s.isActive === true || s.isActive === "true");
     return active ? extractId(active) : "all";
   });
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState(status || "ACTIVE");
   const [searchQuery, setSearchQuery] = useState("");
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPrint, setIsExportingPrint] = useState(false);
@@ -104,7 +105,7 @@ export const StudentDataExportDialog = ({
         ? initialFilters.filterSessionId
         : (activeSessionId || "all");
       setFilterSessionId(initSess);
-      setFilterStatus(initialFilters.status || status || "all");
+      setFilterStatus(initialFilters.status || status || "ACTIVE");
       setSearchQuery(initialFilters.searchQuery || "");
     }
   }, [open, initialFilters, status, activeSessionId]);
@@ -155,7 +156,7 @@ export const StudentDataExportDialog = ({
     setFilterSections([]);
     setFilterGender("all");
     setFilterSessionId(activeSessionId || "all");
-    setFilterStatus("all");
+    setFilterStatus(status || "ACTIVE");
     setSearchQuery("");
   };
 
@@ -249,12 +250,13 @@ export const StudentDataExportDialog = ({
         student.session ||
         "—";
 
+      const studentActive = isStudentActive(student);
       // Fee Installment Plan resolution
       const rawInst = student.installments || student.feeInstallments || [];
       const installments = (Array.isArray(rawInst) ? rawInst : []).map((inst, instIdx) => {
         const amount = Number(inst.amount ?? inst.basePayable ?? 0);
         const paid = Number(inst.paidAmount ?? 0);
-        const pending = Number(inst.pendingAmount != null ? inst.pendingAmount : Math.max(0, amount - paid));
+        const pending = studentActive ? Number(inst.pendingAmount != null ? inst.pendingAmount : Math.max(0, amount - paid)) : 0;
         const instStatus = inst.status || (paid >= amount && amount > 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING");
         return {
           installmentNumber: inst.installmentNumber || instIdx + 1,
@@ -272,10 +274,11 @@ export const StudentDataExportDialog = ({
           ? installments.reduce((sum, i) => sum + i.amount, 0)
           : Number(student.tuitionFee || 0);
       const totalPaid = installments.reduce((sum, i) => sum + i.paidAmount, 0);
-      const totalPending =
-        installments.length > 0
+      const totalPending = studentActive
+        ? (installments.length > 0
           ? installments.reduce((sum, i) => sum + i.pendingAmount, 0)
-          : Math.max(0, totalTuition - totalPaid);
+          : Math.max(0, totalTuition - totalPaid))
+        : 0;
 
       return {
         ...student,

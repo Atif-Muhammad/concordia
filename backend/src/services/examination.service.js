@@ -516,6 +516,8 @@ class ExaminationService {
         totalMarks = 100;
       }
 
+      totalMarks = Math.round(totalMarks * 10000) / 10000;
+      obtainedMarks = Math.round(obtainedMarks * 10000) / 10000;
       const percentage = totalMarks > 0 ? (obtainedMarks / totalMarks) * 100 : 0;
       const { grade, gpa } = calculateGrade(percentage);
 
@@ -635,6 +637,8 @@ class ExaminationService {
         totalMarks += fm.totalMarks;
         obtainedMarks += fm.obtainedMarks;
       }
+      totalMarks = Math.round(totalMarks * 10000) / 10000;
+      obtainedMarks = Math.round(obtainedMarks * 10000) / 10000;
       const percentage = totalMarks > 0 ? (obtainedMarks / totalMarks) * 100 : 0;
       const calculateGrade = (pct) => {
         if (pct >= 90) return { grade: 'A+', gpa: 4.0 };

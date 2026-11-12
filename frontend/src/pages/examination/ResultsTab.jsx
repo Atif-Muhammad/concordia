@@ -343,13 +343,6 @@ export const ResultsTab = () => {
     });
   }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings, selectedProgramIds, selectedClassIds]);
 
-  const examOptions = useMemo(() => {
-    return availableFilterExams.map((exam) => ({
-      value: extractId(exam.id || exam._id),
-      label: `${exam.examName} - ${exam.session}${exam.startDate ? ` (${formatDateDisplay(exam.startDate)})` : ""}`,
-    }));
-  }, [availableFilterExams]);
-
   const formatDateDisplay = (dateString) => {
     if (!dateString) return "";
     const clean = dateString.split("T")[0];
@@ -367,6 +360,13 @@ export const ResultsTab = () => {
     }
     return clean;
   };
+
+  const examOptions = useMemo(() => {
+    return availableFilterExams.map((exam) => ({
+      value: extractId(exam.id || exam._id),
+      label: `${exam.examName} - ${exam.session}${exam.startDate ? ` (${formatDateDisplay(exam.startDate)})` : ""}`,
+    }));
+  }, [availableFilterExams]);
 
   const getFullName = (student) => {
     return formatNormalizedFullName(student?.fName, student?.lName) || student?.name || "Student";

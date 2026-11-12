@@ -57,6 +57,7 @@ import { hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 import { extractId } from "@/lib/utils.jsx";
 import { isStudentActive } from "@/lib/studentStatus";
 import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
+import { sanitizeMarksInput, finalizeMarksInput, roundMarksValue } from "@/lib/inputValidation";
 import usePermissions from "@/hooks/usePermissions";
 
 export const MarksEntryTab = () => {
@@ -1000,8 +1001,8 @@ export const MarksEntryTab = () => {
                                         <div className="flex flex-col gap-2 items-center">
                                           <Input
                                             type="text"
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
+                                            inputMode="decimal"
+                                            pattern="[0-9]*\.?[0-9]*"
                                             className={`h-8 w-20 text-center no-spinners font-medium ${
                                               isAbsent ? "opacity-30" : ""
                                             }`}
@@ -1014,20 +1015,13 @@ export const MarksEntryTab = () => {
                                               if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                                                 e.preventDefault();
                                               }
-                                              if (["+", "-", "e", "E", ".", ","].includes(e.key)) {
+                                              if (["+", "-", "e", "E", ","].includes(e.key)) {
                                                 e.preventDefault();
                                               }
                                             }}
                                             onChange={(e) => {
                                               const maxMarks = Number(s.totalMarks) || 100;
-                                              let val = e.target.value.replace(/\D/g, "");
-
-                                              if (val !== "") {
-                                                let num = parseInt(val, 10);
-                                                if (isNaN(num) || num < 0) num = 0;
-                                                if (num > maxMarks) num = maxMarks;
-                                                val = num.toString();
-                                              }
+                                              const val = sanitizeMarksInput(e.target.value, maxMarks);
 
                                               setBulkMarksData((prev) => ({
                                                 ...prev,
@@ -1039,15 +1033,7 @@ export const MarksEntryTab = () => {
                                             }}
                                             onBlur={(e) => {
                                               const maxMarks = Number(s.totalMarks) || 100;
-                                              let val = e.target.value.trim().replace(/\D/g, "");
-                                              if (val === "" || isNaN(Number(val))) {
-                                                val = "0";
-                                              } else {
-                                                let num = parseInt(val, 10);
-                                                if (num < 0) num = 0;
-                                                if (num > maxMarks) num = maxMarks;
-                                                val = num.toString();
-                                              }
+                                              const val = finalizeMarksInput(e.target.value, maxMarks);
                                               setBulkMarksData((prev) => ({
                                                 ...prev,
                                                 [sId]: {
@@ -1357,10 +1343,14 @@ export const MarksEntryTab = () => {
                 <TableBody>
                   {Object.values(grouped).map((group) => {
                     const exam = exams.find((e) => extractId(e) === extractId(group.examId));
-                    const totalMarks = group.marks.reduce((s, m) => s + (m.totalMarks || 0), 0);
-                    const obtainedMarks = group.marks.reduce(
-                      (s, m) => s + (m.isAbsent ? 0 : m.obtainedMarks || 0),
-                      0
+                    const totalMarks = roundMarksValue(
+                      group.marks.reduce((s, m) => s + (m.totalMarks || 0), 0)
+                    );
+                    const obtainedMarks = roundMarksValue(
+                      group.marks.reduce(
+                        (s, m) => s + (m.isAbsent ? 0 : m.obtainedMarks || 0),
+                        0
+                      )
                     );
                     const percentage =
                       totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(1) : "0.0";
@@ -1483,13 +1473,17 @@ export const MarksEntryTab = () => {
             (() => {
               const exam = exams.find((e) => e.id === viewMarksDetail.examId);
               const student = viewMarksDetail.student;
-              const totalMarks = viewMarksDetail.marks.reduce(
-                (s, m) => s + (m.totalMarks || 0),
-                0
+              const totalMarks = roundMarksValue(
+                viewMarksDetail.marks.reduce(
+                  (s, m) => s + (m.totalMarks || 0),
+                  0
+                )
               );
-              const obtainedMarks = viewMarksDetail.marks.reduce(
-                (s, m) => s + (m.isAbsent ? 0 : m.obtainedMarks || 0),
-                0
+              const obtainedMarks = roundMarksValue(
+                viewMarksDetail.marks.reduce(
+                  (s, m) => s + (m.isAbsent ? 0 : m.obtainedMarks || 0),
+                  0
+                )
               );
               const percentage =
                 totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(2) : "0.00";

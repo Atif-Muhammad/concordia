@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractId } from "@/lib/utils.jsx";
+import { sanitizeMarksInput, finalizeMarksInput, roundMarksValue } from "@/lib/inputValidation";
 
 describe("Examination Module Overhaul - Unit & Integration Logic Tests", () => {
   describe("extractId utility", () => {
@@ -142,6 +143,36 @@ describe("Examination Module Overhaul - Unit & Integration Logic Tests", () => {
       });
 
       expect(available.map((e) => e._id)).toEqual(["ex1", "ex3"]);
+    });
+  });
+
+  describe("Marks Float Input Sanitization & Clamping", () => {
+    it("allows typing decimal numbers and preserves in-progress decimal points", () => {
+      expect(sanitizeMarksInput("24.5", 30)).toBe("24.5");
+      expect(sanitizeMarksInput("24.", 30)).toBe("24.");
+      expect(sanitizeMarksInput(".", 30)).toBe("0.");
+      expect(sanitizeMarksInput(".75", 30)).toBe("0.75");
+      expect(sanitizeMarksInput("12.3.4", 30)).toBe("12.34");
+      expect(sanitizeMarksInput("05", 30)).toBe("5");
+      expect(sanitizeMarksInput("0.5", 30)).toBe("0.5");
+    });
+
+    it("blocks negatives, non-numeric signs, and values exceeding total marks", () => {
+      expect(sanitizeMarksInput("-10", 30)).toBe("0");
+      expect(sanitizeMarksInput("30.5", 30)).toBe("30");
+      expect(sanitizeMarksInput("45", 30)).toBe("30");
+      expect(sanitizeMarksInput("+12.5e2", 30)).toBe("12.52");
+      expect(sanitizeMarksInput("+45", 30)).toBe("30");
+      expect(sanitizeMarksInput("", 30)).toBe("");
+    });
+
+    it("finalizes values on blur to canonical numbers in [0, maxMarks] and rounds accumulated totals cleanly", () => {
+      expect(finalizeMarksInput("", 30)).toBe("0");
+      expect(finalizeMarksInput(".", 30)).toBe("0");
+      expect(finalizeMarksInput("24.", 30)).toBe("24");
+      expect(finalizeMarksInput("24.50", 30)).toBe("24.5");
+      expect(finalizeMarksInput("31.2", 30)).toBe("30");
+      expect(roundMarksValue(9.1 + 9.2)).toBe(18.3);
     });
   });
 });

@@ -114,6 +114,43 @@ export function getDefaultMaxLength(props = {}) {
   return undefined;
 }
 
+export function roundMarksValue(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.round(num * 10000) / 10000 : 0;
+}
+
+export function sanitizeMarksInput(rawValue, maxMarks = 100) {
+  const text = String(rawValue ?? "").trim();
+  if (!text) return "";
+  if (text.startsWith("-")) return "0";
+
+  let val = text.replace(/[^0-9.]/g, "");
+  const dotIndex = val.indexOf(".");
+  if (dotIndex !== -1) {
+    val = val.slice(0, dotIndex + 1) + val.slice(dotIndex + 1).replace(/\./g, "");
+  }
+  if (val.startsWith(".")) {
+    val = `0${val}`;
+  }
+  val = val.replace(/^0+(?=\d)/, "");
+  if (val === "") return "";
+
+  const limit = Number(maxMarks) > 0 ? Number(maxMarks) : 100;
+  const num = Number(val);
+  if (!Number.isFinite(num) || num < 0) return "0";
+  if (num > limit) return String(limit);
+  return val;
+}
+
+export function finalizeMarksInput(rawValue, maxMarks = 100) {
+  const sanitized = sanitizeMarksInput(rawValue, maxMarks);
+  if (sanitized === "" || sanitized === ".") return "0";
+  const limit = Number(maxMarks) > 0 ? Number(maxMarks) : 100;
+  const num = Number(sanitized);
+  if (!Number.isFinite(num) || num < 0) return "0";
+  return String(Math.min(num, limit));
+}
+
 export function firstError(...messages) {
   return messages.find(Boolean) || "";
 }

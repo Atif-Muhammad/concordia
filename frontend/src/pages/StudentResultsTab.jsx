@@ -30,12 +30,32 @@ import {
 } from "@/lib/studentStatus";
 import { formatNormalizedFullName } from "@/lib/studentSearch";
 import { CheckboxMultiSelect } from "@/components/ui/CheckboxMultiSelect";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return "";
+  const clean = dateString.split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return clean;
+};
 
 export const StudentResultsTab = ({
   programs = [],
   classesData: propClassesData,
   students,
   exams = [],
+  isLoadingExams = false,
   studentResultProgram,
   setStudentResultProgram,
   studentResultClass,
@@ -123,54 +143,37 @@ export const StudentResultsTab = ({
     queryFn: getSubjects,
   });
 
-  const programOptions = useMemo(() => {
-    return (
-      programs?.map((program) => {
-        const pId = extractId(program.id || program._id);
-        const dep = program.department?.name ? ` — ${program.department.name}` : "";
-        return {
-          value: pId,
-          label: `${program.name}${dep}`,
-        };
-      }) || []
-    );
-  }, [programs]);
+  const examOptions = useMemo(() => {
+    return (exams || []).map((exam) => {
+      const eId = extractId(exam.id || exam._id);
+      const progName = exam.program?.name || exam.programId?.name || "";
+      const clsName = exam.class?.name || exam.classId?.name || "";
+      const sessionName = exam.session || exam.sessionId?.name || "";
+      const dateStr = formatDateDisplay(exam.startDate);
+      const label = `${exam.examName}${clsName ? ` — ${clsName}` : ""}${progName ? ` (${progName})` : ""}${sessionName ? ` [${sessionName}]` : ""}`;
+      return {
+        value: eId,
+        label,
+        keywords: `${exam.examName} ${progName} ${clsName} ${sessionName} ${dateStr}`,
+      };
+    });
+  }, [exams]);
 
-  // Get available classes based on selected program(s)
-  const availableClasses = useMemo(() => {
-    if (selectedProgIds.length === 0) return [];
-    return classesData.filter((c) => selectedProgIds.includes(extractId(c.programId || c.program)));
-  }, [classesData, selectedProgIds]);
+  const selectedExamObj = useMemo(() => {
+    return (exams || []).find((e) => extractId(e.id || e._id) === studentResultExam);
+  }, [exams, studentResultExam]);
 
-  const classOptions = useMemo(() => {
-    return availableClasses.map((cls) => ({
-      value: extractId(cls.id || cls._id),
-      label: cls.name || "Class",
-    }));
-  }, [availableClasses]);
+  const examClassId = extractId(
+    selectedExamObj?.classId || selectedExamObj?.class || selectedClassIds[0]
+  );
+  const selectedClassObj = classesData.find((c) => extractId(c.id || c._id) === examClassId) || selectedExamObj?.class;
+  const allowSections = selectedClassObj ? selectedClassObj.allowSections !== false : true;
 
-  // Selected class objects & section allowance
-  const selectedClasses = useMemo(() => {
-    return classesData.filter((c) => selectedClassIds.includes(extractId(c.id || c._id)));
-  }, [classesData, selectedClassIds]);
-
-  const allowSections = useMemo(() => {
-    if (selectedClasses.length === 0) return true;
-    return selectedClasses.some((c) => c.allowSections !== false);
-  }, [selectedClasses]);
-
-  // Auto clear section if classes do not allow sections
-  useEffect(() => {
-    if (!allowSections && selectedSectionIds.length > 0) {
-      handleSectionChange([]);
-    }
-  }, [allowSections, selectedSectionIds]);
-
-  // Get available sections based on selected classes
+  // Get available sections based on selected class
   const availableSections = useMemo(() => {
-    if (selectedClassIds.length === 0 || !allowSections) return [];
-    return sectionsData.filter((s) => selectedClassIds.includes(extractId(s.classId || s.class)));
-  }, [selectedClassIds, allowSections, sectionsData]);
+    if (!examClassId || !allowSections) return [];
+    return sectionsData.filter((s) => extractId(s.classId || s.class) === examClassId);
+  }, [examClassId, allowSections, sectionsData]);
 
   const sectionOptions = useMemo(() => {
     return availableSections.map((sec) => ({
@@ -195,20 +198,18 @@ export const StudentResultsTab = ({
   const { data: classStudentsData } = useQuery({
     queryKey: [
       "classStudentsResultTab",
-      selectedProgIds.join(","),
-      selectedClassIds.join(","),
-      selectedSectionIds.join(","),
+      examClassId,
+      studentResultSection,
     ],
     queryFn: () =>
       getStudents({
-        programId: selectedProgIds.length > 0 ? selectedProgIds.join(",") : undefined,
-        classId: selectedClassIds.length > 0 ? selectedClassIds.join(",") : undefined,
-        sectionId: allowSections && selectedSectionIds.length > 0 ? selectedSectionIds.join(",") : undefined,
+        classId: examClassId || undefined,
+        sectionId: allowSections && studentResultSection && studentResultSection !== "*" ? studentResultSection : undefined,
         status: "ACTIVE",
         page: 1,
         limit: 1000,
       }),
-    enabled: selectedClassIds.length > 0 && !isSearchActive,
+    enabled: !!examClassId && !isSearchActive,
   });
 
   // Determine which list to show
@@ -224,12 +225,10 @@ export const StudentResultsTab = ({
     .filter((student) => isSearchActive || isStudentActive(student))
     .filter((student) => {
       if (!isSearchActive) return true;
-      const progId = extractId(student.programId || student.program?.id || student.program?._id);
-      const clsId = extractId(student.classId || student.class?.id || student.class?._id);
-      const secId = extractId(student.sectionId || student.section?.id || student.section?._id);
-      if (selectedProgIds.length > 0 && progId && !selectedProgIds.includes(progId)) return false;
-      if (selectedClassIds.length > 0 && clsId && !selectedClassIds.includes(clsId)) return false;
-      if (allowSections && selectedSectionIds.length > 0 && secId && !selectedSectionIds.includes(secId)) return false;
+      if (examClassId) {
+        const clsId = extractId(student.classId || student.class?.id || student.class?._id);
+        if (clsId && clsId !== examClassId) return false;
+      }
       return true;
     });
 
@@ -241,29 +240,10 @@ export const StudentResultsTab = ({
         );
         if (!student) return true;
         const studentClassId = extractId(student.classId || student.class?.id || student.class?._id);
-        const examClassId = extractId(exam.classId || exam.class?.id || exam.class?._id);
-        return !examClassId || examClassId === studentClassId;
+        const exClassId = extractId(exam.classId || exam.class?.id || exam.class?._id);
+        return !exClassId || exClassId === studentClassId;
       }) || []
-    : [];
-
-  // Format date for display
-  const formatDateDisplay = (dateString) => {
-    if (!dateString) return "";
-    const clean = dateString.split("T")[0];
-    const parts = clean.split("-");
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleDateString([], {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-      }
-    }
-    return clean;
-  };
+    : (exams || []);
 
   return (
     <Card>
@@ -286,34 +266,22 @@ export const StudentResultsTab = ({
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Program Filter */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          {/* Exam Filter */}
           <div className="space-y-2">
-            <Label>Select Program *</Label>
-            <CheckboxMultiSelect
-              title="Programs"
-              placeholder="Select Programs"
-              allLabel="All Programs"
-              options={programOptions}
-              selected={selectedProgIds}
-              onChange={(v) => {
-                handleProgChange(v);
-                setSearchQuery("");
+            <Label>Select Exam *</Label>
+            <SearchableSelect
+              options={examOptions}
+              value={studentResultExam}
+              onChange={(val) => {
+                setStudentResultExam(val);
+                setStudentResultStudent("");
+                if (setStudentResultSection) setStudentResultSection("");
               }}
-            />
-          </div>
-
-          {/* Class Filter */}
-          <div className="space-y-2">
-            <Label>Select Class *</Label>
-            <CheckboxMultiSelect
-              title="Classes"
-              placeholder={selectedProgIds.length === 0 ? "Select program first" : "Select Classes"}
-              allLabel="All Classes"
-              options={classOptions}
-              selected={selectedClassIds}
-              onChange={handleClassChange}
-              disabled={selectedProgIds.length === 0}
+              allowAll={false}
+              placeholder="Select Exam"
+              isLoading={isLoadingExams}
+              searchPlaceholder="Search exam name, class, program..."
             />
           </div>
 
@@ -325,15 +293,26 @@ export const StudentResultsTab = ({
                 Sections Not Applicable
               </div>
             ) : (
-              <CheckboxMultiSelect
-                title="Sections"
-                placeholder={selectedClassIds.length === 0 ? "Select class first" : "All Sections"}
-                allLabel="All Sections"
-                options={sectionOptions}
-                selected={selectedSectionIds}
-                onChange={handleSectionChange}
-                disabled={selectedClassIds.length === 0}
-              />
+              <Select
+                value={studentResultSection || "*"}
+                onValueChange={(val) => {
+                  if (setStudentResultSection) setStudentResultSection(val === "*" ? "" : val);
+                  setStudentResultStudent("");
+                }}
+                disabled={!examClassId}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder={!examClassId ? "Select exam first" : "All Sections"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="*">All Sections</SelectItem>
+                  {availableSections.map((sec) => (
+                    <SelectItem key={extractId(sec.id || sec._id)} value={extractId(sec.id || sec._id)}>
+                      {sec.name || sec.sectionName || "Section"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -346,20 +325,22 @@ export const StudentResultsTab = ({
                 setStudentResultStudent(v);
               }}
               disabled={
-                (!isSearchActive && selectedClassIds.length === 0) ||
+                (!isSearchActive && !examClassId) ||
                 displayStudents.length === 0
               }
             >
-              <SelectTrigger>
+              <SelectTrigger className="h-9 text-xs">
                 <SelectValue
                   placeholder={
                     isSearchActive
                       ? displayStudents.length > 0
                         ? `Select from ${displayStudents.length} result${displayStudents.length === 1 ? "" : "s"}`
                         : "No matching students found"
-                      : selectedClassIds.length > 0
-                      ? "Select student"
-                      : "Select class or search above"
+                      : examClassId
+                      ? displayStudents.length > 0
+                        ? "Select student"
+                        : "No active students in class"
+                      : "Select exam or search above"
                   }
                 />
               </SelectTrigger>
@@ -389,39 +370,12 @@ export const StudentResultsTab = ({
             </Select>
           </div>
 
-          {/* Exam Filter */}
-          <div className="space-y-2">
-            <Label>Select Exam *</Label>
-            <Select
-              value={studentResultExam}
-              onValueChange={setStudentResultExam}
-              disabled={!studentResultStudent}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={studentResultStudent ? "Select exam" : "First select student"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {availableExams.map((exam) => {
-                  const examId = extractId(exam.id || exam._id);
-                  return (
-                    <SelectItem key={examId} value={examId}>
-                      {exam.examName} - {exam.session} ({formatDateDisplay(exam.startDate)} -{" "}
-                      {formatDateDisplay(exam.endDate)})
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Generate Button */}
-          <div className="space-y-2 flex items-end">
+          <div className="space-y-2">
             <Button
               onClick={() => studentResultMutation.mutate()}
               disabled={!studentResultStudent || !studentResultExam || studentResultMutation.isPending}
-              className="w-full"
+              className="w-full h-9"
             >
               {studentResultMutation.isPending ? (
                 <>
@@ -446,73 +400,59 @@ export const StudentResultsTab = ({
               </Button>
             </div>
 
-            {/* Student Info */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Student Information</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Name</p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium">{getFullName(studentResultData.student)}</span>
+            {/* Student & Examination Details (Form-like 2-column layout) */}
+            <div className="border rounded-md bg-card p-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                Student & Examination Details
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-xs">
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Student Name:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-foreground">{getFullName(studentResultData.student)}</span>
                     <span className={`text-[10px] font-medium ${getStudentStatusTextTone(getStudentStatusCode(studentResultData.student)).textClass}`}>
                       ({formatStudentStatusLabel(getStudentStatusCode(studentResultData.student))})
                     </span>
                   </div>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Roll Number</p>
-                  <p className="font-medium">{studentResultData.student?.rollNumber || "N/A"}</p>
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Exam Name:</span>
+                  <span className="font-semibold text-foreground">{studentResultData.exam?.examName}</span>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Class</p>
-                  <p className="font-medium">
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Roll Number:</span>
+                  <span className="font-mono font-semibold text-foreground">{studentResultData.student?.rollNumber || "—"}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Academic Session:</span>
+                  <span className="font-semibold text-foreground">{studentResultData.exam?.session || "—"}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Father Name:</span>
+                  <span className="font-semibold text-foreground">{studentResultData.student?.fatherOrguardian || studentResultData.student?.fatherName || "—"}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground font-medium">Class & Program:</span>
+                  <span className="font-semibold text-foreground">
                     {studentResultData.exam?.class?.name || studentResultData.student?.class?.name || "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Program</p>
-                  <p className="font-medium">
-                    {studentResultData.exam?.program?.name || studentResultData.student?.program?.name || "N/A"}
-                  </p>
+                    {studentResultData.exam?.program?.name ? ` (${studentResultData.exam.program.name})` : ""}
+                  </span>
                 </div>
                 {studentResultData.student?.section && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Section</p>
-                    <p className="font-medium">{studentResultData.student.section?.name || "N/A"}</p>
+                  <div className="flex items-center justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground font-medium">Section:</span>
+                    <span className="font-semibold text-foreground">{studentResultData.student.section?.name || "N/A"}</span>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Exam Info */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Exam Information</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Exam Name</p>
-                  <p className="font-medium">{studentResultData.exam?.examName}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Session</p>
-                  <p className="font-medium">{studentResultData.exam?.session}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Type</p>
-                  <p className="font-medium">{studentResultData.exam?.type || "N/A"}</p>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
             {/* Subject-wise Marks */}
             <Card>
-              <CardHeader>
-                <CardTitle>Subject-wise Marks</CardTitle>
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm font-semibold">Subject-wise Marks</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -532,9 +472,11 @@ export const StudentResultsTab = ({
                           : (foundSub?.name || "Subject");
                       return (
                         <TableRow key={idx}>
-                          <TableCell>{sName}</TableCell>
+                          <TableCell className="font-medium">{sName}</TableCell>
                           <TableCell>{mark.totalMarks}</TableCell>
-                          <TableCell>{mark.isAbsent ? "Absent" : mark.obtainedMarks}</TableCell>
+                          <TableCell className={mark.isAbsent ? "text-destructive font-semibold" : "font-semibold"}>
+                            {mark.isAbsent ? "Absent" : mark.obtainedMarks}
+                          </TableCell>
                           <TableCell>
                             {mark.totalMarks > 0
                               ? ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(2)
@@ -542,49 +484,24 @@ export const StudentResultsTab = ({
                             %
                           </TableCell>
                         </TableRow>
-                      )})}
-
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
 
-            {/* Overall Result */}
+            {/* Overall Result Summary Text Strip */}
             {studentResultData.result && (
-              <Card className="bg-primary/5">
-                <CardHeader>
-                  <CardTitle>Overall Result</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Marks</p>
-                    <p className="text-2xl font-bold">{studentResultData.result.totalMarks}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Obtained Marks</p>
-                    <p className="text-2xl font-bold text-primary">
-                      {studentResultData.result.obtainedMarks}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Percentage</p>
-                    <p className="text-2xl font-bold">
-                      {(studentResultData.result.percentage || 0).toFixed(2)}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Grade</p>
-                    <p className="text-2xl font-bold">{studentResultData.result.grade}</p>
-                  </div>
-                  {/* GPA hidden for now */}
-                  {studentResultData.position && (
-                    <div>
-                      <p className="text-sm text-muted-foreground">Position</p>
-                      <p className="text-2xl font-bold">{studentResultData.position}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <div className="flex flex-wrap items-center justify-between gap-4 p-3.5 bg-muted/30 border-y border-border text-xs rounded-md">
+                <span>Total Marks: <strong className="text-foreground ml-1">{studentResultData.result.totalMarks}</strong></span>
+                <span>Obtained Marks: <strong className="text-primary ml-1">{studentResultData.result.obtainedMarks}</strong></span>
+                <span>Percentage: <strong className="text-foreground ml-1">{(studentResultData.result.percentage || 0).toFixed(2)}%</strong></span>
+                <span>Grade: <strong className={`ml-1 ${studentResultData.result.grade === 'F' ? 'text-destructive' : 'text-emerald-600'}`}>{studentResultData.result.grade}</strong></span>
+                {studentResultData.position && (
+                  <span>Position: <strong className="text-foreground ml-1">{studentResultData.position}</strong></span>
+                )}
+              </div>
             )}
           </div>
         )}

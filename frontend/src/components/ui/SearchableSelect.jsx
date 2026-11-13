@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Search, X, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,7 @@ export const SearchableSelect = ({
   searchPlaceholder = "Search...",
   emptyMessage = "No matching options",
   disabled = false,
+  isLoading = false,
   allowAll = true,
   className,
   popoverClassName,
@@ -79,9 +80,13 @@ export const SearchableSelect = ({
           )}
         >
           <span className="truncate text-left">
-            {selectedOption ? selectedOption.label : placeholder}
+            {isLoading ? "Loading..." : (selectedOption ? selectedOption.label : placeholder)}
           </span>
-          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+          {isLoading ? (
+            <Loader2 className="ml-1 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : (
+            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -110,7 +115,7 @@ export const SearchableSelect = ({
           )}
         </div>
         <div className="max-h-60 overflow-y-auto p-1 space-y-0.5">
-          {allowAll && (
+          {allowAll && !isLoading && (
             <button
               type="button"
               onClick={() => handleSelect("")}
@@ -128,7 +133,12 @@ export const SearchableSelect = ({
               <span className="truncate">{allLabel}</span>
             </button>
           )}
-          {filteredOptions.length === 0 ? (
+          {isLoading ? (
+            <div className="py-6 px-2 text-xs text-muted-foreground text-center flex items-center justify-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" />
+              <span>Loading...</span>
+            </div>
+          ) : filteredOptions.length === 0 ? (
             <div className="py-4 px-2 text-xs text-muted-foreground text-center">
               {emptyMessage}
             </div>

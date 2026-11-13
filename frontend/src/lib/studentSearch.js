@@ -37,11 +37,6 @@ export function matchesSearchTokens(query = '', fields = []) {
   }
 
   const tokens = normalizedQuery.split(' ');
-  if (tokens.length > 1) {
-    return normalizedFields.some((field) =>
-      tokens.every((token) => field.includes(token))
-    );
-  }
-
-  return false;
+  const combinedHaystack = normalizedFields.join(' ');
+  return tokens.every((token) => combinedHaystack.includes(token));
 }

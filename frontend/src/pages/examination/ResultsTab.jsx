@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Award, PlusCircle, Printer, SlidersHorizontal, Loader2, Search } from "lucide-react";
+import { Award, PlusCircle, Printer, SlidersHorizontal, Loader2, Search, PenSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { StudentResultsTab } from "../StudentResultsTab";
 import { CheckboxMultiSelect } from "@/components/ui/CheckboxMultiSelect";
@@ -50,13 +51,35 @@ import { isStudentActive } from "@/lib/studentStatus";
 import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import { hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 import usePermissions from "@/hooks/usePermissions";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return "";
+  const clean = dateString.split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return clean;
+};
 
 export const ResultsTab = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { canCreate, canUpdate } = usePermissions("Examination", "results");
 
   const [resultDialog, setResultDialog] = useState(false);
+  const [resultsExamId, setResultsExamId] = useState("");
+  const [resultsSectionId, setResultsSectionId] = useState("");
   const [selectedProgramIds, setSelectedProgramIds] = useState([]);
   const [selectedClassIds, setSelectedClassIds] = useState([]);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
@@ -178,7 +201,7 @@ export const ResultsTab = () => {
     queryFn: getClasses,
   });
 
-  const { data: exams = [] } = useQuery({
+  const { data: exams = [], isLoading: isLoadingExams } = useQuery({
     queryKey: ["exams"],
     queryFn: () => getExams(),
   });
@@ -224,22 +247,57 @@ export const ResultsTab = () => {
     queryFn: getSections,
   });
 
+  const selectedExamObj = useMemo(() => {
+    return exams.find((e) => extractId(e.id || e._id) === resultsExamId);
+  }, [exams, resultsExamId]);
+
+  const examClassId = extractId(selectedExamObj?.classId || selectedExamObj?.class);
+  const selectedClassObj = classesData.find((c) => extractId(c.id || c._id) === examClassId) || selectedExamObj?.class;
+  const allowSections = selectedClassObj ? selectedClassObj.allowSections !== false : true;
+
+  const availableSections = useMemo(() => {
+    if (!allowSections || !examClassId) return [];
+    if (isTeacher) {
+      const matching = teacherClassMappings.filter(
+        (m) => extractId(m.classId || m.class) === examClassId
+      );
+      const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
+      return secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
+    }
+    return sectionsData.filter((s) => extractId(s.classId || s.class) === examClassId);
+  }, [examClassId, allowSections, isTeacher, teacherClassMappings, sectionsData]);
+
+  const sectionOptions = useMemo(() => {
+    return availableSections.map((sec) => ({
+      value: extractId(sec.id || sec._id || sec),
+      label: sec.name || sec.sectionName || "Section",
+    }));
+  }, [availableSections]);
+
+  const effectiveExamId = (resultsExamId && resultsExamId !== "*")
+    ? resultsExamId
+    : (selectedExamIds.length > 0 ? selectedExamIds.join(",") : undefined);
+  const effectiveSectionId = (resultsSectionId && resultsSectionId !== "*")
+    ? resultsSectionId
+    : (selectedSectionIds.length > 0 ? selectedSectionIds.join(",") : undefined);
+  const effectiveClassId = examClassId || (selectedClassIds.length > 0 ? selectedClassIds.join(",") : undefined);
+
   const { data: results = [], isLoading: isLoadingResults } = useQuery({
     queryKey: [
       "results",
       resultsSessionFilter,
       selectedProgramIds.join(","),
-      selectedClassIds.join(","),
-      selectedSectionIds.join(","),
-      selectedExamIds.join(","),
+      effectiveClassId || "",
+      effectiveSectionId || "",
+      effectiveExamId || "",
     ],
     queryFn: () =>
       getResults({
         sessionId: resultsSessionFilter || undefined,
         programId: selectedProgramIds.length > 0 ? selectedProgramIds.join(",") : undefined,
-        classId: selectedClassIds.length > 0 ? selectedClassIds.join(",") : undefined,
-        sectionId: selectedSectionIds.length > 0 ? selectedSectionIds.join(",") : undefined,
-        examId: selectedExamIds.length > 0 ? selectedExamIds.join(",") : undefined,
+        classId: effectiveClassId,
+        sectionId: effectiveSectionId,
+        examId: effectiveExamId,
       }),
   });
 
@@ -256,116 +314,30 @@ export const ResultsTab = () => {
       })
     : exams;
 
-  const programOptions = useMemo(() => {
-    return (
-      programs
-        ?.filter((p) =>
-          isTeacher
-            ? teacherClassMappings.some((m) => extractId(m.class?.programId) === extractId(p.id || p._id))
-            : true
-        )
-        ?.map((p) => {
-          const pId = extractId(p.id || p._id);
-          const dep = p.department?.name ? ` — ${p.department.name}` : "";
-          return {
-            value: pId,
-            label: `${p.name}${dep}`,
-          };
-        }) || []
-    );
-  }, [programs, isTeacher, teacherClassMappings]);
-
-  const availableClasses = useMemo(() => {
-    if (selectedProgramIds.length === 0) return [];
-    return classesData.filter((c) => {
-      const pId = extractId(c.programId || c.program);
-      const inProg = selectedProgramIds.includes(pId);
-      if (!inProg) return false;
-      if (isTeacher) {
-        return teacherClassMappings.some((m) => extractId(m.classId) === extractId(c.id || c._id));
-      }
-      return true;
-    });
-  }, [classesData, selectedProgramIds, isTeacher, teacherClassMappings]);
-
-  const classOptions = useMemo(() => {
-    return availableClasses.map((cls) => ({
-      value: extractId(cls.id || cls._id),
-      label: cls.name || "Class",
-    }));
-  }, [availableClasses]);
-
-  const selectedClasses = useMemo(() => {
-    return classesData.filter((c) => selectedClassIds.includes(extractId(c.id || c._id)));
-  }, [classesData, selectedClassIds]);
-
-  const allowSections = useMemo(() => {
-    if (selectedClasses.length === 0) return true;
-    return selectedClasses.some((c) => c.allowSections !== false);
-  }, [selectedClasses]);
-
-  const availableSections = useMemo(() => {
-    if (selectedClassIds.length === 0 || !allowSections) return [];
-    if (isTeacher) {
-      const matching = teacherClassMappings.filter((m) =>
-        selectedClassIds.includes(extractId(m.classId || m.class))
-      );
-      const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
-      return secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
-    }
-    return sectionsData.filter((s) => selectedClassIds.includes(extractId(s.classId || s.class)));
-  }, [selectedClassIds, allowSections, isTeacher, teacherClassMappings, sectionsData]);
-
-  const sectionOptions = useMemo(() => {
-    return availableSections.map((sec) => ({
-      value: extractId(sec.id || sec._id || sec),
-      label: sec.name || sec.sectionName || "Section",
-    }));
-  }, [availableSections]);
-
   const availableFilterExams = useMemo(() => {
-    if (selectedClassIds.length === 0) return [];
     return resultsSessionFilteredExams.filter((exam) => {
-      const examClassId = extractId(exam.classId || exam.class);
-      const examProgId = extractId(exam.programId || exam.program);
-
+      const eClassId = extractId(exam.classId || exam.class);
       if (isTeacher) {
-        if (!teacherClassMappings.some((m) => extractId(m.classId || m.class) === examClassId)) return false;
-      }
-
-      if (selectedProgramIds.length > 0) {
-        if (examProgId && !selectedProgramIds.includes(examProgId)) return false;
-      }
-      if (selectedClassIds.length > 0) {
-        if (examClassId && !selectedClassIds.includes(examClassId)) return false;
+        if (!teacherClassMappings.some((m) => extractId(m.classId || m.class) === eClassId)) return false;
       }
       return true;
     });
-  }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings, selectedProgramIds, selectedClassIds]);
-
-  const formatDateDisplay = (dateString) => {
-    if (!dateString) return "";
-    const clean = dateString.split("T")[0];
-    const parts = clean.split("-");
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleDateString([], {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-      }
-    }
-    return clean;
-  };
+  }, [resultsSessionFilteredExams, isTeacher, teacherClassMappings]);
 
   const examOptions = useMemo(() => {
-    return availableFilterExams.map((exam) => ({
-      value: extractId(exam.id || exam._id),
-      label: `${exam.examName} - ${exam.session}${exam.startDate ? ` (${formatDateDisplay(exam.startDate)})` : ""}`,
-    }));
+    return availableFilterExams.map((exam) => {
+      const eId = extractId(exam.id || exam._id);
+      const progName = exam.program?.name || exam.programId?.name || "";
+      const clsName = exam.class?.name || exam.classId?.name || "";
+      const sessionName = exam.session || exam.sessionId?.name || "";
+      const dateStr = formatDateDisplay(exam.startDate);
+      const label = `${exam.examName}${clsName ? ` — ${clsName}` : ""}${progName ? ` (${progName})` : ""}${sessionName ? ` [${sessionName}]` : ""}`;
+      return {
+        value: eId,
+        label,
+        keywords: `${exam.examName} ${progName} ${clsName} ${sessionName} ${dateStr}`,
+      };
+    });
   }, [availableFilterExams]);
 
   const getFullName = (student) => {
@@ -434,7 +406,12 @@ export const ResultsTab = () => {
       });
     }
 
-    if (allowSections && selectedSectionIds.length > 0) {
+    if (allowSections && resultsSectionId && resultsSectionId !== "*") {
+      filtered = filtered.filter((r) => {
+        const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
+        return secId === resultsSectionId;
+      });
+    } else if (allowSections && selectedSectionIds.length > 0) {
       filtered = filtered.filter((r) => {
         const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
         return selectedSectionIds.includes(secId);
@@ -450,7 +427,9 @@ export const ResultsTab = () => {
 
     const progName = exam.program?.name || "";
     const className = exam.class?.name || (selectedClassIds.length === 1 && classesData.find(c => extractId(c) === selectedClassIds[0])?.name) || "All Classes";
-    const sectionName = (selectedSectionIds.length === 1)
+    const sectionName = (resultsSectionId && resultsSectionId !== "*")
+      ? (sectionsData.find(s => extractId(s) === resultsSectionId)?.name || "")
+      : (selectedSectionIds.length === 1)
       ? (sectionsData.find(s => extractId(s) === selectedSectionIds[0])?.name || "")
       : selectedSectionIds.length > 1
       ? `${selectedSectionIds.length} Sections`
@@ -843,42 +822,48 @@ export const ResultsTab = () => {
               line-height: 1.1;
               font-weight: normal;
             }
-            .student-info-grid {
-              display: grid;
-              grid-template-columns: 1fr 1fr auto;
-              gap: 12px;
-              background: #f8fafc;
-              border: 1px solid #cbd5e1;
-              border-radius: 4px;
-              padding: 10px 14px;
-              margin-bottom: 14px;
+            .student-form-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 16px;
             }
-            .info-item {
-              margin-bottom: 4px;
+            .student-form-table td {
+              border: none;
+              border-bottom: 1px solid #cbd5e1;
+              padding: 5px 8px;
               font-size: 11px;
+              vertical-align: middle;
             }
-            .info-label {
+            .student-form-table .form-label {
+              width: 110px;
               font-weight: 600;
               color: #64748b;
-              display: inline-block;
-              width: 100px;
+              white-space: nowrap;
             }
-            .info-value {
+            .student-form-table .form-value {
               font-weight: 600;
               color: #0f172a;
+            }
+            .student-form-table .photo-cell {
+              width: 75px;
+              padding: 0 0 0 10px;
+              border-bottom: none !important;
+              text-align: right;
+              vertical-align: top;
             }
             .student-photo {
               width: 70px;
               height: 80px;
               border: 1px solid #cbd5e1;
-              border-radius: 3px;
+              border-radius: 2px;
               overflow: hidden;
-              background: #e2e8f0;
+              background: #f8fafc;
               display: flex;
               align-items: center;
               justify-content: center;
               font-size: 9px;
               color: #94a3b8;
+              margin-left: auto;
             }
             .student-photo img {
               width: 100%;
@@ -905,30 +890,25 @@ export const ResultsTab = () => {
               border: 1px solid #cbd5e1;
               padding: 6px 8px;
             }
-            .stats-grid {
-              display: grid;
-              grid-template-columns: repeat(5, 1fr);
-              gap: 8px;
+            .result-summary-text {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 8px 14px;
+              border-top: 1.5px solid #0f172a;
+              border-bottom: 1.5px solid #0f172a;
+              font-size: 11px;
+              margin-top: 6px;
               margin-bottom: 24px;
-            }
-            .stat-card {
               background: #f8fafc;
-              border: 1px solid #cbd5e1;
-              border-radius: 4px;
-              padding: 8px 10px;
-              text-align: center;
             }
-            .stat-title {
-              font-size: 9px;
-              text-transform: uppercase;
-              font-weight: 600;
-              color: #64748b;
-              margin-bottom: 2px;
+            .result-summary-text span {
+              color: #475569;
             }
-            .stat-value {
-              font-size: 15px;
-              font-weight: 700;
+            .result-summary-text span strong {
               color: #0f172a;
+              margin-left: 4px;
+              font-size: 12px;
             }
             .signatures {
               display: flex;
@@ -963,23 +943,33 @@ export const ResultsTab = () => {
             </div>
           </div>
 
-          <div class="student-info-grid">
-            <div>
-              <div class="info-item"><span class="info-label">Student Name:</span> <span class="info-value">${getFullName(student)}</span></div>
-              <div class="info-item"><span class="info-label">Father Name:</span> <span class="info-value">${student.fatherOrguardian || student.fatherName || "—"}</span></div>
-              <div class="info-item"><span class="info-label">Roll Number:</span> <span class="info-value" style="font-family: monospace;">${student.rollNumber || "—"}</span></div>
-            </div>
-            <div>
-              <div class="info-item"><span class="info-label">Class & Program:</span> <span class="info-value">${className}${programName ? ` (${programName})` : ""}</span></div>
-              <div class="info-item"><span class="info-label">Section:</span> <span class="info-value">${sectionName || "N/A"}</span></div>
-              <div class="info-item"><span class="info-label">Exam & Session:</span> <span class="info-value">${exam.examName || "—"} (${exam.session || "—"})</span></div>
-            </div>
-            <div>
-              <div class="student-photo">
-                ${student.photo_url ? `<img src="${student.photo_url}" alt="Photo" />` : 'No Photo'}
-              </div>
-            </div>
-          </div>
+          <table class="student-form-table">
+            <tbody>
+              <tr>
+                <td class="form-label">Student Name:</td>
+                <td class="form-value">${getFullName(student)}</td>
+                <td class="form-label">Class & Program:</td>
+                <td class="form-value">${className}${programName ? ` (${programName})` : ""}</td>
+                <td rowspan="3" class="photo-cell">
+                  <div class="student-photo">
+                    ${student.photo_url ? `<img src="${student.photo_url}" alt="Photo" />` : 'No Photo'}
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="form-label">Father Name:</td>
+                <td class="form-value">${student.fatherOrguardian || student.fatherName || "—"}</td>
+                <td class="form-label">Section:</td>
+                <td class="form-value">${sectionName || "N/A"}</td>
+              </tr>
+              <tr>
+                <td class="form-label">Roll Number:</td>
+                <td class="form-value" style="font-family: monospace;">${student.rollNumber || "—"}</td>
+                <td class="form-label">Exam & Session:</td>
+                <td class="form-value">${exam.examName || "—"} (${exam.session || "—"})</td>
+              </tr>
+            </tbody>
+          </table>
 
           <table>
             <thead>
@@ -997,27 +987,12 @@ export const ResultsTab = () => {
             </tbody>
           </table>
 
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-title">Total Marks</div>
-              <div class="stat-value">${result.totalMarks}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-title">Obtained Marks</div>
-              <div class="stat-value" style="color: #2563eb;">${result.obtainedMarks}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-title">Percentage</div>
-              <div class="stat-value">${(result.percentage || 0).toFixed(2)}%</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-title">Grade</div>
-              <div class="stat-value" style="color: ${isFail ? '#dc2626' : '#059669'};">${result.grade}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-title">Position</div>
-              <div class="stat-value">${position || "—"}</div>
-            </div>
+          <div class="result-summary-text">
+            <span>Total Marks: <strong>${result.totalMarks}</strong></span>
+            <span>Obtained Marks: <strong>${result.obtainedMarks}</strong></span>
+            <span>Percentage: <strong>${(result.percentage || 0).toFixed(2)}%</strong></span>
+            <span>Grade: <strong style="color: ${isFail ? '#b91c1c' : '#047857'};">${result.grade}</strong></span>
+            <span>Position: <strong>${position || "—"}</strong></span>
           </div>
 
           <div class="signatures">
@@ -1218,12 +1193,16 @@ export const ResultsTab = () => {
                   : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
               }`}
             >
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex-1">
                   <Label>Session Filter</Label>
                   <Select
                     value={resultsSessionFilter || "__all__"}
-                    onValueChange={handleSessionChange}
+                    onValueChange={(v) => {
+                      setResultsSessionFilter(v === "__all__" ? "" : v);
+                      setResultsExamId("");
+                      setResultsSectionId("");
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="All Sessions" />
@@ -1249,57 +1228,53 @@ export const ResultsTab = () => {
                   </Select>
                 </div>
                 <div className="flex-1">
-                  <Label>Filter by Program</Label>
-                  <CheckboxMultiSelect
-                    title="Programs"
-                    placeholder="All Programs"
-                    allLabel="All Programs"
-                    options={programOptions}
-                    selected={selectedProgramIds}
-                    onChange={handleProgramsChange}
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label>Filter by Class</Label>
-                  <CheckboxMultiSelect
-                    title="Classes"
-                    placeholder={selectedProgramIds.length === 0 ? "Select program first" : "All Classes"}
-                    allLabel="All Classes"
-                    options={classOptions}
-                    selected={selectedClassIds}
-                    onChange={handleClassesChange}
-                    disabled={selectedProgramIds.length === 0}
+                  <Label>Filter by Exam</Label>
+                  <SearchableSelect
+                    options={examOptions}
+                    value={resultsExamId}
+                    onChange={(v) => {
+                      setResultsExamId(v);
+                      setResultsSectionId("");
+                    }}
+                    placeholder="All Exams"
+                    allLabel="All Exams"
+                    isLoading={isLoadingExams}
+                    searchPlaceholder="Search exam name, class, program..."
                   />
                 </div>
                 <div className="flex-1">
                   <Label>Filter by Section</Label>
-                  <CheckboxMultiSelect
-                    title="Sections"
-                    placeholder={
-                      !allowSections
-                        ? "Not Applicable"
-                        : selectedClassIds.length === 0
-                        ? "Select class first"
-                        : "All Sections"
-                    }
-                    allLabel="All Sections"
-                    options={sectionOptions}
-                    selected={selectedSectionIds}
-                    onChange={setSelectedSectionIds}
-                    disabled={selectedClassIds.length === 0 || !allowSections}
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label>Filter by Exam</Label>
-                  <CheckboxMultiSelect
-                    title="Exams"
-                    placeholder={selectedClassIds.length === 0 ? "Select class first" : "All Exams"}
-                    allLabel="All Exams"
-                    options={examOptions}
-                    selected={selectedExamIds}
-                    onChange={setSelectedExamIds}
-                    disabled={selectedClassIds.length === 0}
-                  />
+                  <Select
+                    value={!allowSections ? "" : resultsSectionId}
+                    onValueChange={setResultsSectionId}
+                    disabled={!allowSections || !resultsExamId || resultsExamId === "*"}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          !resultsExamId || resultsExamId === "*"
+                            ? "Select exam first"
+                            : !allowSections
+                            ? "Not Applicable"
+                            : "All Sections"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!allowSections ? (
+                        <SelectItem value="">Not Applicable</SelectItem>
+                      ) : (
+                        <>
+                          <SelectItem value="*">All Sections</SelectItem>
+                          {availableSections.map((section) => (
+                            <SelectItem key={extractId(section)} value={extractId(section)}>
+                              {section.name || section.sectionName}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="mt-3 max-w-sm">
@@ -1322,19 +1297,19 @@ export const ResultsTab = () => {
                 <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
                 <p className="text-sm">Loading examination results...</p>
               </div>
-            ) : selectedProgramIds.length === 0 && !resultsSessionFilter ? (
+            ) : !resultsExamId && !resultsSessionFilter ? (
               <div className="text-center py-16">
-                <p className="text-4xl mb-4">📊</p>
+                <Award className="w-12 h-12 mx-auto text-muted-foreground/60 mb-3" />
                 <p className="text-lg font-medium text-muted-foreground">
-                  Select a Program or Session to View Results
+                  Select an Exam or Session to View Results
                 </p>
                 <p className="text-sm text-muted-foreground mt-2">
-                  Choose a program or session from the filters above to see examination results
+                  Choose an exam from the filter above to see examination results
                 </p>
               </div>
             ) : results.length === 0 ? (
               <div className="text-center py-16">
-                <p className="text-4xl mb-4">📭</p>
+                <FileText className="w-12 h-12 mx-auto text-muted-foreground/60 mb-3" />
                 <p className="text-lg font-medium text-muted-foreground">No Results Found</p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Generate results for this exam/program to see them here
@@ -1345,17 +1320,16 @@ export const ResultsTab = () => {
                 {resultsSessionFilteredExams
                   ?.filter((exam) => {
                     const examIdStr = extractId(exam.id || exam._id);
-                    const examProgId = extractId(exam.programId || exam.program);
-                    const examClassId = extractId(exam.classId || exam.class);
-
-                    if (selectedProgramIds.length > 0 && examProgId && !selectedProgramIds.includes(examProgId)) {
-                      return false;
+                    if (resultsExamId && resultsExamId !== "*") {
+                      if (examIdStr !== resultsExamId) return false;
                     }
-                    if (selectedClassIds.length > 0 && examClassId && !selectedClassIds.includes(examClassId)) {
-                      return false;
+                    if (selectedProgramIds.length > 0) {
+                      const examProgId = extractId(exam.programId || exam.program);
+                      if (examProgId && !selectedProgramIds.includes(examProgId)) return false;
                     }
-                    if (selectedExamIds.length > 0 && !selectedExamIds.includes(examIdStr)) {
-                      return false;
+                    if (selectedClassIds.length > 0) {
+                      const examClassId = extractId(exam.classId || exam.class);
+                      if (examClassId && !selectedClassIds.includes(examClassId)) return false;
                     }
                     return true;
                   })
@@ -1363,21 +1337,12 @@ export const ResultsTab = () => {
                   const examIdStr = extractId(exam.id || exam._id);
                   let examResults = results.filter((r) => extractId(r.examId || r.exam?.id || r.exam?._id) === examIdStr);
 
-                  if (selectedProgramIds.length > 0) {
+                  if (allowSections && resultsSectionId && resultsSectionId !== "*") {
                     examResults = examResults.filter((r) => {
-                      const progId = extractId(r.student?.programId || r.student?.program?.id || r.student?.program?._id || r.programId);
-                      return selectedProgramIds.includes(progId);
+                      const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
+                      return secId === resultsSectionId;
                     });
-                  }
-
-                  if (selectedClassIds.length > 0) {
-                    examResults = examResults.filter((r) => {
-                      const clsId = extractId(r.student?.classId || r.student?.class?.id || r.student?.class?._id || r.classId);
-                      return selectedClassIds.includes(clsId);
-                    });
-                  }
-
-                  if (allowSections && selectedSectionIds.length > 0) {
+                  } else if (allowSections && selectedSectionIds.length > 0) {
                     examResults = examResults.filter((r) => {
                       const secId = extractId(r.student?.sectionId || r.student?.section?.id || r.student?.section?._id || r.sectionId);
                       return selectedSectionIds.includes(secId);
@@ -1508,6 +1473,7 @@ export const ResultsTab = () => {
           classesData={classesData}
           students={students}
           exams={exams}
+          isLoadingExams={isLoadingExams}
           studentResultProgramIds={studentResultProgramIds}
           setStudentResultProgramIds={handleStudentProgramsChange}
           studentResultClassIds={studentResultClassIds}

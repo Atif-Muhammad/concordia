@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Select,
@@ -38,6 +40,7 @@ import {
   Trash2,
   Loader2,
   Search,
+  Award,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -52,6 +55,7 @@ import {
   getSubjects,
   getTeacherClasses,
   getAcademicSessions,
+  generateResults,
 } from "@/services/api";
 import { hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 import { extractId } from "@/lib/utils.jsx";
@@ -59,10 +63,30 @@ import { isStudentActive } from "@/lib/studentStatus";
 import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import { sanitizeMarksInput, finalizeMarksInput, roundMarksValue } from "@/lib/inputValidation";
 import usePermissions from "@/hooks/usePermissions";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return "N/A";
+  const clean = dateString.split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return clean;
+};
 
 export const MarksEntryTab = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [marksFilterProgram, setMarksFilterProgram] = useState("");
   const [marksFilterClass, setMarksFilterClass] = useState("");
@@ -72,9 +96,11 @@ export const MarksEntryTab = () => {
   const [marksStudentSearch, setMarksStudentSearch] = useState("");
   const [showMarksFilters, setShowMarksFilters] = useState(true);
   const sessionInitializedRef = React.useRef(false);
+  const lastLoadedSessionKeyRef = useRef(null);
 
   // Bulk Marks Entry States
   const [bulkMarksDialog, setBulkMarksDialog] = useState(false);
+  const [bulkStudentSearch, setBulkStudentSearch] = useState("");
   const [bulkMarksEditMode, setBulkMarksEditMode] = useState(false);
   const [viewMarksDetail, setViewMarksDetail] = useState(null);
   const [bulkExamId, setBulkExamId] = useState("");
@@ -140,7 +166,7 @@ export const MarksEntryTab = () => {
     queryFn: getSections,
   });
 
-  const { data: exams = [] } = useQuery({
+  const { data: exams = [], isLoading: isLoadingExams } = useQuery({
     queryKey: ["exams"],
     queryFn: () => getExams(),
   });
@@ -220,16 +246,25 @@ export const MarksEntryTab = () => {
       : classesData;
   }, [isTeacher, teacherClassMappings, marksFilterProgram, classesData]);
 
+  const selectedExamObj = useMemo(() => {
+    return exams.find((e) => extractId(e.id || e._id) === marksFilterExam);
+  }, [exams, marksFilterExam]);
+
+  const selectedClassId = extractId(
+    marksFilterClass || selectedExamObj?.classId || selectedExamObj?.class
+  );
+
   const selectedClassObj =
-    classesData.find((c) => extractId(c) === marksFilterClass) ||
-    teacherClassMappings.find((m) => extractId(m.class || m.classId) === marksFilterClass)?.class;
+    classesData.find((c) => extractId(c) === selectedClassId) ||
+    selectedExamObj?.class ||
+    teacherClassMappings.find((m) => extractId(m.class || m.classId) === selectedClassId)?.class;
   const isSectionApplicable = selectedClassObj ? selectedClassObj.allowSections !== false : true;
 
   const availableSections = useMemo(() => {
-    if (!isSectionApplicable) return [];
+    if (!isSectionApplicable || !selectedClassId) return [];
     if (isTeacher) {
       const matching = teacherClassMappings.filter(
-        (m) => extractId(m.class || m.classId) === marksFilterClass
+        (m) => extractId(m.class || m.classId) === selectedClassId
       );
       const secs = matching.map((m) => m.section || m.sectionId).filter(Boolean);
       const uniqueSecs = secs.filter((s, idx, arr) => arr.findIndex((x) => extractId(x) === extractId(s)) === idx);
@@ -239,8 +274,8 @@ export const MarksEntryTab = () => {
       }
       return [];
     }
-    return sectionsData.filter((s) => extractId(s.classId || s.class) === marksFilterClass);
-  }, [isSectionApplicable, isTeacher, teacherClassMappings, marksFilterClass, selectedClassObj, sectionsData]);
+    return sectionsData.filter((s) => extractId(s.classId || s.class) === selectedClassId);
+  }, [isSectionApplicable, isTeacher, teacherClassMappings, selectedClassId, selectedClassObj, sectionsData]);
 
   const teacherClassIds = useMemo(() => {
     if (!isTeacher) return null;
@@ -272,7 +307,6 @@ export const MarksEntryTab = () => {
   const availableExams = useMemo(() => {
     return marksSessionFilteredExams.filter((exam) => {
       const examClassId = extractId(exam.classId || exam.class);
-      const examProgId = extractId(exam.programId || exam.program);
 
       if (isTeacher && teacherClassIds) {
         if (!teacherClassIds.has(examClassId)) return false;
@@ -295,13 +329,6 @@ export const MarksEntryTab = () => {
           }
         }
       }
-
-      if (marksFilterClass && marksFilterClass !== "*") {
-        if (examClassId !== marksFilterClass) return false;
-      }
-      if (marksFilterProgram && marksFilterProgram !== "*") {
-        if (examProgId !== marksFilterProgram) return false;
-      }
       return true;
     });
   }, [
@@ -310,9 +337,23 @@ export const MarksEntryTab = () => {
     teacherClassIds,
     getTeacherAssignedSubjectsForClass,
     subjects,
-    marksFilterClass,
-    marksFilterProgram,
   ]);
+
+  const examOptions = useMemo(() => {
+    return availableExams.map((exam) => {
+      const eId = extractId(exam.id || exam._id);
+      const progName = exam.program?.name || exam.programId?.name || "";
+      const clsName = exam.class?.name || exam.classId?.name || "";
+      const sessionName = exam.session || exam.sessionId?.name || "";
+      const dateStr = formatDateDisplay(exam.startDate);
+      const label = `${exam.examName}${clsName ? ` — ${clsName}` : ""}${progName ? ` (${progName})` : ""}${sessionName ? ` [${sessionName}]` : ""}`;
+      return {
+        value: eId,
+        label,
+        keywords: `${exam.examName} ${progName} ${clsName} ${sessionName} ${dateStr}`,
+      };
+    });
+  }, [availableExams]);
 
   const hasActiveMarksFilter = Boolean(
     (marksFilterExam && marksFilterExam !== "*") ||
@@ -428,97 +469,160 @@ export const MarksEntryTab = () => {
   });
 
   useEffect(() => {
-    if (bulkMarksDialog) {
-      const marksData = {};
-      const absenteesData = {};
+    if (!bulkMarksDialog || !bulkExamId) {
+      lastLoadedSessionKeyRef.current = null;
+      return;
+    }
 
-      const studentsList = Array.isArray(studentsForMarksEntry)
-        ? studentsForMarksEntry
-        : studentsForMarksEntry?.students || [];
-      const exam = exams.find((e) => extractId(e) === bulkExamId);
-      const scheduleList = exam?.schedule || exam?.schedules || [];
+    // Do NOT seed defaults or clobber state while existing server marks are still loading
+    if (isLoadingExistingMarks || isLoadingStudents) {
+      return;
+    }
 
-      // 1. Initialize all active students and exam subjects with "0" as actual default
-      studentsList.forEach((st) => {
-        const sId = extractId(st.id || st._id || st);
+    const currentKey = `${bulkExamId}-${bulkSectionId || "*"}`;
+    const isNewExamOrSection = lastLoadedSessionKeyRef.current !== currentKey;
+
+    const marksData = {};
+    const absenteesData = {};
+
+    const studentsList = Array.isArray(studentsForMarksEntry)
+      ? studentsForMarksEntry
+      : studentsForMarksEntry?.students || [];
+    const exam = exams.find((e) => extractId(e) === bulkExamId);
+    const scheduleList = exam?.schedule || exam?.schedules || [];
+
+    // 1. Initialize all active students and exam subjects with "0" as fallback
+    studentsList.forEach((st) => {
+      const sId = extractId(st.id || st._id || st);
+      if (!sId || sId === "[object Object]") return;
+      if (!marksData[sId]) marksData[sId] = {};
+      if (!absenteesData[sId]) absenteesData[sId] = {};
+
+      scheduleList.forEach((sc) => {
+        const subId = extractId(sc.subjectId || sc.subject || sc.id || sc._id);
+        if (subId) {
+          marksData[sId][subId] = "0";
+          absenteesData[sId][subId] = false;
+        }
+      });
+    });
+
+    // 2. Overwrite with any existing marks from server
+    if (Array.isArray(existingMarksForBulk) && existingMarksForBulk.length > 0) {
+      existingMarksForBulk.forEach((mark) => {
+        const sId = extractId(mark.studentId || mark.student);
         if (!sId || sId === "[object Object]") return;
+
+        let subId = extractId(mark.subjectId);
+        if (!subId && mark.subject) {
+          const matchedSub = subjects.find(
+            (s) => s.name && s.name.toLowerCase() === mark.subject.toLowerCase()
+          );
+          if (matchedSub) subId = extractId(matchedSub.id || matchedSub._id);
+        }
+        const key = subId || mark.subject;
+        if (!key) return;
+
         if (!marksData[sId]) marksData[sId] = {};
         if (!absenteesData[sId]) absenteesData[sId] = {};
 
-        scheduleList.forEach((sc) => {
-          const subId = extractId(sc.subjectId || sc.subject || sc.id || sc._id);
-          if (subId) {
-            marksData[sId][subId] = "0";
-            absenteesData[sId][subId] = false;
-          }
-        });
-      });
-
-      // 2. Overwrite with any existing marks
-      if (existingMarksForBulk.length > 0) {
-        existingMarksForBulk.forEach((mark) => {
-          const sId = extractId(mark.studentId || mark.student);
-          if (!sId || sId === "[object Object]") return;
-
-          let subId = extractId(mark.subjectId);
-          if (!subId && mark.subject) {
-            const matchedSub = subjects.find(
-              (s) => s.name && s.name.toLowerCase() === mark.subject.toLowerCase()
-            );
-            if (matchedSub) subId = extractId(matchedSub.id || matchedSub._id);
-          }
-          const key = subId || mark.subject;
-          if (!key) return;
-
-          if (!marksData[sId]) marksData[sId] = {};
-          if (!absenteesData[sId]) absenteesData[sId] = {};
-
-          marksData[sId][key] = mark.obtainedMarks !== undefined && mark.obtainedMarks !== null ? mark.obtainedMarks.toString() : "0";
-          absenteesData[sId][key] = !!mark.isAbsent;
-        });
-      }
-
-      setBulkMarksData((prev) => {
-        const updated = { ...marksData };
-        Object.entries(prev || {}).forEach(([stId, subMap]) => {
-          if (!updated[stId]) updated[stId] = {};
-          Object.entries(subMap || {}).forEach(([subId, val]) => {
-            if (val !== undefined && val !== "") {
-              updated[stId][subId] = val;
-            }
-          });
-        });
-        return updated;
-      });
-
-      setBulkAbsentees((prev) => {
-        const updated = { ...absenteesData };
-        Object.entries(prev || {}).forEach(([stId, subMap]) => {
-          if (!updated[stId]) updated[stId] = {};
-          Object.entries(subMap || {}).forEach(([subId, val]) => {
-            if (val !== undefined) {
-              updated[stId][subId] = val;
-            }
-          });
-        });
-        return updated;
+        marksData[sId][key] =
+          mark.obtainedMarks !== undefined && mark.obtainedMarks !== null
+            ? mark.obtainedMarks.toString()
+            : "0";
+        absenteesData[sId][key] = !!mark.isAbsent;
       });
     }
-  }, [existingMarksForBulk, studentsForMarksEntry, bulkMarksDialog, bulkExamId, exams, subjects]);
+
+    setBulkMarksData((prev) => {
+      if (isNewExamOrSection) {
+        return marksData;
+      }
+      const updated = { ...marksData };
+      Object.entries(prev || {}).forEach(([stId, subMap]) => {
+        if (!updated[stId]) updated[stId] = {};
+        Object.entries(subMap || {}).forEach(([subId, val]) => {
+          if (val !== undefined && val !== "") {
+            updated[stId][subId] = val;
+          }
+        });
+      });
+      return updated;
+    });
+
+    setBulkAbsentees((prev) => {
+      if (isNewExamOrSection) {
+        return absenteesData;
+      }
+      const updated = { ...absenteesData };
+      Object.entries(prev || {}).forEach(([stId, subMap]) => {
+        if (!updated[stId]) updated[stId] = {};
+        Object.entries(subMap || {}).forEach(([subId, val]) => {
+          if (val !== undefined) {
+            updated[stId][subId] = val;
+          }
+        });
+      });
+      return updated;
+    });
+
+    lastLoadedSessionKeyRef.current = currentKey;
+  }, [
+    bulkMarksDialog,
+    bulkExamId,
+    bulkSectionId,
+    existingMarksForBulk,
+    studentsForMarksEntry,
+    isLoadingExistingMarks,
+    isLoadingStudents,
+    exams,
+    subjects,
+  ]);
 
   const bulkMarksMutation = useMutation({
-    mutationFn: bulkCreateMarks,
+    mutationFn: async (payload) => {
+      const result = await bulkCreateMarks(payload);
+      // Auto-generate class examination results so non-technical users get updated results in 1 click
+      if (bulkExamId) {
+        const exam = exams.find((e) => extractId(e) === bulkExamId);
+        const classId = extractId(exam?.classId || exam?.class);
+        await generateResults(bulkExamId, classId).catch(() => null);
+      }
+      return result;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries(["marks"]);
       queryClient.invalidateQueries(["results"]);
       queryClient.invalidateQueries(["positions"]);
-      toast({ title: "Marks updated successfully" });
+      toast({
+        title: "Marks saved & results generated",
+        description: "Student marks and class examination results are now up to date.",
+      });
       setBulkMarksDialog(false);
     },
     onError: (error) => {
       toast({
         title: "Error saving marks",
         description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateResultsMutation = useMutation({
+    mutationFn: ({ examId, classId }) => generateResults(examId, classId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries(["results"]);
+      queryClient.invalidateQueries(["positions"]);
+      toast({
+        title: "Results generated successfully",
+        description: `Generated ${data?.length || 0} examination results`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to generate results",
+        description: err.message || "An error occurred",
         variant: "destructive",
       });
     },
@@ -537,24 +641,6 @@ export const MarksEntryTab = () => {
   const getFullName = (student) => {
     if (!student) return "";
     return formatNormalizedFullName(student.fName, student.lName);
-  };
-
-  const formatDateDisplay = (dateString) => {
-    if (!dateString) return "N/A";
-    const clean = dateString.split("T")[0];
-    const parts = clean.split("-");
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleDateString([], {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-      }
-    }
-    return clean;
   };
 
   return (
@@ -582,12 +668,16 @@ export const MarksEntryTab = () => {
               : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
           }`}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div className="flex-1">
               <Label>Session Filter</Label>
               <Select
                 value={marksSessionFilter || "__all__"}
-                onValueChange={(v) => setMarksSessionFilter(v === "__all__" ? "" : v)}
+                onValueChange={(v) => {
+                  setMarksSessionFilter(v === "__all__" ? "" : v);
+                  setMarksFilterExam("");
+                  setMarksFilterSection("");
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All Sessions" />
@@ -613,59 +703,35 @@ export const MarksEntryTab = () => {
               </Select>
             </div>
             <div className="flex-1">
-              <Label>Filter by Program</Label>
-              <Select
-                value={marksFilterProgram}
-                onValueChange={setMarksFilterProgram}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Programs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Programs</SelectItem>
-                  {availablePrograms?.map((program) => (
-                    <SelectItem key={extractId(program)} value={extractId(program)}>
-                      {program.name}{" "}
-                      {program.department?.name ? `— ${program.department.name}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1">
-              <Label>Filter by Class</Label>
-              <Select
-                value={marksFilterClass}
-                onValueChange={setMarksFilterClass}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Classes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Classes</SelectItem>
-                  {availableClasses.map((cls) => (
-                    <SelectItem key={extractId(cls)} value={extractId(cls)}>
-                      {cls.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Filter by Exam</Label>
+              <SearchableSelect
+                options={examOptions}
+                value={marksFilterExam}
+                onChange={(v) => {
+                  setMarksFilterExam(v);
+                  setMarksFilterSection("");
+                }}
+                placeholder="All Exams"
+                allLabel="All Exams"
+                isLoading={isLoadingExams}
+                searchPlaceholder="Search exam name, class, program..."
+              />
             </div>
             <div className="flex-1">
               <Label>Filter by Section</Label>
               <Select
                 value={!isSectionApplicable ? "" : marksFilterSection}
                 onValueChange={setMarksFilterSection}
-                disabled={!isSectionApplicable || !marksFilterClass || marksFilterClass === "*"}
+                disabled={!isSectionApplicable || !marksFilterExam || marksFilterExam === "*"}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      !isSectionApplicable
+                      !marksFilterExam || marksFilterExam === "*"
+                        ? "Select exam first"
+                        : !isSectionApplicable
                         ? "Not Applicable"
-                        : marksFilterClass && marksFilterClass !== "*"
-                        ? "All Sections"
-                        : "Select class first"
+                        : "All Sections"
                     }
                   />
                 </SelectTrigger>
@@ -682,25 +748,6 @@ export const MarksEntryTab = () => {
                       ))}
                     </>
                   )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1">
-              <Label>Filter by Exam</Label>
-              <Select
-                value={marksFilterExam}
-                onValueChange={setMarksFilterExam}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Exams" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Exams</SelectItem>
-                  {availableExams.map((exam) => (
-                    <SelectItem key={extractId(exam)} value={extractId(exam)}>
-                      {exam.examName} - {exam.session} ({formatDateDisplay(exam.startDate)})
-                    </SelectItem>
-                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -727,11 +774,36 @@ export const MarksEntryTab = () => {
                   setBulkMarksData({});
                   setBulkAbsentees({});
                   setBulkMarksEditMode(false);
+                  setBulkStudentSearch("");
                   setBulkMarksDialog(true);
                 }}
               >
                 <LayoutGrid className="w-4 h-4 mr-2" />
                 Bulk Marks Entry
+              </Button>
+            )}
+            {marksFilterExam && marksFilterExam !== "*" && (
+              <Button
+                variant="secondary"
+                className="w-full sm:w-auto"
+                disabled={generateResultsMutation.isPending}
+                onClick={() => {
+                  const exam = exams.find((e) => extractId(e) === marksFilterExam);
+                  const classId = marksFilterClass && marksFilterClass !== "*" ? marksFilterClass : extractId(exam?.classId || exam?.class);
+                  generateResultsMutation.mutate({ examId: marksFilterExam, classId });
+                }}
+              >
+                {generateResultsMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating Results...
+                  </>
+                ) : (
+                  <>
+                    <Award className="w-4 h-4 mr-2 text-primary" />
+                    Generate / Refresh Results
+                  </>
+                )}
               </Button>
             )}
           </div>
@@ -757,10 +829,10 @@ export const MarksEntryTab = () => {
             <DialogHeader className="p-3 sm:p-6 border-b shrink-0">
               <DialogTitle className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                 <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
-                Bulk Marks Entry
+                Marks Entry & Result Generation
               </DialogTitle>
               <p className="text-xs sm:text-sm text-muted-foreground">
-                Select exam and class/section to enter marks for all students at once.
+                Enter or edit student marks. Saving automatically calculates class results and merit rankings in one step.
               </p>
             </DialogHeader>
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -768,30 +840,21 @@ export const MarksEntryTab = () => {
                 <div className="p-3 sm:p-6 bg-muted/30 border-y grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 shrink-0">
                     <div className="space-y-2">
                       <Label>Select Exam</Label>
-                      <Select
+                      <SearchableSelect
+                        options={examOptions}
                         value={bulkExamId}
-                        onValueChange={(v) => {
+                        onChange={(v) => {
                           setBulkExamId(v);
                           setBulkSectionId("*");
                           setBulkMarksData({});
                           setBulkAbsentees({});
+                          setBulkStudentSearch("");
                         }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select examination" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableExams?.map((exam) => (
-                            <SelectItem key={extractId(exam)} value={extractId(exam)}>
-                              {exam.examName} - {exam.session} ({exam.program?.name || exam.programId?.name}
-                              {(exam.program?.department?.name || exam.programId?.department?.name)
-                                ? ` — ${exam.program?.department?.name || exam.programId?.department?.name}`
-                                : ""}{" "}
-                              - {exam.class?.name || exam.classId?.name})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        allowAll={false}
+                        placeholder="Select examination"
+                        isLoading={isLoadingExams}
+                        searchPlaceholder="Search exam title, class, program..."
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Session</Label>
@@ -845,12 +908,12 @@ export const MarksEntryTab = () => {
                 )}
 
                 <div className="flex-1 min-h-0 overflow-auto p-0 flex flex-col">
-                  {isLoadingStudents || isLoadingExistingMarks ? (
+                  {isLoadingStudents ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="flex flex-col items-center gap-2 py-20">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                        <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
                         <p className="text-sm text-muted-foreground">
-                          Fetching student list and marks...
+                          Loading student list...
                         </p>
                       </div>
                     </div>
@@ -936,28 +999,59 @@ export const MarksEntryTab = () => {
                         );
                       }
 
+                      const visibleStudents = bulkStudentSearch.trim()
+                        ? sectionStudents.filter((st) =>
+                            matchesSearchTokens(bulkStudentSearch, [
+                              getFullName(st),
+                              st?.fatherOrguardian,
+                              st?.rollNumber,
+                            ])
+                          )
+                        : sectionStudents;
+
                       return (
-                        <Table className="border-collapse">
-                          <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
-                            <TableRow className="hover:bg-transparent">
-                              <TableHead className="text-sm px-3 py-2 w-[200px] border-r">
-                                Student Name (Roll No)
-                              </TableHead>
-                              {examSubjects.map((s) => (
-                                <TableHead
-                                  key={s.id}
-                                  className="text-center min-w-[120px] border-r bg-muted/5"
-                                >
-                                  <div className="font-bold text-orange-700">{s.name}</div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    Total: {s.totalMarks || 100}
-                                  </div>
-                                </TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {sectionStudents.map((student) => {
+                        <div className="flex flex-col flex-1 min-h-0">
+                          <div className="px-4 py-2.5 bg-muted/20 border-b flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="relative flex-1 min-w-[220px] max-w-sm">
+                              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                placeholder="Search student by name, father name, or roll no..."
+                                value={bulkStudentSearch}
+                                onChange={(e) => setBulkStudentSearch(e.target.value)}
+                                className="pl-9 h-8 text-xs bg-background"
+                              />
+                            </div>
+                            <div className="text-xs text-muted-foreground font-medium">
+                              Showing {visibleStudents.length} of {sectionStudents.length} active students
+                            </div>
+                          </div>
+                          <div className="flex-1 overflow-auto">
+                            {visibleStudents.length === 0 ? (
+                              <div className="p-12 text-center text-muted-foreground text-sm">
+                                No students found matching "{bulkStudentSearch}".
+                              </div>
+                            ) : (
+                              <Table className="border-collapse">
+                                <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
+                                  <TableRow className="hover:bg-transparent">
+                                    <TableHead className="text-sm px-3 py-2 w-[200px] border-r">
+                                      Student Name (Roll No)
+                                    </TableHead>
+                                    {examSubjects.map((s) => (
+                                      <TableHead
+                                        key={s.id}
+                                        className="text-center min-w-[120px] border-r bg-muted/5"
+                                      >
+                                        <div className="font-bold text-orange-700">{s.name}</div>
+                                        <div className="text-[10px] text-muted-foreground">
+                                          Total: {s.totalMarks || 100}
+                                        </div>
+                                      </TableHead>
+                                    ))}
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {visibleStudents.map((student) => {
                               const sId = extractId(student);
                               return (
                                 <TableRow
@@ -998,6 +1092,12 @@ export const MarksEntryTab = () => {
                                           isAbsent ? "bg-red-50/50" : ""
                                         }`}
                                       >
+                                        {isLoadingExistingMarks ? (
+                                          <div className="flex flex-col gap-2 items-center py-1">
+                                            <Skeleton className="h-8 w-20 rounded-md" />
+                                            <Skeleton className="h-3 w-10 rounded-sm" />
+                                          </div>
+                                        ) : (
                                         <div className="flex flex-col gap-2 items-center">
                                           <Input
                                             type="text"
@@ -1075,6 +1175,7 @@ export const MarksEntryTab = () => {
                                             </label>
                                           </div>
                                         </div>
+                                        )}
                                       </TableCell>
                                     );
                                   })}
@@ -1082,7 +1183,10 @@ export const MarksEntryTab = () => {
                               );
                             })}
                           </TableBody>
-                        </Table>
+                              </Table>
+                            )}
+                          </div>
+                        </div>
                       );
                     })()
                   ) : (
@@ -1102,7 +1206,7 @@ export const MarksEntryTab = () => {
                   Cancel
                 </Button>
                 <Button
-                  disabled={!bulkExamId || bulkMarksMutation.isPending}
+                  disabled={!bulkExamId || bulkMarksMutation.isPending || isLoadingExistingMarks}
                   onClick={() => {
                     const exam = exams.find((e) => extractId(e) === bulkExamId);
                     const scheduleList = exam?.schedule || exam?.schedules || [];
@@ -1285,10 +1389,13 @@ export const MarksEntryTab = () => {
                   {bulkMarksMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving Marks...
+                      Saving Marks & Generating Results...
                     </>
                   ) : (
-                    "Save All Marks"
+                    <>
+                      <Award className="w-4 h-4 mr-2" />
+                      Save Marks & Generate Results
+                    </>
                   )}
                 </Button>
               </DialogFooter>

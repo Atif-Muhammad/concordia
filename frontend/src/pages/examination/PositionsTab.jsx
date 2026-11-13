@@ -19,8 +19,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trophy, Printer, SlidersHorizontal, Search } from "lucide-react";
+import { Trophy, Award, Printer, SlidersHorizontal, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import {
   getExams,
   getPositions,
@@ -34,6 +35,24 @@ import { isStudentActive } from "@/lib/studentStatus";
 import { formatNormalizedFullName, matchesSearchTokens } from "@/lib/studentSearch";
 import usePermissions from "@/hooks/usePermissions";
 
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return "N/A";
+  const clean = dateString.split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return clean;
+};
+
 export const PositionsTab = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -41,7 +60,6 @@ export const PositionsTab = () => {
 
   const [positionsSessionFilter, setPositionsSessionFilter] = useState("");
   const [positionsFilterExam, setPositionsFilterExam] = useState("");
-  const [positionsFilterClass, setPositionsFilterClass] = useState("");
   const [positionsStudentSearch, setPositionsStudentSearch] = useState("");
   const [showPositionsFilters, setShowPositionsFilters] = useState(false);
 
@@ -55,7 +73,7 @@ export const PositionsTab = () => {
     queryFn: getClasses,
   });
 
-  const { data: exams = [] } = useQuery({
+  const { data: exams = [], isLoading: isLoadingExams } = useQuery({
     queryKey: ["exams"],
     queryFn: () => getExams(),
   });
@@ -79,11 +97,10 @@ export const PositionsTab = () => {
     : exams;
 
   const { data: positions = [] } = useQuery({
-    queryKey: ["positions", positionsFilterExam, positionsFilterClass],
+    queryKey: ["positions", positionsFilterExam],
     queryFn: () =>
       getPositions(
-        positionsFilterExam && positionsFilterExam !== "*" ? positionsFilterExam : undefined,
-        positionsFilterClass && positionsFilterClass !== "*" ? positionsFilterClass : undefined
+        positionsFilterExam && positionsFilterExam !== "*" ? positionsFilterExam : undefined
       ),
     enabled: !!(positionsFilterExam && positionsFilterExam !== "*"),
   });
@@ -113,23 +130,21 @@ export const PositionsTab = () => {
     return formatNormalizedFullName(student.fName, student.lName) || "N/A";
   };
 
-  const formatDateDisplay = (dateString) => {
-    if (!dateString) return "N/A";
-    const clean = dateString.split("T")[0];
-    const parts = clean.split("-");
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleDateString([], {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-      }
-    }
-    return clean;
-  };
+  const examOptions = useMemo(() => {
+    return (filteredExams || []).map((exam) => {
+      const eId = extractId(exam.id || exam._id);
+      const progName = exam.program?.name || exam.programId?.name || "";
+      const clsName = exam.class?.name || exam.classId?.name || "";
+      const sessionName = exam.session || exam.sessionId?.name || "";
+      const dateStr = formatDateDisplay(exam.startDate);
+      const label = `${exam.examName}${clsName ? ` — ${clsName}` : ""}${progName ? ` (${progName})` : ""}${sessionName ? ` [${sessionName}]` : ""}`;
+      return {
+        value: eId,
+        label,
+        keywords: `${exam.examName} ${progName} ${clsName} ${sessionName} ${dateStr}`,
+      };
+    });
+  }, [filteredExams]);
 
   const printPositions = () => {
     if (positions.length === 0) {
@@ -153,37 +168,197 @@ export const PositionsTab = () => {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Student Rankings</title>
+        <meta charset="utf-8" />
+        <title>Student Rankings & Positions</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #000; padding: 10px; }
-          h1, h2, h3 { margin: 10px 0; }
+          @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            color: #0f172a;
+            background: #fff;
+            font-size: 11px;
+            line-height: 1.4;
+          }
+          .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 16px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 12px;
+            margin-bottom: 14px;
+          }
+          .logo-box {
+            width: 72px;
+            height: 72px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .logo-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+          }
+          .header-text {
+            text-align: left;
+          }
+          .college-title {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            color: #0f172a;
+            text-transform: uppercase;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .report-subtitle {
+            font-family: 'Alex Brush', cursive;
+            font-size: 30px;
+            color: #334155;
+            margin: 2px 0 0 0;
+            line-height: 1.1;
+            font-weight: normal;
+          }
+          .meta-strip {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 14px;
+            font-size: 11px;
+          }
+          .meta-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+          }
+          .meta-val {
+            font-size: 11px;
+            font-weight: 600;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            font-size: 11px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1;
+            padding: 6px 8px;
+            text-align: left;
+          }
+          th {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.3px;
+          }
+          tr:nth-child(even) td {
+            background-color: #f8fafc;
+          }
+          .text-center { text-align: center; }
+          .summary-strip {
+            display: flex;
+            justify-content: space-between;
+            background: #f8fafc;
+            border-top: 1.5px solid #0f172a;
+            border-bottom: 1.5px solid #0f172a;
+            padding: 8px 14px;
+            margin-bottom: 24px;
+            font-size: 11px;
+          }
+          .summary-strip span strong {
+            color: #0f172a;
+          }
           .page-break { page-break-after: always; }
-          th { background-color: #f2f2f2; }
+          .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 36px;
+            padding-top: 10px;
+          }
+          .sign-col {
+            text-align: center;
+            width: 180px;
+          }
+          .sign-line {
+            border-top: 1px dashed #64748b;
+            margin-bottom: 6px;
+          }
+          .sign-title {
+            font-size: 10px;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+          }
         </style>
       </head>
       <body>
-        <h1>Student Rankings</h1>
+        <div class="header-container">
+          <div class="logo-box">
+            <img src="/logo.png" alt="Concordia College Peshawar" onerror="this.style.display='none'" />
+          </div>
+          <div class="header-text">
+            <div class="college-title">Concordia College Peshawar</div>
+            <div class="report-subtitle">Student Merit & Position Gazette</div>
+          </div>
+        </div>
+
         ${Object.entries(groupedPositions)
           .map(
             ([examName, classes]) => `
           <div class="exam-section">
-            <h2>${examName}</h2>
+            <div class="meta-strip">
+              <div>
+                <div class="meta-label">Examination</div>
+                <div class="meta-val">${examName}</div>
+              </div>
+              <div>
+                <div class="meta-label">Academic Session</div>
+                <div class="meta-val">${positionsSessionFilter ? sessionName : "All Sessions"}</div>
+              </div>
+              <div>
+                <div class="meta-label">Date Generated</div>
+                <div class="meta-val">${new Date().toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })}</div>
+              </div>
+            </div>
+
             ${Object.entries(classes)
               .map(
                 ([className, classPositions]) => `
-              <h3>Class: ${className}</h3>
+              <h3 style="margin: 10px 0 6px 0; font-size: 13px; font-weight: 700; color: #0f172a;">Class: ${className}</h3>
               <table>
                 <thead>
                   <tr>
-                    <th>Pos</th>
-                    <th>Name</th>
-                    <th>Roll No</th>
-                    <th>Total</th>
-                    <th>Obtained</th>
-                    <th>%</th>
-                    <th>Grade</th>
+                    <th class="text-center" style="width: 50px;">Pos</th>
+                    <th>Student Name</th>
+                    <th style="width: 90px;">Roll No</th>
+                    <th class="text-center" style="width: 60px;">Total</th>
+                    <th class="text-center" style="width: 60px;">Obtained</th>
+                    <th class="text-center" style="width: 60px;">%</th>
+                    <th class="text-center" style="width: 60px;">Grade</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -192,7 +367,7 @@ export const PositionsTab = () => {
                       const student = pos.student || students.find((s) => extractId(s.id || s._id) === extractId(pos.studentId));
                       return `
                     <tr>
-                      <td>${pos.position} ${
+                      <td class="text-center" style="font-weight: 700;">${pos.position} ${
                         pos.position === 1
                           ? "🥇"
                           : pos.position === 2
@@ -201,21 +376,41 @@ export const PositionsTab = () => {
                           ? "🥉"
                           : ""
                       }</td>
-                      <td>${getFullName(student)}</td>
-                      <td>${student?.rollNumber || "N/A"}</td>
-                      <td>${pos.totalMarks}</td>
-                      <td>${pos.obtainedMarks}</td>
-                      <td>${(pos.percentage || 0).toFixed(2)}%</td>
-                      <td>${pos.grade || "N/A"}</td>
+                      <td style="font-weight: 600;">${getFullName(student)}</td>
+                      <td style="font-family: monospace; font-weight: 600;">${student?.rollNumber || "N/A"}</td>
+                      <td class="text-center">${pos.totalMarks}</td>
+                      <td class="text-center" style="font-weight: 700;">${pos.obtainedMarks}</td>
+                      <td class="text-center">${(pos.percentage || 0).toFixed(2)}%</td>
+                      <td class="text-center" style="font-weight: 700;">${pos.grade || "N/A"}</td>
                     </tr>
                   `;
                     })
                     .join("")}
                 </tbody>
               </table>
+
+              <div class="summary-strip">
+                <span>Total Candidates Ranked: <strong>${classPositions.length}</strong></span>
+                <span>Top Position: <strong>${classPositions[0]?.student ? getFullName(classPositions[0].student) : classPositions[0]?.studentName || "N/A"} (${(classPositions[0]?.percentage || 0).toFixed(2)}%)</strong></span>
+              </div>
             `
               )
               .join("")}
+
+            <div class="signatures">
+              <div class="sign-col">
+                <div class="sign-line"></div>
+                <div class="sign-title">Prepared By</div>
+              </div>
+              <div class="sign-col">
+                <div class="sign-line"></div>
+                <div class="sign-title">Controller of Examinations</div>
+              </div>
+              <div class="sign-col">
+                <div class="sign-line"></div>
+                <div class="sign-title">Principal</div>
+              </div>
+            </div>
             <div class="page-break"></div>
           </div>
         `
@@ -253,12 +448,10 @@ export const PositionsTab = () => {
                     toast({ title: "Please select an exam", variant: "destructive" });
                     return;
                   }
+                  const selExam = exams.find((e) => extractId(e.id || e._id) === positionsFilterExam);
                   generatePositionsMutation.mutate({
                     examId: positionsFilterExam,
-                    classId:
-                      positionsFilterClass && positionsFilterClass !== "*"
-                        ? positionsFilterClass
-                        : undefined,
+                    classId: selExam?.classId ? extractId(selExam.classId) : undefined,
                   });
                 }}
                 disabled={generatePositionsMutation.isPending}
@@ -280,7 +473,7 @@ export const PositionsTab = () => {
               : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
           }`}
         >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>Filter by Session</Label>
               <Select
@@ -288,7 +481,6 @@ export const PositionsTab = () => {
                 onValueChange={(v) => {
                   setPositionsSessionFilter(v === "__all__" ? "" : v);
                   setPositionsFilterExam("");
-                  setPositionsFilterClass("");
                 }}
               >
                 <SelectTrigger>
@@ -310,70 +502,15 @@ export const PositionsTab = () => {
 
             <div>
               <Label>Filter by Exam *</Label>
-              <Select
+              <SearchableSelect
+                options={examOptions}
                 value={positionsFilterExam}
-                onValueChange={(v) => {
-                  setPositionsFilterExam(v);
-                  const selExam = exams.find((e) => extractId(e.id || e._id) === v);
-                  setPositionsFilterClass(selExam?.classId ? extractId(selExam.classId) : "");
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select exam" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Exams</SelectItem>
-                  {filteredExams?.map((exam) => {
-                    const eId = extractId(exam.id || exam._id);
-                    return (
-                      <SelectItem key={eId} value={eId}>
-                        {exam.examName} - {exam.session} ({formatDateDisplay(exam.startDate)})
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Filter by Class</Label>
-              <Select
-                value={positionsFilterClass}
-                onValueChange={setPositionsFilterClass}
-                disabled={!positionsFilterExam || positionsFilterExam === "*"}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All classes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*">All Classes</SelectItem>
-                  {(() => {
-                    const selectedExam = exams?.find(
-                      (e) => extractId(e.id || e._id) === positionsFilterExam
-                    );
-                    if (selectedExam?.classId) {
-                      const cls = classesData.find(
-                        (c) => extractId(c.id || c._id) === extractId(selectedExam.classId)
-                      ) || selectedExam.class;
-                      if (cls) {
-                        return (
-                          <SelectItem value={extractId(cls.id || cls._id || selectedExam.classId)}>
-                            {cls.name || "Class"}
-                          </SelectItem>
-                        );
-                      }
-                    }
-                    return classesData.map((cls) => {
-                      const cId = extractId(cls.id || cls._id);
-                      return (
-                        <SelectItem key={cId} value={cId}>
-                          {cls.name}
-                        </SelectItem>
-                      );
-                    });
-                  })()}
-                </SelectContent>
-              </Select>
+                onChange={(v) => setPositionsFilterExam(v)}
+                placeholder="Select exam"
+                allLabel="All Exams"
+                isLoading={isLoadingExams}
+                searchPlaceholder="Search exam name, class, program..."
+              />
             </div>
           </div>
         </div>
@@ -381,7 +518,7 @@ export const PositionsTab = () => {
       <CardContent>
         {!positionsFilterExam || positionsFilterExam === "" ? (
           <div className="text-center py-16">
-            <p className="text-4xl mb-4">🏆</p>
+            <Trophy className="w-12 h-12 mx-auto text-muted-foreground/60 mb-3" />
             <p className="text-lg font-medium text-muted-foreground">
               Select an Exam to View Rankings
             </p>
@@ -391,7 +528,7 @@ export const PositionsTab = () => {
           </div>
         ) : positions.length === 0 ? (
           <div className="text-center py-16">
-            <p className="text-4xl mb-4">📊</p>
+            <Award className="w-12 h-12 mx-auto text-muted-foreground/60 mb-3" />
             <p className="text-lg font-medium text-muted-foreground">No Positions Found</p>
             <p className="text-sm text-muted-foreground mt-2">
               Click "Generate Positions" to calculate rankings from results

@@ -228,8 +228,18 @@ class ExaminationService {
         if (data.totalMarks && obt > data.totalMarks) obt = data.totalMarks;
         data.obtainedMarks = obt;
       }
+      if (data.classId) {
+        data.classId = extractCleanId(data.classId || data.class);
+      }
+      if (data.sectionId) {
+        data.sectionId = extractCleanId(data.sectionId || data.section);
+      }
     }
-    return ExamMarks.create(data);
+    const created = await ExamMarks.create(data);
+    if (data.examId && mongoose.connection.readyState === 1) {
+      await this.generateResults(data.examId, data.classId).catch(() => null);
+    }
+    return created;
   }
 
   async bulkCreateMarks(records) {
@@ -305,7 +315,34 @@ class ExaminationService {
         upsert: true
       }
     }));
-    return ExamMarks.bulkWrite(ops);
+    const writeResult = await ExamMarks.bulkWrite(ops);
+
+    // Automatically sync/generate results for affected exams and classes so ExamResult is always up-to-date
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const examClassMap = new Map();
+        for (const r of validRecords) {
+          if (!r.examId) continue;
+          const eId = String(r.examId);
+          const cId = r.classId ? String(r.classId) : null;
+          if (!examClassMap.has(eId)) examClassMap.set(eId, new Set());
+          if (cId) examClassMap.get(eId).add(cId);
+        }
+        for (const [eId, classSet] of examClassMap.entries()) {
+          if (classSet.size === 0) {
+            await this.generateResults(eId).catch(() => null);
+          } else {
+            for (const cId of classSet) {
+              await this.generateResults(eId, cId).catch(() => null);
+            }
+          }
+        }
+      } catch {
+        // Non-fatal if auto-generation encounters partial mock environment
+      }
+    }
+
+    return writeResult;
   }
 
   async updateMarks(id, data) {
@@ -473,8 +510,17 @@ class ExaminationService {
       return [];
     }
 
-    const marksQuery = { examId };
-    if (targetClassId) marksQuery.classId = targetClassId;
+    const studentIds = students.map((s) => s._id);
+    const marksQuery = {
+      examId,
+      studentId: { $in: studentIds },
+    };
+    if (targetClassId && typeof ExamMarks.updateMany === 'function') {
+      await ExamMarks.updateMany(
+        { examId, studentId: { $in: studentIds }, classId: null },
+        { $set: { classId: targetClassId } }
+      ).catch(() => null);
+    }
     const allMarks = await ExamMarks.find(marksQuery).populate('subjectId');
 
     const marksByStudent = {};

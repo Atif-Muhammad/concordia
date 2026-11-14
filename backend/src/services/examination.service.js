@@ -676,7 +676,7 @@ class ExaminationService {
     });
 
     let result = await ExamResult.findOne({ studentId, examId });
-    if (!result) {
+    if (!result || formattedMarks.length > 0) {
       let totalMarks = 0;
       let obtainedMarks = 0;
       for (const fm of formattedMarks) {
@@ -697,17 +697,30 @@ class ExaminationService {
         return { grade: 'F', gpa: 0.0 };
       };
       const { grade, gpa } = calculateGrade(percentage);
-      result = {
-        studentId: student._id,
-        examId: exam._id,
-        totalMarks,
-        obtainedMarks,
-        percentage,
-        gpa,
-        grade,
-        position: 1,
-        remarks: grade === 'F' ? 'Needs Improvement' : 'Passed'
-      };
+      if (!result) {
+        result = {
+          studentId: student._id,
+          examId: exam._id,
+          totalMarks,
+          obtainedMarks,
+          percentage,
+          gpa,
+          grade,
+          position: 1,
+          remarks: grade === 'F' ? 'Needs Improvement' : 'Passed'
+        };
+      } else {
+        const obj = result.toObject ? result.toObject() : result;
+        result = {
+          ...obj,
+          totalMarks,
+          obtainedMarks,
+          percentage,
+          gpa,
+          grade,
+          remarks: grade === 'F' ? 'Needs Improvement' : 'Passed'
+        };
+      }
     }
 
     return {

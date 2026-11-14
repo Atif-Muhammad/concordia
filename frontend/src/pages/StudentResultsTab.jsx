@@ -50,6 +50,17 @@ const formatDateDisplay = (dateString) => {
   return clean;
 };
 
+export const calculateGrade = (percentage) => {
+  if (percentage >= 90) return { grade: "A+", gpa: 4.0 };
+  if (percentage >= 80) return { grade: "A", gpa: 3.7 };
+  if (percentage >= 70) return { grade: "B+", gpa: 3.3 };
+  if (percentage >= 60) return { grade: "B", gpa: 3.0 };
+  if (percentage >= 50) return { grade: "C", gpa: 2.5 };
+  if (percentage >= 40) return { grade: "D", gpa: 2.0 };
+  if (percentage >= 33) return { grade: "E", gpa: 1.0 };
+  return { grade: "F", gpa: 0.0 };
+};
+
 export const StudentResultsTab = ({
   programs = [],
   classesData: propClassesData,
@@ -492,17 +503,33 @@ export const StudentResultsTab = ({
             </Card>
 
             {/* Overall Result Summary Text Strip */}
-            {studentResultData.result && (
-              <div className="flex flex-wrap items-center justify-between gap-4 p-3.5 bg-muted/30 border-y border-border text-xs rounded-md">
-                <span>Total Marks: <strong className="text-foreground ml-1">{studentResultData.result.totalMarks}</strong></span>
-                <span>Obtained Marks: <strong className="text-primary ml-1">{studentResultData.result.obtainedMarks}</strong></span>
-                <span>Percentage: <strong className="text-foreground ml-1">{(studentResultData.result.percentage || 0).toFixed(2)}%</strong></span>
-                <span>Grade: <strong className={`ml-1 ${studentResultData.result.grade === 'F' ? 'text-destructive' : 'text-emerald-600'}`}>{studentResultData.result.grade}</strong></span>
-                {studentResultData.position && (
-                  <span>Position: <strong className="text-foreground ml-1">{studentResultData.position}</strong></span>
-                )}
-              </div>
-            )}
+            {(() => {
+              const marks = studentResultData.marks || [];
+              const hasMarks = marks.length > 0;
+              const totalMarks = hasMarks
+                ? marks.reduce((sum, m) => sum + (Number(m.totalMarks) || 0), 0)
+                : Number(studentResultData.result?.totalMarks || 0);
+              const obtainedMarks = hasMarks
+                ? marks.reduce((sum, m) => sum + (m.isAbsent ? 0 : (Number(m.obtainedMarks) || 0)), 0)
+                : Number(studentResultData.result?.obtainedMarks || 0);
+              const roundedTotal = Math.round(totalMarks * 100) / 100;
+              const roundedObtained = Math.round(obtainedMarks * 100) / 100;
+              const percentage = roundedTotal > 0 ? (roundedObtained / roundedTotal) * 100 : 0;
+              const grade = calculateGrade(percentage).grade;
+              const position = studentResultData.position || studentResultData.result?.position;
+
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-4 p-3.5 bg-muted/30 border-y border-border text-xs rounded-md">
+                  <span>Total Marks: <strong className="text-foreground ml-1">{roundedTotal}</strong></span>
+                  <span>Obtained Marks: <strong className="text-primary ml-1">{roundedObtained}</strong></span>
+                  <span>Percentage: <strong className="text-foreground ml-1">{percentage.toFixed(2)}%</strong></span>
+                  <span>Grade: <strong className={`ml-1 ${grade === 'F' ? 'text-destructive' : 'text-emerald-600'}`}>{grade}</strong></span>
+                  {position && (
+                    <span>Position: <strong className="text-foreground ml-1">{position}</strong></span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 

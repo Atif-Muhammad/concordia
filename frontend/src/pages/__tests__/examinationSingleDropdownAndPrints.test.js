@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { filterSearchableOptions } from "@/components/ui/SearchableSelect";
 import { matchesSearchTokens, formatNormalizedFullName } from "@/lib/studentSearch";
 import { extractId } from "@/lib/utils.jsx";
+import { calculateGrade } from "@/pages/StudentResultsTab";
 
 describe("Examination Single Dropdown & Print Overhaul Tests", () => {
   describe("Single Exam SearchableSelect Option Filtering", () => {
@@ -280,6 +281,66 @@ describe("Examination Single Dropdown & Print Overhaul Tests", () => {
 
       expect(selClass.name).toBe("Diploma CS");
       expect(isSecApplicable).toBe(false);
+    });
+  });
+
+  describe("Dynamic UI Calculation for Student Marks, Percentage & Grades", () => {
+    it("accurately sums obtained marks and computes percentage and grade across multiple subjects", () => {
+      // Replicating user's exact scenario from screenshot:
+      const marks = [
+        { subject: "Pak Studies", totalMarks: 15, obtainedMarks: 15 },
+        { subject: "Chemistry", totalMarks: 30, obtainedMarks: 26 },
+        { subject: "English", totalMarks: 30, obtainedMarks: 29 },
+        { subject: "MQH", totalMarks: 15, obtainedMarks: 13 },
+        { subject: "Maths", totalMarks: 30, obtainedMarks: 13 },
+        { subject: "Physics", totalMarks: 30, obtainedMarks: 19 },
+        { subject: "Urdu", totalMarks: 30, obtainedMarks: 26 },
+      ];
+
+      const totalMarks = marks.reduce((sum, m) => sum + (Number(m.totalMarks) || 0), 0);
+      const obtainedMarks = marks.reduce((sum, m) => sum + (m.isAbsent ? 0 : (Number(m.obtainedMarks) || 0)), 0);
+      const roundedTotal = Math.round(totalMarks * 100) / 100;
+      const roundedObtained = Math.round(obtainedMarks * 100) / 100;
+      const percentage = roundedTotal > 0 ? (roundedObtained / roundedTotal) * 100 : 0;
+      const { grade } = calculateGrade(percentage);
+
+      expect(roundedTotal).toBe(180);
+      expect(roundedObtained).toBe(141);
+      expect(percentage.toFixed(2)).toBe("78.33");
+      expect(grade).toBe("B+");
+      expect(grade).not.toBe("F");
+    });
+
+    it("correctly handles absent marks as 0 obtained marks without corrupting total", () => {
+      const marks = [
+        { subject: "Pak Studies", totalMarks: 15, obtainedMarks: 15, isAbsent: false },
+        { subject: "Maths", totalMarks: 30, obtainedMarks: 25, isAbsent: true }, // absent overrides
+      ];
+
+      const totalMarks = marks.reduce((sum, m) => sum + (Number(m.totalMarks) || 0), 0);
+      const obtainedMarks = marks.reduce((sum, m) => sum + (m.isAbsent ? 0 : (Number(m.obtainedMarks) || 0)), 0);
+      const percentage = totalMarks > 0 ? (obtainedMarks / totalMarks) * 100 : 0;
+
+      expect(totalMarks).toBe(45);
+      expect(obtainedMarks).toBe(15);
+      expect(percentage.toFixed(2)).toBe("33.33");
+      expect(calculateGrade(percentage).grade).toBe("E");
+    });
+
+    it("falls back to stored result when subject marks array is empty", () => {
+      const marks = [];
+      const storedResult = { totalMarks: 100, obtainedMarks: 75, percentage: 75, grade: "B+" };
+
+      const hasMarks = marks.length > 0;
+      const totalMarks = hasMarks
+        ? marks.reduce((sum, m) => sum + (Number(m.totalMarks) || 0), 0)
+        : Number(storedResult?.totalMarks || 0);
+      const obtainedMarks = hasMarks
+        ? marks.reduce((sum, m) => sum + (m.isAbsent ? 0 : (Number(m.obtainedMarks) || 0)), 0)
+        : Number(storedResult?.obtainedMarks || 0);
+
+      expect(totalMarks).toBe(100);
+      expect(obtainedMarks).toBe(75);
     });
   });
 });

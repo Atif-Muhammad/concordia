@@ -38,6 +38,7 @@ import {
   getSections,
   getProgramNames,
   getResults,
+  getMarks,
   getStudents,
   generateResults,
   getStudentResult,
@@ -301,6 +302,12 @@ export const ResultsTab = () => {
       }),
   });
 
+  const { data: examMarks = [] } = useQuery({
+    queryKey: ["examMarksResults", effectiveExamId],
+    queryFn: () => getMarks(effectiveExamId),
+    enabled: !!effectiveExamId && effectiveExamId !== "*",
+  });
+
   const resultsSessionObj = sessions.find((s) => extractId(s.id || s._id) === resultsSessionFilter);
   const resultsSessionName = resultsSessionObj?.name;
   const resultsSessionFilteredExams = resultsSessionFilter
@@ -354,6 +361,41 @@ export const ResultsTab = () => {
     if (percentage >= 33) return { grade: "E", gpa: 1.0 };
     return { grade: "F", gpa: 0.0 };
   };
+
+  const marksByStudentId = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(examMarks)) {
+      examMarks.forEach((m) => {
+        const sId = extractId(m.studentId || m.student);
+        if (sId) {
+          if (!map.has(sId)) map.set(sId, []);
+          map.get(sId).push(m);
+        }
+      });
+    }
+    return map;
+  }, [examMarks]);
+
+  const computeStudentResult = useCallback((r) => {
+    const sId = extractId(r.student?.id || r.student?._id || r.studentId);
+    const studentMarks = sId ? (marksByStudentId.get(sId) || []) : [];
+    if (studentMarks.length > 0) {
+      const totalMarks = studentMarks.reduce((sum, m) => sum + (Number(m.totalMarks) || 0), 0);
+      const obtainedMarks = studentMarks.reduce((sum, m) => sum + (m.isAbsent ? 0 : (Number(m.obtainedMarks) || 0)), 0);
+      const roundedTotal = Math.round(totalMarks * 100) / 100;
+      const roundedObtained = Math.round(obtainedMarks * 100) / 100;
+      const percentage = roundedTotal > 0 ? (roundedObtained / roundedTotal) * 100 : 0;
+      const grade = calculateGrade(percentage).grade;
+      return {
+        ...r,
+        totalMarks: roundedTotal,
+        obtainedMarks: roundedObtained,
+        percentage,
+        grade,
+      };
+    }
+    return r;
+  }, [marksByStudentId]);
 
   const generateResultsMutation = useMutation({
     mutationFn: ({ examId, classId }) => generateResults(examId, classId),
@@ -418,6 +460,7 @@ export const ResultsTab = () => {
       });
     }
 
+    filtered = filtered.map(computeStudentResult);
     filtered.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
 
     const totalStudents = filtered.length;
@@ -747,7 +790,18 @@ export const ResultsTab = () => {
         )
         .join("");
 
-      const isFail = result.grade === "F";
+      const hasSubjects = subjectsData.length > 0;
+      const totalMarks = hasSubjects
+        ? subjectsData.reduce((acc, s) => acc + (Number(s.totalMarks) || 0), 0)
+        : Number(result?.totalMarks || 0);
+      const obtainedMarks = hasSubjects
+        ? subjectsData.reduce((acc, s) => acc + (Number(s.obtainedMarks) || 0), 0)
+        : Number(result?.obtainedMarks || 0);
+      const roundedTotal = Math.round(totalMarks * 100) / 100;
+      const roundedObtained = Math.round(obtainedMarks * 100) / 100;
+      const percentage = roundedTotal > 0 ? (roundedObtained / roundedTotal) * 100 : 0;
+      const overallGrade = calculateGrade(percentage).grade;
+      const isFail = overallGrade === "F";
       const className = exam?.class?.name || student?.class?.name || "Class";
       const programName = exam?.program?.name || student?.program?.name || "";
       const sectionName = student?.section?.name || "";
@@ -988,11 +1042,11 @@ export const ResultsTab = () => {
           </table>
 
           <div class="result-summary-text">
-            <span>Total Marks: <strong>${result.totalMarks}</strong></span>
-            <span>Obtained Marks: <strong>${result.obtainedMarks}</strong></span>
-            <span>Percentage: <strong>${(result.percentage || 0).toFixed(2)}%</strong></span>
-            <span>Grade: <strong style="color: ${isFail ? '#b91c1c' : '#047857'};">${result.grade}</strong></span>
-            <span>Position: <strong>${position || "—"}</strong></span>
+            <span>Total Marks: <strong>${roundedTotal}</strong></span>
+            <span>Obtained Marks: <strong>${roundedObtained}</strong></span>
+            <span>Percentage: <strong>${percentage.toFixed(2)}%</strong></span>
+            <span>Grade: <strong style="color: ${isFail ? '#b91c1c' : '#047857'};">${overallGrade}</strong></span>
+            <span>Position: <strong>${position || result?.position || "—"}</strong></span>
           </div>
 
           <div class="signatures">
@@ -1422,6 +1476,7 @@ export const ResultsTab = () => {
                           </TableHeader>
                           <TableBody>
                             {examResults
+                              .map(computeStudentResult)
                               .sort((a, b) => (b.percentage || 0) - (a.percentage || 0))
                               .map((result, idx) => {
                                 const student = result.student;
